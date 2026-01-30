@@ -1,8 +1,0 @@
-tunnel: <Tunnel-UUID>
-credentials-file: /root/.cloudflared/<Tunnel-UUID>.json
-ingress:
-  - hostname: api-dev.yourdomain.com
-    service: http://localhost:3000 # Points to NestJS
-  - hostname: dev.yourdomain.com
-    service: http://localhost:3001 # Points to Next.js
-  - service: http_status:404
