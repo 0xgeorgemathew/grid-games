@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { io, Socket } from 'socket.io-client';
-import type { EventEmitter } from 'events';
 import type {
   Player,
   CoinSpawnEvent,
@@ -11,9 +10,17 @@ import type {
   CoinType,
 } from '../types/trading';
 
+// Event bridge interface for React ↔ Phaser communication
+// Both Phaser.Events.EventEmitter and Node's EventEmitter implement this subset
+export interface PhaserEventBridge {
+  emit(event: string, ...args: unknown[]): void;
+  on(event: string, listener: (...args: unknown[]) => void): void;
+  destroy?(): void;
+}
+
 declare global {
   interface Window {
-    phaserEvents?: EventEmitter;
+    phaserEvents?: PhaserEventBridge;
   }
 }
 

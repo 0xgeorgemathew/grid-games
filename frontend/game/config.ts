@@ -13,6 +13,12 @@ export const DEFAULT_GRID: GridConfig = {
   tileSize: 44,
 };
 
+// Trading scene dimensions (fixed for consistent gameplay)
+export const TRADING_DIMENSIONS = {
+  width: 600,
+  height: 800,
+} as const;
+
 // Visual theme colors (consolidated magic numbers)
 export const COLORS = {
   background: "#1a1a2e",
@@ -50,3 +56,19 @@ export const createPhaserConfig = (
     scene: [scene],
   };
 };
+
+export const createTradingPhaserConfig = (
+  scene: Phaser.Scene,
+): Phaser.Types.Core.GameConfig => ({
+  type: AUTO,
+  parent: "phaser-game",
+  width: TRADING_DIMENSIONS.width,
+  height: TRADING_DIMENSIONS.height,
+  backgroundColor: 0x1a1a2e,
+  physics: { default: "arcade", arcade: { gravity: { x: 0, y: 0 } } },
+  scene: [scene],
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+});
