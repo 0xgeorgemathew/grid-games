@@ -1,34 +1,48 @@
-'use client';
+'use client'
 
-import { useTradingStore } from '@/game/stores/trading-store';
-import { MatchmakingScreen } from '@/components/MatchmakingScreen';
-import { GameHUD } from '@/components/GameHUD';
-import { SettlementFeed } from '@/components/SettlementFeed';
-import GameCanvas from '@/components/GameCanvas';
-import { useEffect } from 'react';
+import { useTradingStore } from '@/game/stores/trading-store'
+import { MatchmakingScreen } from '@/components/MatchmakingScreen'
+import { GameHUD } from '@/components/GameHUD'
+import { SettlementFeed } from '@/components/SettlementFeed'
+import { PriceTicker } from '@/components/PriceTicker'
+import { PendingOrdersBar } from '@/components/PendingOrdersBar'
+import { GameCanvasBackground } from '@/components/GameCanvasBackground'
+import GameCanvas from '@/components/GameCanvas'
+import { useEffect } from 'react'
 
 export default function Home() {
-  const { isPlaying, connect, resetGame } = useTradingStore();
+  const { isPlaying, connect, resetGame, disconnectPriceFeed } = useTradingStore()
 
   useEffect(() => {
     // Connect to socket on mount
-    connect();
+    connect()
 
     // Cleanup on unmount
     return () => {
-      resetGame();
-    };
-  }, [connect, resetGame]);
+      resetGame()
+      disconnectPriceFeed()
+    }
+  }, [connect, resetGame, disconnectPriceFeed])
 
   if (!isPlaying) {
-    return <MatchmakingScreen />;
+    return <MatchmakingScreen />
   }
 
   return (
-    <div className="min-h-screen bg-tron-black relative overflow-hidden">
+    <div className="h-dvh w-screen bg-tron-black relative overflow-hidden">
+      {/* Background - Grid with candlesticks */}
+      <GameCanvasBackground />
+
+      {/* Top UI Layer */}
+      <PriceTicker />
       <GameHUD />
+
+      {/* Game Canvas - Phaser Scene */}
       <GameCanvas scene="TradingScene" />
+
+      {/* Bottom UI Layer */}
+      <PendingOrdersBar />
       <SettlementFeed />
     </div>
-  );
+  )
 }

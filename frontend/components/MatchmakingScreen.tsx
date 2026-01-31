@@ -1,94 +1,190 @@
-'use client';
+'use client'
 
-import { useState } from 'react';
-import { useTradingStore } from '@/game/stores/trading-store';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
+import { useState } from 'react'
+import { useTradingStore } from '@/game/stores/trading-store'
+import { motion, AnimatePresence } from 'framer-motion'
+import { GridScanBackground } from '@/components/GridScanBackground'
 
-const GAME_RULES = [
-  { color: 'text-cyan-400', text: '<strong className="text-cyan-100">Coins</strong> spawn randomly - slice to predict' },
-  { color: 'text-green-400', text: '<strong className="text-green-400">CALL</strong> = Price goes UP' },
-  { color: 'text-red-400', text: '<strong className="text-red-400">PUT</strong> = Price goes DOWN' },
-  { color: 'text-yellow-400', text: '<strong className="text-yellow-400">GAS</strong> = Volatile (2x risk/reward)' },
-  { color: 'text-purple-400', text: '<strong className="text-purple-400">WHALE</strong> = Large impact (20 HP)' },
-  { color: 'text-cyan-400', text: 'Correct predictions deal damage • First to 0 HP loses' },
-] as const;
-
-const MAX_PLAYER_NAME_LENGTH = 20;
+const TRADER_NAMES = [
+  'Apex',
+  'Vortex',
+  'Neon',
+  'Cipher',
+  'Flux',
+  'Zenith',
+  'Nova',
+  'Echo',
+  'Drift',
+  'Pulse',
+  'Quark',
+  'Titan',
+  'Orbit',
+  'Prism',
+  'Shift',
+  'Wave',
+]
 
 export function MatchmakingScreen() {
-  const { isConnected, isMatching, findMatch } = useTradingStore();
-  const [playerName, setPlayerName] = useState('');
+  const { isConnected, isMatching, findMatch } = useTradingStore()
+  const [playerName] = useState(() => {
+    const name = TRADER_NAMES[Math.floor(Math.random() * TRADER_NAMES.length)]
+    const suffix = Math.floor(Math.random() * 999)
+    return `${name}${suffix}`
+  })
 
-  const canFindMatch = isConnected && playerName.trim() && !isMatching;
-  const statusColor = isConnected ? 'bg-green-400' : 'bg-red-500';
-  const statusText = isConnected ? 'Connected' : 'Connecting...';
-
-  const handleFindMatch = () => {
-    if (canFindMatch) {
-      findMatch(playerName.trim());
+  const handleEnter = () => {
+    if (isConnected && !isMatching) {
+      findMatch(playerName)
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-md border-cyan-500/30 bg-black/80 backdrop-blur">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-cyan-400">HFT BATTLE</CardTitle>
-          <CardDescription className="text-cyan-200/70">
-            High-frequency trading game • Predict and profit
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Connection Status */}
-          <div className="flex items-center gap-2">
-            <div className={cn('h-2 w-2 rounded-full', statusColor)} />
-            <span className="text-sm text-cyan-100/70">{statusText}</span>
+    <div className="min-h-screen relative flex items-center justify-center overflow-hidden">
+      <GridScanBackground />
+
+      {/* Animated scanline overlay */}
+      <div className="fixed inset-0 pointer-events-none z-10 opacity-15">
+        <motion.div
+          className="w-full h-px bg-cyan-400"
+          animate={{
+            y: ['-10%', '110%'],
+          }}
+          transition={{
+            duration: 3,
+            repeat: Infinity,
+            ease: 'linear',
+          }}
+        />
+      </div>
+
+      {/* Main Content */}
+      <div className="relative z-20 flex flex-col items-center gap-12 px-6">
+        {/* Main Title - ENTER THE GRID - Vertical */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1.2, ease: [0.25, 0.46, 0.45, 0.94] }}
+          className="text-center"
+        >
+          <div className="flex flex-col items-center gap-1">
+            <h1 className="font-[family-name:var(--font-orbitron)] text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold tracking-[0.25em] text-white">
+              ENTER
+            </h1>
+            <h2 className="font-[family-name:var(--font-orbitron)] text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold tracking-[0.25em] text-white">
+              THE
+            </h2>
+            <motion.h3
+              className="font-[family-name:var(--font-orbitron)] text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold tracking-[0.2em] text-cyan-400"
+              animate={{
+                textShadow: [
+                  '0 0 20px rgba(0,217,255,0.4)',
+                  '0 0 40px rgba(0,217,255,0.8)',
+                  '0 0 20px rgba(0,217,255,0.4)',
+                ],
+              }}
+              transition={{
+                duration: 2,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+            >
+              GRID
+            </motion.h3>
+          </div>
+        </motion.div>
+
+        {/* ENTER Button */}
+        <motion.button
+          onClick={handleEnter}
+          disabled={!isConnected || isMatching}
+          className="relative group"
+          whileHover={{ scale: isConnected && !isMatching ? 1.02 : 1 }}
+          whileTap={{ scale: isConnected && !isMatching ? 0.98 : 1 }}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.3, duration: 0.6 }}
+        >
+          {/* Outer glow pulse */}
+          <motion.div
+            className="absolute inset-0 rounded-lg"
+            animate={{
+              boxShadow:
+                isConnected && !isMatching
+                  ? [
+                      '0 0 20px rgba(0,217,255,0.3)',
+                      '0 0 60px rgba(0,217,255,0.6)',
+                      '0 0 20px rgba(0,217,255,0.3)',
+                    ]
+                  : '0 0 10px rgba(255,255,255,0.1)',
+            }}
+            transition={{
+              duration: 2,
+              repeat: Infinity,
+              ease: 'easeInOut',
+            }}
+          />
+
+          {/* Button body - 10% smaller */}
+          <div className="relative px-12 py-3 bg-black/40 backdrop-blur-md border border-cyan-400/30 rounded">
+            <motion.span
+              className="font-[family-name:var(--font-orbitron)] text-[10px] tracking-[0.3em] font-medium block"
+              animate={
+                isConnected && !isMatching
+                  ? {
+                      textShadow: [
+                        '0 0 10px rgba(0,217,255,0.5)',
+                        '0 0 20px rgba(0,217,255,0.8)',
+                        '0 0 10px rgba(0,217,255,0.5)',
+                      ],
+                    }
+                  : {}
+              }
+              transition={{
+                duration: 2,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+            >
+              <span className={isConnected && !isMatching ? 'text-cyan-300' : 'text-white/20'}>
+                {isMatching ? 'ENTERING...' : 'ENTER'}
+              </span>
+            </motion.span>
           </div>
 
-          {/* Player Name Input */}
-          <div className="space-y-2">
-            <label htmlFor="playerName" className="text-sm font-medium text-cyan-100">
-              Enter your trader name
-            </label>
-            <Input
-              id="playerName"
-              type="text"
-              placeholder="e.g. Apex Trader"
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              disabled={!isConnected || isMatching}
-              onKeyDown={(e) => e.key === 'Enter' && handleFindMatch()}
-              className="bg-black/50 border-cyan-500/30 text-cyan-100 placeholder:text-cyan-100/30 focus:border-cyan-400"
-              maxLength={MAX_PLAYER_NAME_LENGTH}
+          {/* Hover inner glow */}
+          {isConnected && !isMatching && (
+            <motion.div
+              className="absolute inset-0 rounded-lg"
+              initial={{ opacity: 0 }}
+              whileHover={{ opacity: 1 }}
+              style={{
+                background:
+                  'radial-gradient(ellipse at center, rgba(0,217,255,0.15) 0%, transparent 70%)',
+              }}
             />
-          </div>
+          )}
+        </motion.button>
+      </div>
 
-          {/* Find Match Button */}
-          <Button
-            onClick={handleFindMatch}
-            disabled={!canFindMatch}
-            className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-semibold"
-          >
-            {isMatching ? 'Finding opponent...' : 'Find Match'}
-          </Button>
-
-          {/* Game Rules */}
-          <div className="space-y-3 pt-4 border-t border-cyan-500/20">
-            <h3 className="text-sm font-semibold text-cyan-300">How to Play</h3>
-            <ul className="space-y-2 text-sm text-cyan-100/70">
-              {GAME_RULES.map((rule, index) => (
-                <li key={index} className="flex items-start gap-2">
-                  <span className={cn(rule.color, 'mt-0.5')}>•</span>
-                  <span dangerouslySetInnerHTML={{ __html: rule.text }} />
-                </li>
-              ))}
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Subtle bottom dots - data stream */}
+      <div className="fixed bottom-12 left-0 right-0 z-20 flex justify-center gap-2">
+        {[...Array(7)].map((_, i) => (
+          <motion.div
+            key={i}
+            className="w-0.5 h-0.5 bg-cyan-400/40"
+            animate={{
+              opacity: [0.2, 1, 0.2],
+              scaleY: [1, 2, 1],
+            }}
+            transition={{
+              duration: 1.5,
+              repeat: Infinity,
+              delay: i * 0.15,
+              ease: 'easeInOut',
+            }}
+          />
+        ))}
+      </div>
     </div>
-  );
+  )
 }

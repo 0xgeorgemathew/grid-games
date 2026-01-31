@@ -1,6 +1,4 @@
-@import "tailwindcss";
-
-@plugin "tailwindcss-animate";
+@import 'tailwindcss';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -47,7 +45,9 @@
   /* Glow values */
   --glow-cyan-sm: 0 0 10px rgba(0, 243, 255, 0.5);
   --glow-cyan-md: 0 0 20px rgba(0, 243, 255, 0.4), 0 0 40px rgba(0, 243, 255, 0.2);
-  --glow-cyan-lg: 0 0 30px rgba(0, 243, 255, 0.5), 0 0 60px rgba(0, 243, 255, 0.3), 0 0 90px rgba(0, 243, 255, 0.1);
+  --glow-cyan-lg:
+    0 0 30px rgba(0, 243, 255, 0.5), 0 0 60px rgba(0, 243, 255, 0.3),
+    0 0 90px rgba(0, 243, 255, 0.1);
   --glow-orange-sm: 0 0 10px rgba(255, 107, 0, 0.5);
   --glow-orange-md: 0 0 20px rgba(255, 107, 0, 0.4), 0 0 40px rgba(255, 107, 0, 0.2);
 
@@ -114,12 +114,16 @@
 /* Combined border + glow utilities */
 @utility glow-border {
   border: 1px solid var(--color-tron-cyan);
-  box-shadow: var(--glow-cyan-sm), inset 0 0 10px rgba(0, 243, 255, 0.05);
+  box-shadow:
+    var(--glow-cyan-sm),
+    inset 0 0 10px rgba(0, 243, 255, 0.05);
 }
 
 @utility glow-border-orange {
   border: 1px solid var(--color-tron-orange);
-  box-shadow: var(--glow-orange-sm), inset 0 0 10px rgba(255, 107, 0, 0.05);
+  box-shadow:
+    var(--glow-orange-sm),
+    inset 0 0 10px rgba(255, 107, 0, 0.05);
 }
 
 /* Text glow utilities */
@@ -159,12 +163,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    135deg,
-    transparent 40%,
-    rgba(0, 243, 255, 0.1) 50%,
-    transparent 60%
-  );
+  background: linear-gradient(135deg, transparent 40%, rgba(0, 243, 255, 0.1) 50%, transparent 60%);
   pointer-events: none;
 }
 
@@ -179,29 +178,55 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @keyframes grid-pulse {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 0.6; }
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.6;
+  }
 }
 
 @keyframes grid-scroll {
-  0% { background-position: 0 0; }
-  100% { background-position: 0 var(--grid-size); }
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 var(--grid-size);
+  }
 }
 
 @keyframes scanline-move {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100vh);
+  }
 }
 
 @keyframes flicker {
-  0%, 100% { opacity: 1; }
-  41%, 43% { opacity: 0.8; }
-  45%, 55% { opacity: 1; }
-  57%, 59% { opacity: 0.8; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  41%,
+  43% {
+    opacity: 0.8;
+  }
+  45%,
+  55% {
+    opacity: 1;
+  }
+  57%,
+  59% {
+    opacity: 0.8;
+  }
 }
 
 @keyframes neon-buzz {
-  0%, 100% {
+  0%,
+  100% {
     text-shadow:
       0 0 10px rgba(0, 243, 255, 0.8),
       0 0 20px rgba(0, 243, 255, 0.5);
@@ -215,8 +240,439 @@
 }
 
 @keyframes border-pulse {
-  0%, 100% { border-color: rgba(0, 243, 255, 0.3); }
-  50% { border-color: rgba(0, 243, 255, 0.8); }
+  0%,
+  100% {
+    border-color: rgba(0, 243, 255, 0.3);
+  }
+  50% {
+    border-color: rgba(0, 243, 255, 0.8);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Vibrant UI Animations - Enhanced motion for modern feel
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 10px rgba(0, 243, 255, 0.5),
+      0 0 20px rgba(0, 243, 255, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 20px rgba(0, 243, 255, 0.8),
+      0 0 40px rgba(0, 243, 255, 0.5),
+      0 0 60px rgba(0, 243, 255, 0.3);
+  }
+}
+
+@keyframes health-pulse-green {
+  0%,
+  100% {
+    box-shadow:
+      0 0 5px rgba(57, 255, 20, 0.5),
+      inset 0 0 10px rgba(57, 255, 20, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 15px rgba(57, 255, 20, 0.8),
+      0 0 30px rgba(57, 255, 20, 0.5),
+      inset 0 0 20px rgba(57, 255, 20, 0.2);
+  }
+}
+
+@keyframes health-pulse-red {
+  0%,
+  100% {
+    box-shadow:
+      0 0 5px rgba(255, 23, 68, 0.5),
+      inset 0 0 10px rgba(255, 23, 68, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 15px rgba(255, 23, 68, 0.8),
+      0 0 30px rgba(255, 23, 68, 0.5),
+      inset 0 0 20px rgba(255, 23, 68, 0.2);
+  }
+}
+
+@keyframes bounce-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Vibrant UI Utilities
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Animated gradient border - cyan to magenta */
+.gradient-border-cyan-magenta {
+  position: relative;
+  background: rgba(10, 10, 10, 0.9);
+  border-radius: 0.75rem;
+}
+
+.gradient-border-cyan-magenta::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 0.85rem;
+  background: linear-gradient(135deg, #00f3ff, #ff00ff, #ff6b00, #00f3ff);
+  background-size: 300% 300%;
+  animation: gradient-shift 4s ease infinite;
+  z-index: -1;
+  opacity: 0.8;
+}
+
+/* Enhanced glassmorphism with vibrant tint */
+.glass-panel-vibrant {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 243, 255, 0.05) 0%,
+    rgba(255, 0, 255, 0.03) 50%,
+    rgba(10, 10, 10, 0.8) 100%
+  );
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 243, 255, 0.2);
+  box-shadow:
+    0 0 20px rgba(0, 243, 255, 0.1),
+    inset 0 0 20px rgba(0, 243, 255, 0.03);
+}
+
+/* Health gradient backgrounds */
+.health-gradient-green {
+  background: linear-gradient(90deg, #39ff14, #00f3ff);
+}
+
+.health-gradient-red {
+  background: linear-gradient(90deg, #ff1744, #ff6b00);
+}
+
+/* Pulse glow utilities */
+.pulse-glow-cyan {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.pulse-glow-green {
+  animation: health-pulse-green 1.5s ease-in-out infinite;
+}
+
+.pulse-glow-red {
+  animation: health-pulse-red 1.5s ease-in-out infinite;
+}
+
+/* Bounce in animation */
+.animate-bounce-in {
+  animation: bounce-in 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* Settlement result styles */
+.settlement-win {
+  background: linear-gradient(135deg, rgba(57, 255, 20, 0.1) 0%, rgba(0, 243, 255, 0.05) 100%);
+  border: 1px solid rgba(57, 255, 20, 0.3);
+  box-shadow:
+    0 0 15px rgba(57, 255, 20, 0.2),
+    inset 0 0 10px rgba(57, 255, 20, 0.05);
+}
+
+.settlement-loss {
+  background: linear-gradient(135deg, rgba(255, 23, 68, 0.1) 0%, rgba(255, 107, 0, 0.05) 100%);
+  border: 1px solid rgba(255, 23, 68, 0.3);
+  box-shadow:
+    0 0 15px rgba(255, 23, 68, 0.2),
+    inset 0 0 10px rgba(255, 23, 68, 0.05);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Game Effects - Screen Shake, Gas Fog, Order Cards
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Screen Shake - for whale settlements or critical moments */
+@keyframes screen-shake {
+  10%,
+  90% {
+    transform: translate3d(-1px, 0, 0);
+  }
+  20%,
+  80% {
+    transform: translate3d(2px, 0, 0);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translate3d(-4px, 0, 0);
+  }
+  40%,
+  60% {
+    transform: translate3d(4px, 0, 0);
+  }
+}
+.screen-shake {
+  animation: screen-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+/* Gas Fog Overlay */
+.gas-fog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 215, 0, 0.15);
+  pointer-events: none;
+  z-index: 5;
+  mix-blend-mode: overlay;
+  transition: opacity 0.5s;
+}
+
+/* Ticker Flash */
+@keyframes ticker-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+.ticker-flash {
+  animation: ticker-flash 0.5s ease-out;
+}
+
+/* Order Card */
+.order-card {
+  min-width: 70px;
+  height: 70px;
+  background: rgba(28, 33, 40, 0.9);
+  border: 1px solid rgba(48, 54, 61, 1);
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+}
+
+.order-card.call {
+  border-color: rgba(0, 243, 255, 0.4);
+  box-shadow:
+    0 0 10px rgba(0, 243, 255, 0.2),
+    inset 0 0 10px rgba(0, 243, 255, 0.05);
+}
+
+.order-card.put {
+  border-color: rgba(255, 107, 0, 0.4);
+  box-shadow:
+    0 0 10px rgba(255, 107, 0, 0.2),
+    inset 0 0 10px rgba(255, 107, 0, 0.05);
+}
+
+.order-card.whale {
+  border-color: rgba(255, 215, 0, 0.4);
+  box-shadow:
+    0 0 15px rgba(255, 215, 0, 0.3),
+    inset 0 0 10px rgba(255, 215, 0, 0.1);
+}
+
+/* Thin scrollbar for order cards */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 243, 255, 0.3) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(0, 243, 255, 0.3);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 243, 255, 0.5);
+}
+
+/* ShadCN animation utilities */
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slide-in-from-top {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-from-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-from-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-to-top {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-100%);
+  }
+}
+
+@keyframes slide-out-to-bottom {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes slide-out-to-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes slide-out-to-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ShadCN Animation Utilities
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.animate-accordion-down {
+  animation: accordion-down 0.2s ease-out;
+}
+
+.animate-accordion-up {
+  animation: accordion-up 0.2s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+.animate-fade-out {
+  animation: fade-out 0.2s ease-out;
+}
+
+.animate-slide-in-from-top {
+  animation: slide-in-from-top 0.3s ease-out;
+}
+
+.animate-slide-in-from-bottom {
+  animation: slide-in-from-bottom 0.3s ease-out;
+}
+
+.animate-slide-in-from-left {
+  animation: slide-in-from-left 0.3s ease-out;
+}
+
+.animate-slide-in-from-right {
+  animation: slide-in-from-right 0.3s ease-out;
+}
+
+.animate-slide-out-to-top {
+  animation: slide-out-to-top 0.3s ease-out;
+}
+
+.animate-slide-out-to-bottom {
+  animation: slide-out-to-bottom 0.3s ease-out;
+}
+
+.animate-slide-out-to-left {
+  animation: slide-out-to-left 0.3s ease-out;
+}
+
+.animate-slide-out-to-right {
+  animation: slide-out-to-right 0.3s ease-out;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -240,7 +696,9 @@
   background-size: var(--grid-size) var(--grid-size);
   transform-origin: center top;
   will-change: background-position, opacity;
-  animation: grid-scroll var(--duration-grid-scroll) linear infinite, grid-pulse var(--duration-slowest) ease-in-out infinite;
+  animation:
+    grid-scroll var(--duration-grid-scroll) linear infinite,
+    grid-pulse var(--duration-slowest) ease-in-out infinite;
 }
 
 /* Horizontal horizon line */
@@ -256,7 +714,9 @@
   right: 0;
   height: 2px;
   background: linear-gradient(90deg, transparent, #00f3ff, transparent);
-  box-shadow: 0 0 20px #00f3ff, 0 0 40px rgba(0, 243, 255, 0.5);
+  box-shadow:
+    0 0 20px #00f3ff,
+    0 0 40px rgba(0, 243, 255, 0.5);
   opacity: 0.8;
 }
 
@@ -354,8 +814,12 @@
 }
 
 @keyframes data-fall {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100vh);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -384,7 +848,9 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--color-tron-cyan-dim);
   border-radius: 4px;
-  transition: background 0.2s, box-shadow 0.2s;
+  transition:
+    background 0.2s,
+    box-shadow 0.2s;
 }
 
 ::-webkit-scrollbar-thumb:hover {
