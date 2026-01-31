@@ -1,6 +1,6 @@
 # Grid Games Agent & Skill Configuration
 
-> Grid Games: Real-time multiplayer web game with blockchain settlement (Next.js + Phaser + NestJS + Foundry).
+> Grid Games: Real-time multiplayer web game with blockchain settlement (Next.js + Phaser + Foundry).
 
 ---
 
