@@ -57,7 +57,6 @@ export class TradingScene extends Scene {
     this.updateCoinPhysics();
     this.drawBlade();
     this.checkCollisions();
-    this.updateParticles();
     this.updateOpponentSlices();
   }
 
@@ -87,7 +86,7 @@ export class TradingScene extends Scene {
     this.bladeGraphics.clear();
     if (this.bladePath.length < 2) return;
 
-    // Draw outer glow (fade effect)
+    // Draw outer glow with fade effect and inner core in single pass
     for (let i = 0; i < this.bladePath.length - 1; i++) {
       const p1 = this.bladePath[i];
       const p2 = this.bladePath[i + 1];
@@ -95,13 +94,8 @@ export class TradingScene extends Scene {
 
       this.bladeGraphics.lineStyle(4, 0x00ffff, alpha);
       this.bladeGraphics.lineBetween(p1.x, p1.y, p2.x, p2.y);
-    }
 
-    // Draw inner core
-    this.bladeGraphics.lineStyle(8, 0x00ffff, 0.3);
-    for (let i = 0; i < this.bladePath.length - 1; i++) {
-      const p1 = this.bladePath[i];
-      const p2 = this.bladePath[i + 1];
+      this.bladeGraphics.lineStyle(8, 0x00ffff, 0.3);
       this.bladeGraphics.lineBetween(p1.x, p1.y, p2.x, p2.y);
     }
   }
@@ -125,13 +119,6 @@ export class TradingScene extends Scene {
     }
   }
 
-  // Particles now manage their own cleanup via tweens
-  // This method exists for compatibility but particles auto-remove
-  private updateParticles(): void {
-    // Filter out destroyed containers (handles edge cases)
-    this.particles = this.particles.filter(p => p.active);
-  }
-
   private updateOpponentSlices(): void {
     for (let i = this.opponentSlices.length - 1; i >= 0; i--) {
       const text = this.opponentSlices[i];
@@ -146,34 +133,20 @@ export class TradingScene extends Scene {
 
   private handleCoinSpawn(data: { coinId: string; coinType: CoinType; x: number; y: number }): void {
     const config = COIN_CONFIG[data.coinType];
-
-    // Create coin container
     const coin = this.add.container(data.x, data.y);
+
     coin.setData('id', data.coinId);
     coin.setData('type', data.coinType);
     coin.setData('rotationSpeed', (Math.random() - 0.5) * 0.05);
 
-    // Outer circle (border)
-    const body = this.add.circle(0, 0, config.radius, config.color);
-    body.setStrokeStyle(3, 0xffffff);
+    coin.add([
+      this.createCoinBody(config),
+      this.createCoinInner(config),
+      this.createCoinSymbol(config),
+    ]);
 
-    // Inner circle (translucent fill)
-    const inner = this.add.circle(0, 0, config.radius * 0.85, config.color);
-    inner.setStrokeStyle(2, config.color);
-    inner.setAlpha(0.7);
-
-    // Symbol (arrow or icon)
-    const symbol = this.add.text(0, 2, config.symbol, {
-      fontSize: `${config.radius}px`,
-      color: '#000000',
-      fontStyle: 'bold',
-    });
-    symbol.setOrigin(0.5);
-
-    coin.add([body, inner, symbol]);
     this.physics.add.existing(coin);
 
-    // Configure physics
     const physicsBody = coin.body as Phaser.Physics.Arcade.Body;
     physicsBody.setVelocity((Math.random() - 0.5) * 2, Math.random() * 3 + 2);
     physicsBody.setGravity(0, data.coinType === 'whale' ? 0.1 : 0.15);
@@ -181,25 +154,44 @@ export class TradingScene extends Scene {
     this.coins.set(data.coinId, coin);
   }
 
+  private createCoinBody(config: typeof COIN_CONFIG[keyof typeof COIN_CONFIG]) {
+    const body = this.add.circle(0, 0, config.radius, config.color);
+    body.setStrokeStyle(3, 0xffffff);
+    return body;
+  }
+
+  private createCoinInner(config: typeof COIN_CONFIG[keyof typeof COIN_CONFIG]) {
+    const inner = this.add.circle(0, 0, config.radius * 0.85, config.color);
+    inner.setStrokeStyle(2, config.color);
+    inner.setAlpha(0.7);
+    return inner;
+  }
+
+  private createCoinSymbol(config: typeof COIN_CONFIG[keyof typeof COIN_CONFIG]) {
+    return this.add.text(0, 2, config.symbol, {
+      fontSize: `${config.radius}px`,
+      color: '#000000',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+  }
+
   private handleOpponentSlice(data: { playerName: string; coinType: CoinType }): void {
     const config = COIN_CONFIG[data.coinType];
-    const colorHex = '#' + config.color.toString(16).padStart(6, '0');
 
-    const x = Phaser.Math.Between(100, this.cameras.main.width - 100);
-    const y = Phaser.Math.Between(100, this.cameras.main.height - 100);
-
-    const text = this.add.text(x, y, `${data.playerName}: ${data.coinType}!`, {
-      fontSize: '20px',
-      fontStyle: 'bold',
-      color: colorHex,
-      stroke: '#000000',
-      strokeThickness: 4,
-    });
-    text.setOrigin(0.5);
+    const text = this.add.text(
+      Phaser.Math.Between(100, this.cameras.main.width - 100),
+      Phaser.Math.Between(100, this.cameras.main.height - 100),
+      `${data.playerName}: ${data.coinType}!`,
+      {
+        fontSize: '20px',
+        fontStyle: 'bold',
+        color: `#${config.color.toString(16).padStart(6, '0')}`,
+        stroke: '#000000',
+        strokeThickness: 4,
+      }
+    ).setOrigin(0.5);
 
     this.opponentSlices.push(text);
-
-    // Screen flash effect
     this.cameras.main.flash(100, 255, 255, 255, false);
   }
 
@@ -245,11 +237,12 @@ export class TradingScene extends Scene {
 
   private createExplosion(x: number, y: number, color: number): void {
     const container = this.add.container(x, y);
-    const particleCount = 12;
+    const PARTICLE_COUNT = 12;
+    const DURATION = 300;
 
-    for (let i = 0; i < particleCount; i++) {
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
       const particle = this.add.circle(0, 0, 4, color);
-      const angle = (Math.PI * 2 / particleCount) * i;
+      const angle = (Math.PI * 2 / PARTICLE_COUNT) * i;
       const distance = 40 + Math.random() * 20;
 
       this.tweens.add({
@@ -258,7 +251,7 @@ export class TradingScene extends Scene {
         y: Math.sin(angle) * distance,
         alpha: 0,
         scale: 0,
-        duration: 300,
+        duration: DURATION,
         ease: 'Power2',
         onComplete: () => particle.destroy(),
       });
@@ -266,16 +259,14 @@ export class TradingScene extends Scene {
       container.add(particle);
     }
 
-    // Track container for cleanup - fade out over same duration as particles
     this.tweens.add({
       targets: container,
       alpha: 0,
-      duration: 300,
+      duration: DURATION,
       ease: 'Power2',
       onComplete: () => {
+        this.particles = this.particles.filter(p => p !== container);
         container.destroy();
-        const idx = this.particles.indexOf(container);
-        if (idx !== -1) this.particles.splice(idx, 1);
       },
     });
 

@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { Game } from 'phaser';
 import { GridScene } from '@/game/scenes/GridScene';
 import { TradingScene } from '@/game/scenes/TradingScene';
-import { createPhaserConfig, createTradingPhaserConfig, DEFAULT_GRID } from '@/game/config';
+import { createGridPhaserConfig, createTradingPhaserConfig, DEFAULT_GRID } from '@/game/config';
 
 export type SceneType = 'GridScene' | 'TradingScene';
 
@@ -12,20 +12,22 @@ interface GameCanvasClientProps {
   scene?: SceneType;
 }
 
+// Scene type → (scene instance, config factory) mapping
+function createSceneAndConfig(type: SceneType) {
+  if (type === 'TradingScene') {
+    const sceneInstance = new TradingScene();
+    return { sceneInstance, config: createTradingPhaserConfig(sceneInstance) };
+  }
+
+  const sceneInstance = new GridScene('GridScene', DEFAULT_GRID);
+  return { sceneInstance, config: createGridPhaserConfig(sceneInstance) };
+}
+
 export default function GameCanvasClient({ scene = 'GridScene' }: GameCanvasClientProps) {
   const gameInstanceRef = useRef<Game | null>(null);
 
   useEffect(() => {
-    // Create appropriate scene based on prop
-    const sceneInstance = scene === 'TradingScene'
-      ? new TradingScene()
-      : new GridScene('GridScene', DEFAULT_GRID);
-
-    // Use appropriate config factory
-    const config = scene === 'TradingScene'
-      ? createTradingPhaserConfig(sceneInstance)
-      : createPhaserConfig(sceneInstance);
-
+    const { config } = createSceneAndConfig(scene);
     gameInstanceRef.current = new Game(config);
 
     return () => {

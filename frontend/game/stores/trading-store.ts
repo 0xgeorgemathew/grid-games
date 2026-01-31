@@ -34,7 +34,7 @@ interface TradingState {
   // Room/Players
   roomId: string | null;
   localPlayerId: string | null;
-  isPlayer1: boolean; // Track position for tug-of-war calculation
+  isPlayer1: boolean;
   players: Player[];
 
   // Game state
@@ -72,7 +72,6 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     });
 
     socket.on('connect', () => {
-      console.log('Connected to game server');
       set({ isConnected: true, localPlayerId: socket.id });
     });
 
@@ -85,7 +84,6 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     });
 
     socket.on('match_found', (data: MatchFoundEvent) => {
-      console.log('Match found!', data);
       const isPlayer1 = data.players[0]?.id === socket.id;
       set({
         isMatching: false,
@@ -93,7 +91,6 @@ export const useTradingStore = create<TradingState>((set, get) => ({
         roomId: data.roomId,
         players: data.players,
         isPlayer1,
-        localPlayerId: socket.id,
       });
     });
 
@@ -128,7 +125,8 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   disconnect: () => {
     const { socket } = get();
     socket?.disconnect();
-    set({ socket: null, isConnected: false, isPlaying: false });
+    get().resetGame();
+    set({ socket: null, isConnected: false });
   },
 
   findMatch: (playerName: string) => {
@@ -162,13 +160,13 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   handleSettlement: (settlement) => {
     const { isPlayer1 } = get();
     const impact = settlement.coinType === 'whale' ? 20 : 10;
-    const direction = isPlayer1 ? -1 : 1;
-    const delta = settlement.isCorrect ? direction * impact : -direction * impact;
+    const delta = settlement.isCorrect ? -impact : impact;
+    const tugOfWarDelta = isPlayer1 ? delta : -delta;
 
-    set((state) => ({
-      pendingOrders: new Map(state.pendingOrders).set(settlement.orderId, settlement),
-      tugOfWar: state.tugOfWar + delta,
-    }));
+    set((state) => {
+      state.pendingOrders.set(settlement.orderId, settlement);
+      return { tugOfWar: state.tugOfWar + tugOfWarDelta };
+    });
   },
 
   handlePlayerHit: (data) => {
@@ -190,12 +188,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     get().resetGame();
   },
 
-  resetGame: () => ({
-    roomId: null,
-    players: [],
-    tugOfWar: 0,
-    pendingOrders: new Map(),
-    isPlaying: false,
-    isMatching: false,
-  }),
+  resetGame: () => {
+    set({
+      roomId: null,
+      players: [],
+      tugOfWar: 0,
+      pendingOrders: new Map(),
+      isPlaying: false,
+      isMatching: false,
+    });
+  },
 }));

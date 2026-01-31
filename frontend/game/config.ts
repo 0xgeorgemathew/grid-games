@@ -21,7 +21,7 @@ export const TRADING_DIMENSIONS = {
 
 // Visual theme colors (consolidated magic numbers)
 export const COLORS = {
-  background: "#1a1a2e",
+  background: 0x1a1a2e,
   gridLine: 0x4a4a6a,
   hoverFill: 0x4a4a6a,
   selectedFill: 0xff00ff,
@@ -41,34 +41,62 @@ export const RENDER = {
   bounceDuration: 80,
 } as const;
 
-export const createPhaserConfig = (
-  scene: Phaser.Scene,
-  grid?: GridConfig,
-): Phaser.Types.Core.GameConfig => {
-  const resolvedGrid = grid ?? DEFAULT_GRID;
-  return {
+// Common physics config (zero gravity for top-down games)
+const PHYSICS_CONFIG = {
+  default: "arcade",
+  arcade: { gravity: { x: 0, y: 0 } },
+} as const;
+
+interface PhaserConfigOptions {
+  scene: Phaser.Scene;
+  width: number;
+  height: number;
+  fitToScreen?: boolean;
+}
+
+export function createPhaserConfig(options: PhaserConfigOptions): Phaser.Types.Core.GameConfig {
+  const { scene, width, height, fitToScreen = false } = options;
+
+  const config: Phaser.Types.Core.GameConfig = {
     type: AUTO,
     parent: "phaser-game",
-    width: resolvedGrid.cols * resolvedGrid.tileSize,
-    height: resolvedGrid.rows * resolvedGrid.tileSize,
+    width,
+    height,
     backgroundColor: COLORS.background,
-    physics: { default: "arcade", arcade: { gravity: { x: 0, y: 0 } } },
+    physics: PHYSICS_CONFIG,
     scene: [scene],
   };
-};
 
-export const createTradingPhaserConfig = (
+  if (fitToScreen) {
+    config.scale = {
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+    };
+  }
+
+  return config;
+}
+
+// Convenience factory for GridScene
+export function createGridPhaserConfig(
   scene: Phaser.Scene,
-): Phaser.Types.Core.GameConfig => ({
-  type: AUTO,
-  parent: "phaser-game",
-  width: TRADING_DIMENSIONS.width,
-  height: TRADING_DIMENSIONS.height,
-  backgroundColor: 0x1a1a2e,
-  physics: { default: "arcade", arcade: { gravity: { x: 0, y: 0 } } },
-  scene: [scene],
-  scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-});
+  grid: GridConfig = DEFAULT_GRID,
+): Phaser.Types.Core.GameConfig {
+  return createPhaserConfig({
+    scene,
+    width: grid.cols * grid.tileSize,
+    height: grid.rows * grid.tileSize,
+  });
+}
+
+// Convenience factory for TradingScene
+export function createTradingPhaserConfig(
+  scene: Phaser.Scene,
+): Phaser.Types.Core.GameConfig {
+  return createPhaserConfig({
+    scene,
+    width: TRADING_DIMENSIONS.width,
+    height: TRADING_DIMENSIONS.height,
+    fitToScreen: true,
+  });
+}
