@@ -1,13 +1,34 @@
+'use client';
+
+import { useTradingStore } from '@/game/stores/trading-store';
+import { MatchmakingScreen } from '@/components/MatchmakingScreen';
+import { GameHUD } from '@/components/GameHUD';
+import { SettlementFeed } from '@/components/SettlementFeed';
 import GameCanvas from '@/components/GameCanvas';
+import { useEffect } from 'react';
 
 export default function Home() {
+  const { isPlaying, connect, resetGame } = useTradingStore();
+
+  useEffect(() => {
+    // Connect to socket on mount
+    connect();
+
+    // Cleanup on unmount
+    return () => {
+      resetGame();
+    };
+  }, [connect, resetGame]);
+
+  if (!isPlaying) {
+    return <MatchmakingScreen />;
+  }
+
   return (
-    <div className="min-h-screen bg-tron-black flex items-center justify-center p-8">
-      <div className="flex flex-col items-center gap-6">
-        <h1 className="text-4xl font-bold text-tron-cyan text-glow">Grid Games</h1>
-        <GameCanvas />
-        <p className="text-sm text-tron-white-dim">Click a tile to select it</p>
-      </div>
+    <div className="min-h-screen bg-tron-black relative overflow-hidden">
+      <GameHUD />
+      <GameCanvas scene="TradingScene" />
+      <SettlementFeed />
     </div>
   );
 }

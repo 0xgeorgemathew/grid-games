@@ -24,6 +24,12 @@ declare global {
   }
 }
 
+// Game constants
+const STANDARD_DAMAGE = 10;
+const WHALE_DAMAGE = 20;
+const TUG_OF_WAR_MIN = -100;
+const TUG_OF_WAR_MAX = 100;
+
 interface TradingState {
   // Connection
   socket: Socket | null;
@@ -52,6 +58,30 @@ interface TradingState {
   handleGameOver: (data: GameOverEvent) => void;
   handlePlayerHit: (data: { playerId: string; damage: number; reason: string }) => void;
   resetGame: () => void;
+}
+
+function getDamageForCoinType(coinType: CoinType): number {
+  return coinType === 'whale' ? WHALE_DAMAGE : STANDARD_DAMAGE;
+}
+
+function calculateTugOfWarDelta(isPlayer1: boolean, isCorrect: boolean, damage: number): number {
+  // Tug of war: correct = beneficial for this player, incorrect = harmful
+  const delta = isCorrect ? -damage : damage;
+  return isPlayer1 ? delta : -delta;
+}
+
+function applyDamageToPlayer(players: Player[], playerId: string, damage: number): Player[] {
+  return players.map((p) =>
+    p.id === playerId ? { ...p, health: Math.max(0, p.health - damage) } : p
+  );
+}
+
+function getTargetPlayerId(settlement: SettlementEvent, players: Player[]): string | undefined {
+  // Correct prediction damages opponent, incorrect damages self
+  if (settlement.isCorrect) {
+    return players.find((p) => p.id !== settlement.playerId)?.id;
+  }
+  return settlement.playerId;
 }
 
 export const useTradingStore = create<TradingState>((set, get) => ({
@@ -158,27 +188,27 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   handleSettlement: (settlement) => {
-    const { isPlayer1 } = get();
-    const impact = settlement.coinType === 'whale' ? 20 : 10;
-    const delta = settlement.isCorrect ? -impact : impact;
-    const tugOfWarDelta = isPlayer1 ? delta : -delta;
+    const { isPlayer1, players, pendingOrders } = get();
+    const damage = getDamageForCoinType(settlement.coinType);
 
-    set((state) => {
-      state.pendingOrders.set(settlement.orderId, settlement);
-      return { tugOfWar: state.tugOfWar + tugOfWarDelta };
+    const tugOfWarDelta = calculateTugOfWarDelta(isPlayer1, settlement.isCorrect, damage);
+    const targetPlayerId = getTargetPlayerId(settlement, players);
+
+    set({
+      pendingOrders: new Map(pendingOrders).set(settlement.orderId, settlement),
+      tugOfWar: Math.max(TUG_OF_WAR_MIN, Math.min(TUG_OF_WAR_MAX, get().tugOfWar + tugOfWarDelta)),
+      players: targetPlayerId ? applyDamageToPlayer(players, targetPlayerId, damage) : players,
     });
   },
 
   handlePlayerHit: (data) => {
-    const { isPlayer1 } = get();
-    const tugOfWarDelta = isPlayer1 ? data.damage : -data.damage;
+    const { isPlayer1, players, tugOfWar } = get();
+    const tugOfWarDelta = calculateTugOfWarDelta(isPlayer1, false, data.damage);
 
-    set((state) => ({
-      players: state.players.map((p) =>
-        p.id === data.playerId ? { ...p, health: Math.max(0, p.health - data.damage) } : p
-      ),
-      tugOfWar: state.tugOfWar + tugOfWarDelta,
-    }));
+    set({
+      players: applyDamageToPlayer(players, data.playerId, data.damage),
+      tugOfWar: Math.max(TUG_OF_WAR_MIN, Math.min(TUG_OF_WAR_MAX, tugOfWar + tugOfWarDelta)),
+    });
   },
 
   handleGameOver: (data) => {
