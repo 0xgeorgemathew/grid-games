@@ -1,15 +1,14 @@
 {
-  "name": "frontend",
+  "name": "@grid-games/frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "bun server.ts",
     "build": "next build",
-    "start": "NODE_ENV=production tsx server.ts",
+    "start": "NODE_ENV=production bun server.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "type": "tsc --noEmit",
-    "prepare": "husky"
+    "types": "tsc --noEmit"
   },
   "dependencies": {
     "@radix-ui/react-progress": "^1.1.8",
@@ -42,10 +41,8 @@
     "@types/three": "^0.182.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
-    "husky": "^9.1.7",
     "prettier": "^3.4.2",
     "tailwindcss": "^4",
-    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

@@ -65,6 +65,63 @@ Task({
 
 **After agents return:** Consolidate findings, identify high-severity issues, ask user how to proceed.
 
+### Specialized Grid Games Agents
+
+**Use specialized agents in parallel with code-reviewers when:**
+- Reviewing game-specific code (Phaser scenes, Socket.IO integration)
+- Reviewing smart contracts and Web3 integration
+- Domain-specific expertise needed beyond general code quality
+
+**Game Logic Reviewer:**
+```typescript
+Task({
+  subagent_type: "general-purpose",
+  agentConfig: "agents/game-logic-reviewer.md",
+  prompt: "Review TradingScene.ts for multiplayer reliability issues"
+})
+```
+
+**Focus:** Memory leaks, race conditions, Phaser lifecycle, Socket.IO reliability, performance
+
+**Web3 Auditor:**
+```typescript
+Task({
+  subagent_type: "general-purpose",
+  agentConfig: "agents/web3-auditor.md",
+  prompt: "Review LiquidityVault.sol for security and gas optimization"
+})
+```
+
+**Focus:** Reentrancy, access control, gas optimization, ethers.js integration, testing coverage
+
+**Parallel Review Example:**
+```typescript
+// Launch 3 agents in parallel for comprehensive review
+Task({
+  subagent_type: "general-purpose",
+  agentConfig: "agents/game-logic-reviewer.md",
+  prompt: "Review game logic for multiplayer issues"
+})
+Task({
+  subagent_type: "feature-dev:code-reviewer",
+  prompt: "Review code quality and simplicity"
+})
+Task({
+  subagent_type: "feature-dev:code-reviewer",
+  prompt: "Review architecture and conventions"
+})
+
+// After agents return: Consolidate findings by severity
+```
+
+**Integration with Contract Deploy:**
+```
+2. Invokes web3-auditor agent for post-deployment review
+3. Can run in parallel with code-reviewer agents for comprehensive validation
+```
+
+**After agents return:** Consolidate findings grouped by severity (Critical/Important/Minor), present action items.
+
 ### Code Simplifiers (Refactoring Phase)
 
 **Use 2-4 code-simplifier agents in parallel when:**
@@ -205,6 +262,46 @@ Phase 6: Quality Review (PARALLEL)
   → Consolidate findings, ask user what to fix
 
 Phase 7: Summary
+```
+
+## Real-World Example: Game Feature with Specialized Agents
+
+```
+Phase 1: User requests "Add multiplayer battle scene"
+
+Phase 2: Codebase Exploration (PARALLEL)
+  → code-explorer agent: Analyze TradingScene (multiplayer patterns)
+  → code-explorer agent: Analyze GridScene (gameplay patterns)
+
+Phase 3: Architecture Design
+  → game-component skill generates scene with proper patterns
+  → Auto-format and type-check via hooks
+
+Phase 4: Quality Review (PARALLEL)
+  → game-logic-reviewer agent: Check for memory leaks, race conditions
+  → code-reviewer agent: Check code quality
+  → code-reviewer agent: Check architecture
+
+Phase 5: Consolidate findings and fix issues
+```
+
+## Real-World Example: Contract Deployment with Security Review
+
+```
+
+  → Deploy to network
+  → Verify on Etherscan
+  → Extract ABI to frontend
+
+Phase 3: Security Review (PARALLEL)
+  → web3-auditor agent: Security and gas review
+  → code-reviewer agent: Solidity code quality
+  → code-reviewer agent: Testing coverage
+
+Phase 4: Consolidate findings
+  → If Critical issues: Fix before using in production
+  → If Important issues: Document and accept risk
+  → If Minor issues: Note for future improvement
 ```
 
 ---

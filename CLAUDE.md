@@ -24,11 +24,11 @@ Grid Games is a monorepo containing a web-based game with real-time multiplayer 
 ### Frontend (Next.js + Phaser)
 
 ```bash
-cd frontend
-npm run dev          # Start development server on localhost:3001
-npm run build        # Production build
-npm run start        # Start production server
-npm run lint         # Run ESLint
+bun install           # Install dependencies
+bun run dev           # Start development server on localhost:3001
+bun run build         # Production build
+bun run start         # Start production server
+bun run lint          # Run ESLint
 ```
 
 ### Contracts (Foundry)
@@ -101,3 +101,27 @@ anvil                # Start local Ethereum node
 
 - USDT deposit integration (currently accepts ETH/any token via `payable`)
 - Signature verification in `settle()` function (currently only `onlyOwner`)
+
+## Claude Code Automations
+
+### MCP Servers
+- **GitHub MCP**: Issue/PR management, CI workflow integration
+- **context7**: Live documentation for Phaser, Socket.IO, ethers.js, Foundry
+
+### Custom Skills
+- `game-component`: Scaffold Phaser scenes with React integration
+
+### Specialized Agents
+- `game-logic-reviewer`: Multiplayer reliability (race conditions, memory leaks, performance)
+- `web3-auditor`: Smart contract security (reentrancy, access control, gas optimization)
+
+### Automation Hooks
+- Auto-format: Prettier on every file edit
+- Type-check: TypeScript validation after edits
+- Security blocks: Prevent .env and lock file edits
+
+### Workflow Integration
+- All automations follow patterns from `.claude/rules/workflows.md`
+- Agents use superpowers framework from `.claude/rules/skills.md`
+- Frontend patterns follow conventions from `.claude/rules/frontend.md`
+- ULTRATHINK directive applies to all automation execution

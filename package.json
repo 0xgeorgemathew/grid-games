@@ -1,0 +1,20 @@
+{
+  "name": "grid-games",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "bun --filter @grid-games/frontend dev",
+    "build": "bun --filter @grid-games/frontend build",
+    "start": "bun --filter @grid-games/frontend start",
+    "lint": "bun --filter @grid-games/frontend lint",
+    "format": "bun --filter @grid-games/frontend format",
+    "types": "bun --filter @grid-games/frontend types",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

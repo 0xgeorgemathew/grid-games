@@ -62,9 +62,8 @@
 ### 1.1 Install Dependencies
 
 ```bash
-cd frontend
-npm install socket.io zustand
-npm install --save-dev @types/socket.io
+bun install socket.io zustand
+bun install --save-dev @types/socket.io
 ```
 
 ### 1.2 Create Socket.IO Server
@@ -1137,11 +1136,10 @@ export function GameCanvas({ scene = 'GridScene' }: { scene?: string }) {
 ## Verification Steps
 
 ```bash
-cd frontend
-npm install socket.io zustand
-npx shadcn@latest init
-npx shadcn@latest add button card progress badge input
-npm run dev
+bun install socket.io zustand
+bunx shadcn@latest init
+bunx shadcn@latest add button card progress badge input
+bun run dev
 ```
 
 1. **Open 2 browser windows** to `localhost:3001`

@@ -1,0 +1,35 @@
+{
+  "description": "Grid Games - HFT Battle with Phaser + Foundry + Ethers.js",
+  "actors": {
+    "game-logic-reviewer": {
+      "type": "subagent",
+      "path": "agents/game-logic-reviewer.md"
+    },
+    "web3-auditor": {
+      "type": "subagent",
+      "path": "agents/web3-auditor.md"
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "(Edit|Write)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if [[ \"$TOOL_INPUT_FILE_PATH\" =~ ^\\.env ]] || [[ \"$TOOL_INPUT_FILE_PATH\" == \"contracts/key.json\" ]] || [[ \"$TOOL_INPUT_FILE_PATH\" =~ \\.(key|json)$ ]] && [[ \"$TOOL_INPUT_FILE_PATH\" =~ key ]]; then echo \"Editing environment files or private keys is blocked for security. Use environment variables instead.\" >&2; exit 1; fi; exit 0'"
+          }
+        ]
+      },
+      {
+        "matcher": "(Edit|Write)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if [[ \"$TOOL_INPUT_FILE_PATH\" == \"package-lock.json\" ]] || [[ \"$TOOL_INPUT_FILE_PATH\" == \"contracts/package-lock.json\" ]] || [[ \"$TOOL_INPUT_FILE_PATH\" == \"frontend/package-lock.json\" ]]; then echo \"Lock files should only be modified via npm install. Use npm install to add/update dependencies.\" >&2; exit 1; fi; exit 0'"
+          }
+        ]
+      }
+    ]
+  }
+}

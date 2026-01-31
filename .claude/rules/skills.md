@@ -56,6 +56,8 @@
 | **Project-Specific**     |                                              |                                                       |
 | `feature-dev`            | `Skill("feature-dev:feature-dev", "...")`    | Full workflow: discover → explore → plan → implement  |
 | `frontend-design`        | `Skill("frontend-design", "...")`            | UI/UX components with design frameworks               |
+| **Grid Games Custom**    |                                              |                                                       |
+| `game-component`         | `Skill("game-component", "...")`             | Scaffold Phaser scenes with React integration         |
 
 ---
 
@@ -63,14 +65,17 @@
 
 **Use superpowers-based agent patterns** from `.claude/rules/workflows.md` for multi-agent coordination.
 
-| Agent                   | `subagent_type`                  | Purpose                                      |
-| ----------------------- | -------------------------------- | -------------------------------------------- |
-| **Official Plugins**    |                                  |                                              |
-| `code-explorer`         | `feature-dev:code-explorer`      | Trace code flow, map architecture            |
-| `code-architect`        | `feature-dev:code-architect`     | Design architecture, create blueprints       |
-| `code-reviewer`         | `feature-dev:code-reviewer`      | Review code (confidence ≥ 80)                |
-| `code-simplifier`       | `code-simplifier:code-simplifier`| Refine recently modified code                |
-| `general-purpose`       | `general-purpose`                | Multi-step tasks with all tools              |
+| Agent                   | `subagent_type` / `agentConfig`            | Purpose                                      |
+| ----------------------- | ----------------------------------------- | -------------------------------------------- |
+| **Official Plugins**    |                                           |                                              |
+| `code-explorer`         | `feature-dev:code-explorer`               | Trace code flow, map architecture            |
+| `code-architect`        | `feature-dev:code-architect`              | Design architecture, create blueprints       |
+| `code-reviewer`         | `feature-dev:code-reviewer`               | Review code (confidence ≥ 80)                |
+| `code-simplifier`       | `code-simplifier:code-simplifier`         | Refine recently modified code                |
+| `general-purpose`       | `general-purpose`                         | Multi-step tasks with all tools              |
+| **Grid Games Custom**   |                                           |                                              |
+| `game-logic-reviewer`   | `general-purpose` + `agentConfig`         | Review Phaser/Socket.IO for multiplayer issues |
+| `web3-auditor`          | `general-purpose` + `agentConfig`         | Review contracts for security and gas        |
 
 ---
 

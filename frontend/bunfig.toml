@@ -1,0 +1,7 @@
+[install]
+# Lockfile should be at root for workspace
+lockfile = "../bun.lockb"
+
+[build]
+# Ensure Next.js builds correctly
+publicPath = "/_next/"
