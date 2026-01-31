@@ -1,26 +1,432 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ═══════════════════════════════════════════════════════════════════════════
+   1. THEME TOKENS (@theme) - Defines colors for Tailwind utilities
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* TRON Legacy Palette */
+  --color-tron-black: #0a0a0a;
+  --color-tron-cyan: #00f3ff;
+  --color-tron-cyan-dim: #00a8b3;
+  --color-tron-orange: #ff6b00;
+  --color-tron-orange-dim: #cc5500;
+  --color-tron-white: #ffffff;
+  --color-tron-white-dim: rgba(255, 255, 255, 0.6);
+
+  /* Semantic mappings for ShadCN compatibility */
+  --color-background: var(--color-tron-black);
+  --color-foreground: var(--color-tron-white);
+  --color-card: rgba(10, 10, 10, 0.8);
+  --color-card-foreground: var(--color-tron-white);
+  --color-popover: rgba(10, 10, 10, 0.95);
+  --color-popover-foreground: var(--color-tron-white);
+  --color-primary: var(--color-tron-cyan);
+  --color-primary-foreground: var(--color-tron-black);
+  --color-secondary: rgba(0, 243, 255, 0.1);
+  --color-secondary-foreground: var(--color-tron-white);
+  --color-muted: rgba(255, 255, 255, 0.05);
+  --color-muted-foreground: var(--color-tron-white-dim);
+  --color-accent: rgba(0, 243, 255, 0.15);
+  --color-accent-foreground: var(--color-tron-white);
+  --color-destructive: var(--color-tron-orange);
+  --color-destructive-foreground: var(--color-tron-black);
+  --color-border: rgba(0, 243, 255, 0.2);
+  --color-input: rgba(0, 243, 255, 0.1);
+  --color-ring: var(--color-tron-cyan);
+
+  /* Border radius */
+  --radius-lg: 0.5rem;
+  --radius-md: calc(0.5rem - 2px);
+  --radius-sm: calc(0.5rem - 4px);
+
+  /* Glow values */
+  --glow-cyan-sm: 0 0 10px rgba(0, 243, 255, 0.5);
+  --glow-cyan-md: 0 0 20px rgba(0, 243, 255, 0.4), 0 0 40px rgba(0, 243, 255, 0.2);
+  --glow-cyan-lg: 0 0 30px rgba(0, 243, 255, 0.5), 0 0 60px rgba(0, 243, 255, 0.3), 0 0 90px rgba(0, 243, 255, 0.1);
+  --glow-orange-sm: 0 0 10px rgba(255, 107, 0, 0.5);
+  --glow-orange-md: 0 0 20px rgba(255, 107, 0, 0.4), 0 0 40px rgba(255, 107, 0, 0.2);
+
+  /* Z-index scale */
+  --z-overlay-base: 1000;
+  --z-data-stream: calc(var(--z-overlay-base) - 4);
+  --z-vignette: calc(var(--z-overlay-base) - 3);
+  --z-scanline-moving: calc(var(--z-overlay-base) - 2);
+  --z-scanlines: calc(var(--z-overlay-base) - 1);
+
+  /* Animation durations */
+  --duration-instant: 150ms;
+  --duration-fast: 300ms;
+  --duration-normal: 500ms;
+  --duration-slow: 1s;
+  --duration-slower: 2s;
+  --duration-slowest: 4s;
+  --duration-grid-scroll: 8s;
+  --duration-scanline: 6s;
+  --duration-data-fall: 10s;
+  --duration-flicker: 5s;
+
+  /* Grid sizing */
+  --grid-size: 60px;
+  --scanline-height: 4px;
+  --data-stream-width: 20px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ═══════════════════════════════════════════════════════════════════════════
+   2. CUSTOM UTILITIES (@utility) - Reusable Tailwind classes
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Glow utilities - use intensity modifier: glow-{cyan|orange}-{sm|md|lg|intense} */
+@utility glow-cyan {
+  --glow-color: var(--color-tron-cyan);
+  --glow-opacity: 0.5;
+  box-shadow: 0 0 10px rgba(var(--glow-cyan-rgb, 0, 243, 255), var(--glow-opacity));
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@utility glow-cyan-md {
+  box-shadow: var(--glow-cyan-md);
+}
+
+@utility glow-cyan-lg {
+  box-shadow: var(--glow-cyan-lg);
+}
+
+@utility glow-cyan-intense {
+  box-shadow:
+    0 0 10px var(--color-tron-cyan),
+    0 0 20px var(--color-tron-cyan),
+    0 0 40px rgba(0, 243, 255, 0.5),
+    0 0 80px rgba(0, 243, 255, 0.3);
+}
+
+@utility glow-orange {
+  box-shadow: var(--glow-orange-sm);
+}
+
+@utility glow-orange-md {
+  box-shadow: var(--glow-orange-md);
+}
+
+/* Combined border + glow utilities */
+@utility glow-border {
+  border: 1px solid var(--color-tron-cyan);
+  box-shadow: var(--glow-cyan-sm), inset 0 0 10px rgba(0, 243, 255, 0.05);
+}
+
+@utility glow-border-orange {
+  border: 1px solid var(--color-tron-orange);
+  box-shadow: var(--glow-orange-sm), inset 0 0 10px rgba(255, 107, 0, 0.05);
+}
+
+/* Text glow utilities */
+@utility text-glow {
+  text-shadow:
+    0 0 10px rgba(0, 243, 255, 0.8),
+    0 0 20px rgba(0, 243, 255, 0.5),
+    0 0 30px rgba(0, 243, 255, 0.3);
+}
+
+@utility text-glow-orange {
+  text-shadow:
+    0 0 10px rgba(255, 107, 0, 0.8),
+    0 0 20px rgba(255, 107, 0, 0.5);
+}
+
+@utility hologram {
+  border: 1px solid rgba(0, 243, 255, 0.3);
+  box-shadow:
+    0 0 20px rgba(0, 243, 255, 0.1),
+    inset 0 0 20px rgba(0, 243, 255, 0.05);
+  position: relative;
+  /* Fallback for browsers without backdrop-filter support */
+  background: rgba(10, 10, 10, 0.9);
+}
+
+/* Modern browsers with backdrop-filter support */
+@supports (backdrop-filter: blur(10px)) {
+  .hologram {
+    background: rgba(10, 10, 10, 0.7);
+    backdrop-filter: blur(10px);
   }
 }
 
+/* Pseudo-element for hologram effect - use with hologram utility */
+.hologram-sheen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    transparent 40%,
+    rgba(0, 243, 255, 0.1) 50%,
+    transparent 60%
+  );
+  pointer-events: none;
+}
+
+@utility digit-display {
+  font-family: 'SF Mono', 'Fira Code', 'IBM Plex Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3. ANIMATIONS (@keyframes) - Referenced by utilities
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@keyframes grid-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes grid-scroll {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 var(--grid-size); }
+}
+
+@keyframes scanline-move {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  41%, 43% { opacity: 0.8; }
+  45%, 55% { opacity: 1; }
+  57%, 59% { opacity: 0.8; }
+}
+
+@keyframes neon-buzz {
+  0%, 100% {
+    text-shadow:
+      0 0 10px rgba(0, 243, 255, 0.8),
+      0 0 20px rgba(0, 243, 255, 0.5);
+  }
+  50% {
+    text-shadow:
+      0 0 5px rgba(0, 243, 255, 0.5),
+      0 0 10px rgba(0, 243, 255, 0.3),
+      0 0 15px rgba(0, 243, 255, 0.8);
+  }
+}
+
+@keyframes border-pulse {
+  0%, 100% { border-color: rgba(0, 243, 255, 0.3); }
+  50% { border-color: rgba(0, 243, 255, 0.8); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   4. GLOBAL PATTERNS - Complex backgrounds, fixed effects
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* TRON Grid Background - The Signature Look */
+.tron-grid {
+  background:
+    linear-gradient(transparent 95%, rgba(0, 243, 255, 0.08) 95%),
+    linear-gradient(90deg, transparent 95%, rgba(0, 243, 255, 0.08) 95%);
+  background-size: var(--grid-size) var(--grid-size);
+  background-position: center top;
+}
+
+/* Perspective Grid - Creates the 3D depth effect */
+.tron-grid-perspective {
+  background:
+    linear-gradient(transparent 95%, rgba(0, 243, 255, 0.1) 95%, rgba(0, 243, 255, 0.05) 96%),
+    linear-gradient(90deg, transparent 95%, rgba(0, 243, 255, 0.1) 95%, rgba(0, 243, 255, 0.05) 96%);
+  background-size: var(--grid-size) var(--grid-size);
+  transform-origin: center top;
+  will-change: background-position, opacity;
+  animation: grid-scroll var(--duration-grid-scroll) linear infinite, grid-pulse var(--duration-slowest) ease-in-out infinite;
+}
+
+/* Horizontal horizon line */
+.tron-horizon {
+  position: relative;
+}
+
+.tron-horizon::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00f3ff, transparent);
+  box-shadow: 0 0 20px #00f3ff, 0 0 40px rgba(0, 243, 255, 0.5);
+  opacity: 0.8;
+}
+
+/* Scanline Effect - Retro CRT feel */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-scanlines);
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.15) 2px,
+    rgba(0, 0, 0, 0.15) 4px
+  );
+}
+
+/* Moving scanline */
+.scanline-moving {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--scanline-height);
+  background: linear-gradient(180deg, transparent, rgba(0, 243, 255, 0.3), transparent);
+  box-shadow: 0 0 20px rgba(0, 243, 255, 0.5);
+  will-change: transform;
+  animation: scanline-move var(--duration-scanline) linear infinite;
+  pointer-events: none;
+  z-index: var(--z-scanline-moving);
+}
+
+/* Vignette effect */
+.tron-vignette {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 0%, rgba(0, 0, 0, 0.5) 100%);
+  pointer-events: none;
+  z-index: var(--z-vignette);
+}
+
+/* Corner accents */
+.tron-corners {
+  position: relative;
+}
+
+.tron-corners::before,
+.tron-corners::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-color: #00f3ff;
+  border-style: solid;
+  pointer-events: none;
+}
+
+.tron-corners::before {
+  top: -1px;
+  left: -1px;
+  border-width: 2px 0 0 2px;
+}
+
+.tron-corners::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* Data stream effect - falling characters */
+.tron-data-stream {
+  position: fixed;
+  top: 0;
+  width: var(--data-stream-width);
+  height: 100%;
+  overflow: hidden;
+  opacity: 0.1;
+  pointer-events: none;
+  z-index: var(--z-data-stream);
+}
+
+.tron-data-stream::after {
+  content: '01';
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-family: monospace;
+  font-size: 14px;
+  line-height: var(--data-stream-width);
+  color: var(--color-tron-cyan);
+  white-space: pre;
+  animation: data-fall var(--duration-data-fall) linear infinite;
+  text-shadow: 0 0 10px var(--color-tron-cyan);
+}
+
+@keyframes data-fall {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   5. GLOBAL OVERRIDES - Scrollbar, body base
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Body defaults */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-tron-black);
+  color: var(--color-tron-white);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbar - Cyan Glow */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-tron-black);
+  border-left: 1px solid rgba(0, 243, 255, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-tron-cyan-dim);
+  border-radius: 4px;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-tron-cyan);
+  box-shadow: var(--glow-cyan-sm);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--color-tron-black);
+}
+
+/* Selection color */
+::selection {
+  background: rgba(0, 243, 255, 0.3);
+  color: var(--color-tron-white);
+}
+
+::-moz-selection {
+  background: rgba(0, 243, 255, 0.3);
+  color: var(--color-tron-white);
+}
+
+/* Focus visible */
+*:focus-visible {
+  outline: 2px solid var(--color-tron-cyan);
+  outline-offset: 2px;
+  box-shadow: var(--glow-cyan-sm);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   6. UTILITY CLASSES - Quick application helpers
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Animation utilities - durations use theme variables */
+.animate-grid-pulse {
+  animation: grid-pulse var(--duration-slowest) ease-in-out infinite;
+}
+
+.animate-neon-buzz {
+  animation: neon-buzz var(--duration-slower) ease-in-out infinite;
+}
+
+.animate-flicker {
+  animation: flicker var(--duration-flicker) infinite;
+}
+
+.animate-border-pulse {
+  animation: border-pulse var(--duration-slower) ease-in-out infinite;
 }
