@@ -13,7 +13,7 @@
       },
       "commands": [
         "bun install",
-        "bun x --bun next build"
+        "bun run build"
       ]
     }
   },
