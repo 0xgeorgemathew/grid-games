@@ -36,17 +36,18 @@ export function initializeSocketIO(httpServer: HTTPServer): {
     }
   }
 
-  // In production, REQUIRE explicit ALLOWED_ORIGINS for security
+  // In production, use ALLOWED_ORIGINS if set, otherwise use wildcard fallback for Railway
   const isProd = process.env.NODE_ENV === 'production'
   const originConfig = isProd
-    ? process.env.ALLOWED_ORIGINS?.split(',') ||
-      (() => {
-        throw new Error(
-          'ALLOWED_ORIGINS environment variable required in production. ' +
-            'Set it to your Railway domain (e.g., https://your-app.railway.app)'
-        )
-      })()
+    ? process.env.ALLOWED_ORIGINS?.split(',') || ['*'] // Fallback to * for Railway deployment
     : process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000']
+
+  // Warn if using wildcard in production
+  if (isProd && originConfig.includes('*')) {
+    console.warn(
+      '[Socket.IO] Using wildcard CORS origin (*) - Set ALLOWED_ORIGINS env var for production security'
+    )
+  }
 
   const io = new SocketIOServer(httpServer, {
     cors: {
