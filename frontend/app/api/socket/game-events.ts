@@ -284,6 +284,18 @@ function validateCoinType(coinType: string): coinType is 'call' | 'put' | 'whale
 // =============================================================================
 
 function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): void {
+  // Validate room state
+  if (room.players.size === 0) {
+    console.error(`[Settlement] ERROR: Room ${room.id} has no players`)
+    return
+  }
+
+  const playerIds = room.getPlayerIds()
+  if (playerIds.length < 2) {
+    console.error(`[Settlement] ERROR: Room ${room.id} has only ${playerIds.length} player(s)`)
+    return
+  }
+
   const finalPrice = priceFeed.getLatestPrice()
 
   // Settlement always uses latest price for simplicity and reliability
@@ -297,21 +309,36 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
   else if (order.coinType === 'whale') isCorrect = Math.random() < 0.8
 
   const impact = order.coinType === 'whale' ? 2 : 1
-  const playerIds = room.getPlayerIds()
   const isPlayer1 = order.playerId === playerIds[0]
 
   if (isCorrect) {
     const opponentId = playerIds.find((id) => id !== order.playerId)!
     const opponent = room.players.get(opponentId)
-    if (opponent) opponent.dollars -= impact
+    if (!opponent) {
+      console.error(`[Settlement] ERROR: Opponent ${opponentId} not found in room ${room.id}`)
+      // Still emit settlement event so client gets feedback
+    } else {
+      opponent.dollars -= impact
+    }
     room.tugOfWar += isPlayer1 ? -impact : impact
   } else {
     const player = room.players.get(order.playerId)
-    if (player) player.dollars -= impact
+    if (!player) {
+      console.error(`[Settlement] ERROR: Player ${order.playerId} not found in room ${room.id}`)
+    } else {
+      player.dollars -= impact
+    }
     room.tugOfWar += isPlayer1 ? impact : -impact
   }
 
   room.removePendingOrder(order.id)
+
+  // Log settlement result for debugging
+  console.log(`[Settlement] ${order.coinType.toUpperCase()} order ${order.id.slice(-8)}:`,
+    `${order.playerName} ${isCorrect ? 'WON' : 'LOST'}`,
+    `$${order.priceAtOrder.toFixed(2)} → $${finalPrice.toFixed(2)}`,
+    `(${((priceChange * 100).toFixed(2))}%)`
+  )
 
   io.to(room.id).emit('order_settled', {
     orderId: order.id,
@@ -485,9 +512,12 @@ function handleSlice(
 
   // Schedule settlement
   const timeoutId = setTimeout(() => {
-    if (manager.hasRoom(room.id)) {
+    // Double-check: room exists AND order still pending (not already settled)
+    if (manager.hasRoom(room.id) && room.pendingOrders.has(order.id)) {
       settleOrder(io, room, order)
       checkGameOver(io, manager, room)
+    } else if (!manager.hasRoom(room.id)) {
+      console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} no longer exists`)
     }
   }, 10000) // 10 seconds
 
@@ -497,12 +527,20 @@ function handleSlice(
 function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
   if (room.hasDeadPlayer()) {
     const winner = room.getWinner()
+
+    // CRITICAL: Settle all pending orders before deleting room
+    for (const [orderId, order] of room.pendingOrders) {
+      settleOrder(io, room, order)
+    }
+
     io.to(room.id).emit('game_over', {
       winnerId: winner?.id,
       winnerName: winner?.name,
       roomId: room.id,
     })
-    setTimeout(() => manager.deleteRoom(room.id), 5000)
+
+    // Delete room after all settlements are sent (allow time for events)
+    setTimeout(() => manager.deleteRoom(room.id), 1000)  // Reduced to 1s since we settle immediately
   }
 }
 

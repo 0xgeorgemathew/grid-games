@@ -41,6 +41,9 @@ export function PositionIndicator() {
             const settled = pendingOrders.get(order.orderId)
             const isWin = settled?.isCorrect
 
+            // Check if order timed out (no settlement received)
+            const isTimedOut = !settled && timeLeft === 0
+
             return (
               <motion.div
                 key={order.orderId}
@@ -50,11 +53,13 @@ export function PositionIndicator() {
                 transition={{ delay: index * 0.1 }}
                 className={cn(
                   'glass-panel-vibrant rounded-lg p-3 mb-2',
-                  settled
-                    ? isWin
-                      ? 'border-green-500/50'
-                      : 'border-red-500/50'
-                    : 'border-tron-cyan/30'
+                  isTimedOut
+                    ? 'border-yellow-500/50'
+                    : settled
+                      ? isWin
+                        ? 'border-green-500/50'
+                        : 'border-red-500/50'
+                      : 'border-tron-cyan/30'
                 )}
               >
                 <div className="flex items-center justify-between">
@@ -73,8 +78,8 @@ export function PositionIndicator() {
                         'w-8 h-8 rounded-full flex items-center justify-center',
                         isCall ? 'bg-green-500/20' : 'bg-red-500/20'
                       )}
-                      animate={!settled ? { y: [0, -3, 0, 3, 0] } : {}}
-                      transition={!settled ? { duration: 1.5, repeat: Infinity } : {}}
+                      animate={!settled && !isTimedOut ? { y: [0, -3, 0, 3, 0] } : {}}
+                      transition={!settled && !isTimedOut ? { duration: 1.5, repeat: Infinity } : {}}
                     >
                       {isCall ? (
                         <span className="text-green-400 text-lg">▲</span>
@@ -84,10 +89,15 @@ export function PositionIndicator() {
                     </motion.div>
 
                     {/* Countdown / Result */}
-                    {!settled ? (
+                    {!settled && !isTimedOut ? (
                       <div className="flex flex-col">
                         <span className="text-xs text-tron-white-dim">Expires</span>
                         <span className="text-sm font-mono">{(timeLeft / 1000).toFixed(1)}s</span>
+                      </div>
+                    ) : isTimedOut ? (
+                      <div className="flex flex-col">
+                        <span className="text-xs text-yellow-400">Timed Out</span>
+                        <span className="text-sm font-mono text-yellow-400">?</span>
                       </div>
                     ) : (
                       <div
@@ -103,7 +113,7 @@ export function PositionIndicator() {
                   </div>
 
                   {/* Progress Bar */}
-                  {!settled && (
+                  {!settled && !isTimedOut && (
                     <div className="flex-1 mx-4">
                       <div className="h-2 bg-black/50 rounded-full overflow-hidden">
                         <motion.div

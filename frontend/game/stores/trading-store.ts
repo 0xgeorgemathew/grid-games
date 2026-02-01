@@ -84,6 +84,7 @@ interface TradingState {
   handleGameOver: (data: GameOverEvent) => void
   handlePlayerHit: (data: { playerId: string; damage: number; reason: string }) => void
   removeActiveOrder: (orderId: string) => void
+  cleanupOrphanedOrders: () => void
   connectPriceFeed: (symbol: CryptoSymbol) => void
   disconnectPriceFeed: () => void
   manualReconnect: () => void
@@ -145,12 +146,25 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       transports: ['websocket', 'polling'],
     })
 
+    // Track cleanup functions for intervals/timeouts
+    const socketCleanupFunctions: Array<() => void> = []
+
     socket.on('connect', () => {
       set({ isConnected: true, localPlayerId: socket.id })
+
+      // Run orphaned order cleanup every 5 seconds
+      const cleanupInterval = setInterval(() => {
+        get().cleanupOrphanedOrders()
+      }, 5000)
+
+      socketCleanupFunctions.push(() => clearInterval(cleanupInterval))
     })
 
     socket.on('disconnect', () => {
       set({ isConnected: false })
+      // Run all cleanup functions
+      socketCleanupFunctions.forEach(fn => fn())
+      socketCleanupFunctions.length = 0
     })
 
     socket.on('waiting_for_match', () => {
@@ -284,6 +298,25 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     const { activeOrders } = get()
     activeOrders.delete(orderId)
     set({ activeOrders })
+  },
+
+  cleanupOrphanedOrders: () => {
+    const { activeOrders } = get()
+    const now = Date.now()
+    let cleaned = 0
+
+    for (const [orderId, order] of activeOrders) {
+      // If order is 15+ seconds past settlement time, consider it orphaned
+      if (now - order.settlesAt > 15000) {
+        console.warn(`[Store] Cleaning up orphaned order ${orderId}`)
+        activeOrders.delete(orderId)
+        cleaned++
+      }
+    }
+
+    if (cleaned > 0) {
+      set({ activeOrders })
+    }
   },
 
   connectPriceFeed: (symbol: CryptoSymbol) => {
