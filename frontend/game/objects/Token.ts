@@ -1,4 +1,4 @@
-import { Scene, GameObjects, Physics } from 'phaser'
+import { Scene, GameObjects, Physics, Tweens } from 'phaser'
 import type { CoinType } from '../types/trading'
 
 export interface CoinConfig {
@@ -7,12 +7,20 @@ export interface CoinConfig {
   arrow: string
   radius: number
   innerColor: number
+  rotationSpeed?: number // Radians per second
+  jitterAmount?: number // For gas coins
+  hasTrail?: boolean // For whale coins
 }
 
 export class Token extends GameObjects.Container {
   public body: Physics.Arcade.Body | null = null
   private image: GameObjects.Image
   private config: CoinConfig
+  private pulseTween?: Tweens.Tween
+  private glowRing?: GameObjects.Graphics
+  private spawnScaleTween?: Tweens.Tween
+  private spawnRotationTween?: Tweens.Tween
+  private yoyoScaleTween?: Tweens.Tween // Track nested tween for cleanup
 
   constructor(scene: Scene) {
     super(scene, 0, 0)
@@ -48,19 +56,44 @@ export class Token extends GameObjects.Container {
     // Reset container state
     this.setVisible(true)
     this.setActive(true)
-    this.setRotation(0)
 
     // Update texture
     this.image.setTexture(`texture_${type}`)
 
     // Apply mobile scale (1.3x larger on mobile for better visibility)
     const scale = isMobile ? 1.3 : 1
-    this.setScale(scale)
 
     // Store metadata
     this.setData('id', id)
     this.setData('type', type)
-    this.setData('rotationSpeed', (Math.random() - 0.5) * 0.05)
+
+    // Determine rotation behavior based on coin type
+    let rotationSpeed = 0.5 // Default clockwise for CALL
+    let jitterAmount = 0
+    let hasTrail = false
+
+    switch (type) {
+      case 'call':
+        rotationSpeed = 0.5 // Clockwise
+        break
+      case 'put':
+        rotationSpeed = -0.5 // Counter-clockwise
+        break
+      case 'gas':
+        rotationSpeed = 0
+        jitterAmount = 2 // Jittery rotation
+        break
+      case 'whale':
+        rotationSpeed = 1.2 // Double speed
+        hasTrail = true
+        break
+    }
+
+    this.setData('rotationSpeed', rotationSpeed)
+    this.setData('jitterAmount', jitterAmount)
+    this.setData('hasTrail', hasTrail)
+    this.setData('spawnTime', this.scene.time.now)
+    this.setData('baseScale', scale)
 
     // Store initial position for incremental spatial grid updates
     this.setData('oldX', x)
@@ -69,13 +102,16 @@ export class Token extends GameObjects.Container {
     // Ensure physics body is enabled
     if (!this.body) {
       this.scene.physics.add.existing(this)
-      this.body = this.body as Physics.Arcade.Body
+      // Verify body was actually created (physics.add.existing can fail)
+      if (!this.body) {
+        throw new Error('Failed to create physics body for Token')
+      }
     }
 
     // Reset physics state (clear accumulated forces)
-    this.body.reset(x, y) // Cleaner than setPosition for physics bodies
-    this.body.setAcceleration(0, 0) // Clear any accumulated forces
-    this.body.setVelocity(0, 0) // Clear velocity before setting new values
+    this.body.reset(x, y)
+    this.body.setAcceleration(0, 0)
+    this.body.setVelocity(0, 0)
 
     // Configure physics (Fruit Ninja style - Floaty Heavy feel)
     this.body.setVelocity(
@@ -90,14 +126,99 @@ export class Token extends GameObjects.Container {
     const hitboxRadius = config.radius * 0.85 * scale
     this.body.setCircle(hitboxRadius)
 
-    // Angular velocity for slow rotation effect
-    this.body.setAngularVelocity(Phaser.Math.Between(-50, 50))
+    // Start at scale 0 for spawn animation
+    this.setScale(0)
+
+    // Play spawn animation (elastic scale-in + rotation burst)
+    this.playSpawnAnimation(scale, type)
+
+    // Start pulsing glow animation
+    this.startPulseAnimation()
+
+    // Set initial angular velocity
+    this.body.setAngularVelocity(rotationSpeed * 60) // Convert rad/s to deg/s for Phaser
+  }
+
+  private playSpawnAnimation(targetScale: number, type: CoinType): void {
+    // Kill any existing spawn tweens
+    if (this.spawnScaleTween) {
+      this.spawnScaleTween.destroy()
+    }
+    if (this.spawnRotationTween) {
+      this.spawnRotationTween.destroy()
+    }
+    if (this.yoyoScaleTween) {
+      this.yoyoScaleTween.destroy()
+    }
+
+    // Elastic scale-in (0 → 1.2 → 1.0)
+    this.spawnScaleTween = this.scene.tweens.add({
+      targets: this,
+      scale: targetScale * 1.2,
+      duration: 150,
+      ease: 'Back.easeOut',
+      yoyo: true,
+      onYoyo: () => {
+        // After reaching 1.2x, tween back to 1.0x
+        // Track nested tween for cleanup
+        this.yoyoScaleTween = this.scene.tweens.add({
+          targets: this,
+          scale: targetScale,
+          duration: 100,
+          ease: 'Power2',
+        })
+      },
+    })
+
+    // Initial rotation burst (±90 degrees)
+    const rotationBurst = Phaser.Math.FloatBetween(-Math.PI / 2, Math.PI / 2)
+    this.spawnRotationTween = this.scene.tweens.add({
+      targets: this,
+      angle: rotationBurst * (180 / Math.PI), // Convert to degrees
+      duration: 200,
+      ease: 'Power2.easeOut',
+    })
+  }
+
+  private startPulseAnimation(): void {
+    // Kill existing pulse tween
+    if (this.pulseTween) {
+      this.pulseTween.destroy()
+    }
+
+    // Pulsing glow animation (2-second cycle)
+    this.pulseTween = this.scene.tweens.add({
+      targets: this.image,
+      alpha: 0.85,
+      duration: 1000,
+      ease: 'Sine.easeInOut',
+      yoyo: true,
+      repeat: -1,
+    })
   }
 
   /**
    * Handle slice event - play death animation then return to pool.
    */
   onSlice(): void {
+    // Kill all tweens to prevent memory leaks
+    if (this.spawnScaleTween) {
+      this.spawnScaleTween.destroy()
+      this.spawnScaleTween = undefined
+    }
+    if (this.spawnRotationTween) {
+      this.spawnRotationTween.destroy()
+      this.spawnRotationTween = undefined
+    }
+    if (this.yoyoScaleTween) {
+      this.yoyoScaleTween.destroy()
+      this.yoyoScaleTween = undefined
+    }
+    if (this.pulseTween) {
+      this.pulseTween.destroy()
+      this.pulseTween = undefined
+    }
+
     // Return to pool (deactivate)
     this.setActive(false)
     this.setVisible(false)
@@ -111,9 +232,51 @@ export class Token extends GameObjects.Container {
   }
 
   /**
+   * Cleanup when token is destroyed (scene shutdown).
+   * Ensures all tweens are properly destroyed.
+   */
+  destroy(): void {
+    // Destroy all tweens to prevent memory leaks
+    if (this.spawnScaleTween) {
+      this.spawnScaleTween.destroy()
+      this.spawnScaleTween = undefined
+    }
+    if (this.spawnRotationTween) {
+      this.spawnRotationTween.destroy()
+      this.spawnRotationTween = undefined
+    }
+    if (this.yoyoScaleTween) {
+      this.yoyoScaleTween.destroy()
+      this.yoyoScaleTween = undefined
+    }
+    if (this.pulseTween) {
+      this.pulseTween.destroy()
+      this.pulseTween = undefined
+    }
+
+    // Destroy graphics objects
+    if (this.glowRing) {
+      this.glowRing.destroy()
+      this.glowRing = undefined
+    }
+
+    // Clear image reference (will be destroyed by Container's destroy)
+    this.image = null as any
+
+    super.destroy()
+  }
+
+  /**
    * Update rotation (not handled by physics).
    */
   preUpdate(time: number, delta: number): void {
-    // Rotation handled by angular velocity
+    const type = this.getData('type') as CoinType
+    const jitterAmount = this.getData('jitterAmount') as number
+
+    // Apply jitter for gas coins
+    if (type === 'gas' && jitterAmount > 0) {
+      const jitter = Phaser.Math.FloatBetween(-jitterAmount, jitterAmount)
+      this.rotation += jitter * (delta / 1000)
+    }
   }
 }

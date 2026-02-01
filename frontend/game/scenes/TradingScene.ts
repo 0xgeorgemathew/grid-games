@@ -4,35 +4,56 @@ import type { CoinType } from '../types/trading'
 import { Token } from '../objects/Token'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 
-// Coin configuration for visual rendering (Futuristic Trading Terminal theme)
+// Trail particle interface
+interface TrailParticle {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  life: number
+  maxLife: number
+}
+
+// Slice particle interface
+interface SliceParticle {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  life: number
+  maxLife: number
+  color: number
+}
+
+// Coin configuration for visual rendering (NEON ARCADE TERMINAL theme)
 export const COIN_CONFIG = {
   call: {
-    color: 0x00ff88, // Electric green (bullish)
+    color: 0x39ff14, // Electric Lime (bullish)
     symbol: '₿',
     arrow: '▲',
-    radius: 20,
-    innerColor: 0x00cc6a, // Darker green inner
+    radius: 28,
+    innerColor: 0x2ecc00, // Darker lime inner
   },
   put: {
-    color: 0xff0088, // Hot pink (bearish)
+    color: 0xff1744, // Neon Red (bearish)
     symbol: '₿',
     arrow: '▼',
-    radius: 20,
-    innerColor: 0xcc006a, // Darker pink inner
+    radius: 28,
+    innerColor: 0xcc0033, // Darker red inner
   },
   gas: {
-    color: 0xffcc00, // Hazard yellow
+    color: 0xffd700, // Hazard gold
     symbol: '⚡',
     arrow: '',
-    radius: 20,
-    innerColor: 0xff8800, // Orange inner
+    radius: 28,
+    innerColor: 0xff8c00, // Orange inner
   },
   whale: {
-    color: 0x8800ff, // Regal purple
+    color: 0xff00ff, // Legendary Magenta
     symbol: '★',
     arrow: '',
-    radius: 32,
-    innerColor: 0x6600cc, // Deep violet inner
+    radius: 40,
+    innerColor: 0xcc00cc, // Deep magenta inner
   },
 } as const
 
@@ -44,9 +65,19 @@ export class TradingScene extends Scene {
   // Blade rendering
   private bladePath: Geom.Point[] = []
   private bladeGraphics!: GameObjects.Graphics
+  private lastBladePosition: Geom.Point = new Geom.Point(0, 0)
+  private bladeVelocity: { x: number; y: number } = { x: 0, y: 0 }
 
   // Grid background
   private gridGraphics!: GameObjects.Graphics
+  private gridBackGraphics!: GameObjects.Graphics // Parallax back layer
+  private gridScrollOffset: number = 0
+  private gridBackScrollOffset: number = 0
+  private scanlineY: number = 0
+  private pulseEffects: Array<{ x: number; y: number; radius: number; alpha: number }> = []
+  private pulseTimer: number = 0
+  private gridGlowLines: Set<number> = new Set()
+  private gridGlowTimer: number = 0
 
   // Reusable geometry for collision detection (prevents GC stutter)
   private collisionLine = new Geom.Line(0, 0, 0, 0)
@@ -74,6 +105,19 @@ export class TradingScene extends Scene {
   }[] = []
   private readonly SPLIT_POOL_SIZE = 10
 
+  // Trail particle system
+  private particles: TrailParticle[] = []
+  private readonly MAX_PARTICLES = 50
+  private particleGraphics!: GameObjects.Graphics
+
+  // Slice particle burst pool
+  private sliceParticles: SliceParticle[] = []
+  private readonly MAX_SLICE_PARTICLES = 200 // Increased to prevent hitting limit
+  private sliceParticleGraphics!: GameObjects.Graphics
+
+  // Electrical arc tracking for cleanup (prevents memory leaks)
+  private electricalArcs: GameObjects.Graphics[] = []
+
   // Change detection for blade path (prevents unnecessary updates)
   private lastBladePoint: Geom.Point | null = null
 
@@ -99,10 +143,20 @@ export class TradingScene extends Scene {
     this.bladeGraphics = this.add.graphics()
     this.bladeGraphics.setDepth(1000) // Ensure blade renders on top
 
+    // Create particle graphics
+    this.particleGraphics = this.add.graphics()
+    this.particleGraphics.setDepth(999) // Just below blade
+
+    this.sliceParticleGraphics = this.add.graphics()
+    this.sliceParticleGraphics.setDepth(1001) // On top of blade
+
     // Create grid graphics and draw background
+    this.gridBackGraphics = this.add.graphics()
+    this.gridBackGraphics.setDepth(-2) // Back parallax layer
     this.gridGraphics = this.add.graphics()
-    this.gridGraphics.setDepth(-1) // Ensure grid renders behind everything
+    this.gridGraphics.setDepth(-1) // Front grid layer
     this.drawGridBackground()
+    this.initializeGridGlows()
 
     // Generate cached textures for all coin types
     this.generateCachedTextures()
@@ -170,7 +224,12 @@ export class TradingScene extends Scene {
   }
 
   update(): void {
+    // Guard against shutdown - prevent updates after scene destruction
+    if (this.isShutdown) return
+
+    this.updateGrid()
     this.updateCoinPhysics()
+    this.updateTrailParticles()
     this.drawBlade()
     // Spatial grid now updates incrementally in updateCoinPhysics()
     this.checkCollisions()
@@ -246,30 +305,113 @@ export class TradingScene extends Scene {
   }
 
   private drawGridBackground(): void {
-    const GRID_SIZE = 60
     const width = this.cameras.main.width
     const height = this.cameras.main.height
 
-    // Landing Page theme colors
-    const GRID_COLOR = 0x00f3ff // Tron cyan (from globals.css --color-tron-cyan)
-    const BACKGROUND_COLOR = 0x0a0a0f // Near-black
+    // NEON ARCADE TERMINAL theme colors
+    const GRID_COLOR = 0x00f3ff // Tron cyan
+    const BACKGROUND_COLOR = 0x0a0a0a // Deep black void
 
-    // Fill background
+    // Fill background with void color
     this.gridGraphics.fillStyle(BACKGROUND_COLOR, 1)
     this.gridGraphics.fillRect(0, 0, width, height)
+  }
 
-    // Draw grid lines with better visibility
-    this.gridGraphics.lineStyle(1, GRID_COLOR, 0.5) // Increased from 0.3 to 0.5
+  private initializeGridGlows(): void {
+    // Select random lines for glow effect (20% of lines)
+    this.gridGlowLines.clear()
+    const width = this.cameras.main.width
+    const GRID_SIZE = 60
+    const numLines = Math.ceil(width / GRID_SIZE)
+    const numGlows = Math.ceil(numLines * 0.2)
 
-    // Vertical lines
-    for (let x = 0; x <= width; x += GRID_SIZE) {
+    for (let i = 0; i < numGlows; i++) {
+      this.gridGlowLines.add(Phaser.Math.Between(0, numLines))
+    }
+  }
+
+  private updateGrid(): void {
+    const width = this.cameras.main.width
+    const height = this.cameras.main.height
+    const FRONT_GRID_SIZE = 60
+    const BACK_GRID_SIZE = 80
+    const GRID_COLOR = 0x00f3ff
+    const delta = 1000 / 60 // Assume 60fps
+
+    // Update scroll offsets
+    this.gridScrollOffset = (this.gridScrollOffset + 10 * (delta / 1000)) % FRONT_GRID_SIZE
+    this.gridBackScrollOffset = (this.gridBackScrollOffset + 5 * (delta / 1000)) % BACK_GRID_SIZE
+    this.scanlineY = (this.scanlineY + height / (6 * 60)) % height // 6-second sweep
+
+    // Update pulse timer
+    this.pulseTimer += delta
+    if (this.pulseTimer > 200) {
+      // Pulse every 200ms (5 per second)
+      this.pulseTimer = 0
+      const x = Phaser.Math.Between(0, width)
+      const y = Phaser.Math.Between(0, height)
+      this.pulseEffects.push({ x, y, radius: 0, alpha: 1 })
+    }
+
+    // Update glow timer (change every 3 seconds)
+    this.gridGlowTimer += delta
+    if (this.gridGlowTimer > 3000) {
+      this.gridGlowTimer = 0
+      this.initializeGridGlows()
+    }
+
+    // Clear and redraw back grid (parallax layer)
+    this.gridBackGraphics.clear()
+    this.gridBackGraphics.lineStyle(1, GRID_COLOR, 0.1)
+    for (let x = 0; x <= width; x += BACK_GRID_SIZE) {
+      this.gridBackGraphics.lineBetween(x, 0, x, height)
+    }
+    for (let y = -BACK_GRID_SIZE + this.gridBackScrollOffset; y <= height; y += BACK_GRID_SIZE) {
+      this.gridBackGraphics.lineBetween(0, y, width, y)
+    }
+
+    // Clear and redraw front grid
+    this.gridGraphics.clear()
+
+    // Fill background
+    this.gridGraphics.fillStyle(0x0a0a0a, 1)
+    this.gridGraphics.fillRect(0, 0, width, height)
+
+    // Draw front grid with scroll
+    const numVerticalLines = Math.ceil(width / FRONT_GRID_SIZE)
+    for (let i = 0; i <= numVerticalLines; i++) {
+      const x = i * FRONT_GRID_SIZE
+      const isGlow = this.gridGlowLines.has(i)
+      const alpha = isGlow ? 0.4 : 0.25
+      const lineWidth = isGlow ? 3 : 1
+
+      this.gridGraphics.lineStyle(lineWidth, GRID_COLOR, alpha)
       this.gridGraphics.lineBetween(x, 0, x, height)
     }
 
-    // Horizontal lines
-    for (let y = 0; y <= height; y += GRID_SIZE) {
+    for (let y = -FRONT_GRID_SIZE + this.gridScrollOffset; y <= height; y += FRONT_GRID_SIZE) {
+      this.gridGraphics.lineStyle(1, GRID_COLOR, 0.25)
       this.gridGraphics.lineBetween(0, y, width, y)
     }
+
+    // Draw pulse effects (expanding circles at intersections)
+    for (let i = this.pulseEffects.length - 1; i >= 0; i--) {
+      const pulse = this.pulseEffects[i]
+      pulse.radius += 100 * (delta / 1000)
+      pulse.alpha -= 0.5 * (delta / 1000)
+
+      if (pulse.alpha <= 0) {
+        this.pulseEffects.splice(i, 1)
+        continue
+      }
+
+      this.gridGraphics.lineStyle(2, GRID_COLOR, pulse.alpha * 0.3)
+      this.gridGraphics.strokeCircle(pulse.x, pulse.y, pulse.radius)
+    }
+
+    // Draw scanline
+    this.gridGraphics.fillStyle(0x00f3ff, 0.03)
+    this.gridGraphics.fillRect(0, this.scanlineY, width, 4)
   }
 
   private generateCachedTextures(): void {
@@ -277,7 +419,7 @@ export class TradingScene extends Scene {
 
     textureKeys.forEach((type) => {
       const config = COIN_CONFIG[type]
-      const diameter = config.radius * 2
+      const diameter = config.radius * 2 + 8 // Extra padding for glow
 
       // Create a container to hold all elements
       const container = this.add.container(0, 0)
@@ -285,9 +427,17 @@ export class TradingScene extends Scene {
       // 1. Create graphics for coin body
       const graphics = this.add.graphics()
 
+      // Draw outer bloom glow (larger, softer glow)
+      const glowColor = Phaser.Display.Color.IntegerToColor(config.color)
+      for (let r = config.radius + 4; r >= config.radius; r--) {
+        const alpha = ((config.radius + 4 - r) / 4) * 0.3
+        graphics.fillStyle(config.color, alpha)
+        graphics.fillCircle(0, 0, r)
+      }
+
       // Draw coin body (radial gradient)
       const centerColor = config.color
-      const edgeColor = Phaser.Display.Color.IntegerToColor(config.color).darken(40).color
+      const edgeColor = Phaser.Display.Color.IntegerToColor(config.color).darken(30).color
 
       for (let r = config.radius; r >= 0; r -= 2) {
         const t = r / config.radius
@@ -297,18 +447,23 @@ export class TradingScene extends Scene {
           config.radius,
           t
         )
-        graphics.fillStyle(color.color, 1 - t * 0.3)
+        graphics.fillStyle(color.color, 1 - t * 0.2)
         graphics.fillCircle(0, 0, r)
       }
 
-      // Draw metallic shine
-      graphics.fillStyle(0xffffff, 0.15)
+      // Draw metallic shine (top-left highlight)
+      graphics.fillStyle(0xffffff, 0.25)
       graphics.fillCircle(-config.radius * 0.3, -config.radius * 0.3, config.radius * 0.4)
 
-      // Draw inner circle
+      // Draw inner ring (concentric at 60% radius, white stroke)
+      const innerRingRadius = config.radius * 0.6
+      graphics.lineStyle(2, 0xffffff, 0.5)
+      graphics.strokeCircle(0, 0, innerRingRadius)
+
+      // Draw inner circle with gradient
       const innerRadius = config.radius * 0.75
       const innerCenter = config.innerColor
-      const innerEdge = Phaser.Display.Color.IntegerToColor(config.innerColor).darken(20).color
+      const innerEdge = Phaser.Display.Color.IntegerToColor(config.innerColor).darken(15).color
 
       for (let r = innerRadius; r >= 0; r -= 1.5) {
         const t = r / innerRadius
@@ -318,21 +473,27 @@ export class TradingScene extends Scene {
           innerRadius,
           t
         )
-        graphics.fillStyle(color.color, 0.95)
+        graphics.fillStyle(color.color, 0.98)
         graphics.fillCircle(0, 0, r)
       }
 
-      graphics.lineStyle(2, 0xffffff, 0.3)
-      graphics.strokeCircle(0, 0, innerRadius)
       container.add(graphics)
 
-      // 2. Draw symbol (₿, ⚡, or ★)
+      // 2. Draw symbol (₿, ⚡, or ★) - white with glow for contrast
       const symbol = this.add
         .text(0, 2, config.symbol, {
           fontSize: `${config.radius * 1.0}px`,
-          color: '#000000',
+          color: '#FFFFFF',
           fontStyle: 'bold',
           fontFamily: 'Arial, sans-serif',
+          shadow: {
+            offsetX: 0,
+            offsetY: 0,
+            blur: 10,
+            color: '#FFFFFF',
+            stroke: false,
+            fill: true,
+          },
         })
         .setOrigin(0.5)
       container.add(symbol)
@@ -340,13 +501,21 @@ export class TradingScene extends Scene {
       // 3. Draw arrow (if applicable)
       if (config.arrow) {
         const arrowY = config.arrow === '▲' ? -config.radius * 0.5 : config.radius * 0.5
-        const arrowColor = config.arrow === '▲' ? '#00ff88' : '#ff0088'
+        const arrowColor = config.arrow === '▲' ? '#39ff14' : '#ff1744'
 
         const arrow = this.add
           .text(0, arrowY, config.arrow, {
             fontSize: `${config.radius * 0.5}px`,
             color: arrowColor,
             fontStyle: 'bold',
+            shadow: {
+              offsetX: 0,
+              offsetY: 0,
+              blur: 6,
+              color: arrowColor,
+              stroke: false,
+              fill: true,
+            },
           })
           .setOrigin(0.5)
         container.add(arrow)
@@ -355,7 +524,7 @@ export class TradingScene extends Scene {
       // 4. Generate texture from container
       // Create a render texture to capture the container
       const renderTexture = this.make.renderTexture({ width: diameter, height: diameter }, false)
-      renderTexture.draw(container, config.radius, config.radius)
+      renderTexture.draw(container, diameter / 2, diameter / 2)
       renderTexture.saveTexture(`texture_${type}`)
       renderTexture.destroy()
 
@@ -434,6 +603,27 @@ export class TradingScene extends Scene {
     // Kill ALL active tweens BEFORE cleanup
     this.tweens.killAll()
 
+    // CRITICAL: Destroy all graphics objects to prevent GPU memory leaks
+    this.bladeGraphics?.destroy()
+    this.particleGraphics?.destroy()
+    this.sliceParticleGraphics?.destroy()
+    this.gridGraphics?.destroy()
+    this.gridBackGraphics?.destroy()
+
+    // Clear references
+    this.bladeGraphics = null as any
+    this.particleGraphics = null as any
+    this.sliceParticleGraphics = null as any
+    this.gridGraphics = null as any
+    this.gridBackGraphics = null as any
+
+    // Clean up all active electrical arcs
+    this.electricalArcs.forEach((arc) => arc.destroy())
+    this.electricalArcs.length = 0
+
+    // Remove resize event listener to prevent post-shutdown callbacks
+    this.scale.off('resize')
+
     // Signal scene not ready before destroying event emitter
     const setReady = (window as unknown as { setSceneReady?: (ready: boolean) => void })
       .setSceneReady
@@ -466,37 +656,78 @@ export class TradingScene extends Scene {
       effect.rightContainer.destroy()
     })
     this.splitEffectPool.length = 0
+
+    // Clear particle arrays properly (use length=0 instead of reassignment)
+    this.particles.length = 0
+    this.sliceParticles.length = 0
+    this.pulseEffects.length = 0
+    this.gridGlowLines.clear()
   }
 
   private drawBlade(): void {
     this.bladeGraphics.clear()
     if (this.bladePath.length < 2) return
 
-    const trailColor = 0x00d9ff // Tron cyan
+    const trailColor = 0x00f3ff // TRON CYAN
     const isMobile = this.isMobile
     const coreWidth = isMobile ? 4 : 3
-    const glowWidth = isMobile ? 15 : 12
+    const glowWidth = isMobile ? 20 : 15
+    const midWidth = isMobile ? 10 : 8
+
+    // Calculate velocity for motion blur
+    const head = this.bladePath[this.bladePath.length - 1]
+    const prev = this.bladePath[this.bladePath.length - 2]
+    const dx = head.x - prev.x
+    const dy = head.y - prev.y
+    const velocity = Math.sqrt(dx * dx + dy * dy) * 60 // pixels per second (assuming 60fps)
+
+    // Update velocity tracking
+    this.bladeVelocity.x = dx
+    this.bladeVelocity.y = dy
+    this.lastBladePosition.x = head.x
+    this.lastBladePosition.y = head.y
+
+    const isHighVelocity = velocity > 500
+    const motionBlurMultiplier = isHighVelocity ? 1.2 : 1.0
+
+    // Emit trail particles at blade head
+    this.emitTrailParticles(head.x, head.y, 2)
 
     // Set additive blend mode for luminous effect
     this.bladeGraphics.setBlendMode(Phaser.BlendModes.ADD)
 
-    // Draw glow layer (outer diffuse glow)
+    // Draw glow layer (outer diffuse glow) - Layer 1
     for (let i = 0; i < this.bladePath.length - 1; i++) {
       const p1 = this.bladePath[i]
       const p2 = this.bladePath[i + 1]
 
       // Exponential fade for smoother appearance
       const t = i / (this.bladePath.length - 1)
-      const alpha = t * t * 0.4 // Quadratic curve, max 0.4 alpha
+      const alpha = t * t * 0.3 // Quadratic curve, max 0.3 alpha
 
-      this.bladeGraphics.lineStyle(glowWidth, trailColor, alpha)
+      this.bladeGraphics.lineStyle(glowWidth * motionBlurMultiplier, trailColor, alpha)
       this.bladeGraphics.beginPath()
       this.bladeGraphics.moveTo(p1.x, p1.y)
       this.bladeGraphics.lineTo(p2.x, p2.y)
       this.bladeGraphics.strokePath()
     }
 
-    // Draw core layer (bright center)
+    // Draw mid layer - Layer 2
+    for (let i = 0; i < this.bladePath.length - 1; i++) {
+      const p1 = this.bladePath[i]
+      const p2 = this.bladePath[i + 1]
+
+      const t = i / (this.bladePath.length - 1)
+      const alpha = t * t * 0.6
+
+      this.bladeGraphics.lineStyle(midWidth * motionBlurMultiplier, trailColor, alpha)
+      this.bladeGraphics.beginPath()
+      this.bladeGraphics.moveTo(p1.x, p1.y)
+      this.bladeGraphics.lineTo(p2.x, p2.y)
+      this.bladeGraphics.strokePath()
+    }
+
+    // Draw core layer (bright center) - Layer 3
     for (let i = 0; i < this.bladePath.length - 1; i++) {
       const p1 = this.bladePath[i]
       const p2 = this.bladePath[i + 1]
@@ -505,7 +736,7 @@ export class TradingScene extends Scene {
       const t = i / (this.bladePath.length - 1)
       const alpha = t * t * t // Cubic curve for tighter bright core
 
-      this.bladeGraphics.lineStyle(coreWidth, 0xffffff, alpha)
+      this.bladeGraphics.lineStyle(coreWidth, 0xffffff, alpha * 0.9)
       this.bladeGraphics.beginPath()
       this.bladeGraphics.moveTo(p1.x, p1.y)
       this.bladeGraphics.lineTo(p2.x, p2.y)
@@ -513,6 +744,114 @@ export class TradingScene extends Scene {
     }
 
     this.bladeGraphics.setDepth(1000)
+
+    // Also update slice particles
+    this.updateSliceParticles()
+  }
+
+  private emitTrailParticles(x: number, y: number, count: number = 2): void {
+    for (let i = 0; i < count; i++) {
+      if (this.particles.length >= this.MAX_PARTICLES) break
+
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
+      const speed = Phaser.Math.FloatBetween(50, 100)
+
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 300, // 300ms lifespan
+        maxLife: 300,
+      })
+    }
+  }
+
+  private updateTrailParticles(): void {
+    const delta = 1000 / 60 // Assume 60fps
+
+    // Update existing particles
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i]
+      p.x += p.vx * (delta / 1000)
+      p.y += p.vy * (delta / 1000)
+      p.life -= delta
+
+      if (p.life <= 0) {
+        this.particles.splice(i, 1)
+      }
+    }
+
+    // Draw particles
+    this.particleGraphics.clear()
+    this.particleGraphics.setBlendMode(Phaser.BlendModes.ADD)
+
+    for (const p of this.particles) {
+      const alpha = (p.life / p.maxLife) * 0.5
+      const size = (p.life / p.maxLife) * 6
+
+      // Core
+      this.particleGraphics.fillStyle(0xffffff, alpha)
+      this.particleGraphics.fillCircle(p.x, p.y, size * 0.5)
+
+      // Glow
+      this.particleGraphics.fillStyle(0x00f3ff, alpha * 0.6)
+      this.particleGraphics.fillCircle(p.x, p.y, size)
+    }
+  }
+
+  private emitSliceParticles(x: number, y: number, color: number, count: number = 20): void {
+    for (let i = 0; i < count; i++) {
+      if (this.sliceParticles.length >= this.MAX_SLICE_PARTICLES) break
+
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
+      const speed = Phaser.Math.FloatBetween(100, 300)
+
+      this.sliceParticles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 50, // Slight upward bias
+        life: 500, // 500ms lifespan
+        maxLife: 500,
+        color,
+      })
+    }
+  }
+
+  private updateSliceParticles(): void {
+    const delta = 1000 / 60 // Assume 60fps
+    const gravity = 500 // Gravity for slice particles
+
+    // Update existing particles
+    for (let i = this.sliceParticles.length - 1; i >= 0; i--) {
+      const p = this.sliceParticles[i]
+      p.vy += gravity * (delta / 1000)
+      p.x += p.vx * (delta / 1000)
+      p.y += p.vy * (delta / 1000)
+      p.life -= delta
+
+      if (p.life <= 0) {
+        this.sliceParticles.splice(i, 1)
+      }
+    }
+
+    // Draw particles
+    this.sliceParticleGraphics.clear()
+    this.sliceParticleGraphics.setBlendMode(Phaser.BlendModes.ADD)
+
+    for (const p of this.sliceParticles) {
+      const alpha = (p.life / p.maxLife) * 0.8
+      const size = (p.life / p.maxLife) * 8
+
+      // Glow
+      this.sliceParticleGraphics.fillStyle(p.color, alpha * 0.5)
+      this.sliceParticleGraphics.fillCircle(p.x, p.y, size)
+
+      // Core
+      this.sliceParticleGraphics.fillStyle(0xffffff, alpha)
+      this.sliceParticleGraphics.fillCircle(p.x, p.y, size * 0.4)
+    }
   }
 
   private checkCollisions(): void {
@@ -597,17 +936,29 @@ export class TradingScene extends Scene {
     // Use percentage-based margins for mobile compatibility
     const margin = Math.min(100, this.cameras.main.width * 0.15)
 
+    // Convert color number to hex string
+    const colorHex = '#' + config.color.toString(16).padStart(6, '0')
+
     const text = this.add
       .text(
         Phaser.Math.Between(margin, this.cameras.main.width - margin),
         Phaser.Math.Between(margin, this.cameras.main.height - margin),
-        `${data.playerName}: ${data.coinType}!`,
+        `${data.playerName}: ${data.coinType.toUpperCase()}!`,
         {
           fontSize: this.isMobile ? '28px' : '20px',
           fontStyle: 'bold',
-          color: `#${config.color.toString(16).padStart(6, '0')}`,
+          fontFamily: 'Arial, sans-serif',
+          color: colorHex,
           stroke: '#000000',
           strokeThickness: 4,
+          shadow: {
+            offsetX: 0,
+            offsetY: 0,
+            blur: 8,
+            color: colorHex,
+            stroke: false,
+            fill: true,
+          },
         }
       )
       .setOrigin(0.5)
@@ -621,12 +972,15 @@ export class TradingScene extends Scene {
     const config = COIN_CONFIG[type]
     const store = useTradingStore.getState()
 
+    // Emit slice particle burst
+    this.emitSliceParticles(coin.x, coin.y, config.color, 20)
+
     // Create split effect (2 half-coins flying apart)
-    this.createSplitEffect(coin.x, coin.y, config.color, config.radius)
+    this.createSplitEffect(coin.x, coin.y, config.color, config.radius, type)
 
     if (type === 'gas') {
       // Gas coins damage the slicer immediately
-      this.cameras.main.flash(200, 255, 255, 0, false)
+      // Stronger flash for gas (already handled in createSplitEffect via electrical arc)
       store.sliceCoin(coinId, type, 0)
       this.removeCoin(coinId)
       return
@@ -638,7 +992,7 @@ export class TradingScene extends Scene {
 
     if (type === 'whale') {
       this.cameras.main.shake(200, 0.015)
-      this.cameras.main.flash(100, 255, 215, 0, false)
+      // Flash already handled in createSplitEffect
     }
 
     this.removeCoin(coinId)
@@ -682,7 +1036,13 @@ export class TradingScene extends Scene {
     }
   }
 
-  private createSplitEffect(x: number, y: number, color: number, radius: number): void {
+  private createSplitEffect(
+    x: number,
+    y: number,
+    color: number,
+    radius: number,
+    coinType?: CoinType
+  ): void {
     const pooled = this.getSplitEffectFromPool()
 
     const leftHalf = pooled?.left || this.add.graphics()
@@ -692,16 +1052,32 @@ export class TradingScene extends Scene {
 
     if (!pooled) {
       // Only create graphics if not from pool
+      // Draw left semicircle with enhanced glow
       leftHalf.fillStyle(color, 1)
       leftHalf.beginPath()
-      leftHalf.arc(0, 0, radius, Math.PI, Math.PI * 2) // Left semicircle (180° → 360°)
+      leftHalf.arc(0, 0, radius, Math.PI, Math.PI * 2)
       leftHalf.fillPath()
+
+      // Add glow effect
+      leftHalf.lineStyle(3, color, 0.5)
+      leftHalf.beginPath()
+      leftHalf.arc(0, 0, radius + 2, Math.PI, Math.PI * 2)
+      leftHalf.strokePath()
+
       leftContainer.add(leftHalf)
 
+      // Draw right semicircle with enhanced glow
       rightHalf.fillStyle(color, 1)
       rightHalf.beginPath()
-      rightHalf.arc(0, 0, radius, 0, Math.PI) // Right semicircle (0° → 180°)
+      rightHalf.arc(0, 0, radius, 0, Math.PI)
       rightHalf.fillPath()
+
+      // Add glow effect
+      rightHalf.lineStyle(3, color, 0.5)
+      rightHalf.beginPath()
+      rightHalf.arc(0, 0, radius + 2, 0, Math.PI)
+      rightHalf.strokePath()
+
       rightContainer.add(rightHalf)
     }
 
@@ -718,8 +1094,15 @@ export class TradingScene extends Scene {
     let rightComplete = false
 
     const handleComplete = () => {
-      // Guard against shutdown
-      if (this.isShutdown) return
+      // Guard against shutdown - pool may be destroyed
+      if (this.isShutdown) {
+        // Clean up non-pooled effects to prevent leaks
+        if (!pooled) {
+          leftContainer?.destroy()
+          rightContainer?.destroy()
+        }
+        return
+      }
 
       if (pooled) {
         // Only return when BOTH complete
@@ -733,12 +1116,15 @@ export class TradingScene extends Scene {
       }
     }
 
-    // Animate halves flying apart
+    // Animate halves flying apart with more dramatic movement
+    const flyDistance = coinType === 'whale' ? 60 : 40
+    const rotationAmount = coinType === 'whale' ? 1.5 : 1
+
     this.tweens.add({
       targets: leftContainer,
-      x: x - 40,
-      y: y + 20,
-      rotation: -1,
+      x: x - flyDistance,
+      y: y + flyDistance * 0.5,
+      rotation: -rotationAmount,
       alpha: 0,
       duration: 400,
       ease: 'Power2',
@@ -750,15 +1136,75 @@ export class TradingScene extends Scene {
 
     this.tweens.add({
       targets: rightContainer,
-      x: x + 40,
-      y: y - 20,
-      rotation: 1,
+      x: x + flyDistance,
+      y: y - flyDistance * 0.5,
+      rotation: rotationAmount,
       alpha: 0,
       duration: 400,
       ease: 'Power2',
       onComplete: () => {
         rightComplete = true
         handleComplete()
+      },
+    })
+
+    // Add electrical arc effect for GAS coins
+    if (coinType === 'gas') {
+      this.createElectricalArc(x, y, color)
+    }
+
+    // Stronger bloom flash for all coins
+    this.cameras.main.flash(100, (color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff, false)
+  }
+
+  private createElectricalArc(x: number, y: number, color: number): void {
+    // Create electrical arc effect using jagged lines
+    const arcGraphics = this.add.graphics()
+    this.electricalArcs.push(arcGraphics) // Track for cleanup
+
+    arcGraphics.setDepth(1002)
+    arcGraphics.lineStyle(2, 0xffffff, 0.8)
+    arcGraphics.setBlendMode(Phaser.BlendModes.ADD)
+
+    const numArcs = Phaser.Math.Between(3, 5)
+    const arcLength = 50
+
+    for (let i = 0; i < numArcs; i++) {
+      const angle = (Math.PI * 2 * i) / numArcs
+      let currentX = x
+      let currentY = y
+
+      arcGraphics.beginPath()
+      arcGraphics.moveTo(currentX, currentY)
+
+      // Create jagged path
+      const segments = Phaser.Math.Between(3, 6)
+      for (let j = 0; j < segments; j++) {
+        const segmentLength = arcLength / segments
+        const jitter = Phaser.Math.FloatBetween(-0.3, 0.3) // Random angle jitter
+        const newAngle = angle + jitter
+        currentX += Math.cos(newAngle) * segmentLength
+        currentY += Math.sin(newAngle) * segmentLength
+        arcGraphics.lineTo(currentX, currentY)
+      }
+
+      arcGraphics.strokePath()
+    }
+
+    // Fade out and destroy
+    this.tweens.add({
+      targets: arcGraphics,
+      alpha: 0,
+      duration: 200,
+      ease: 'Power2',
+      onComplete: () => {
+        // Double-check guard: scene may have shut down during tween
+        if (this.isShutdown) return
+
+        arcGraphics.destroy()
+        // Remove from tracking array
+        const idx = this.electricalArcs.indexOf(arcGraphics)
+        if (idx >= 0) this.electricalArcs.splice(idx, 1)
       },
     })
   }
