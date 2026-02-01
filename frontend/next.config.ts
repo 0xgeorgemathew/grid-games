@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Custom server.ts handles Socket.IO - no standalone needed for Railway
 }
 
 export default nextConfig

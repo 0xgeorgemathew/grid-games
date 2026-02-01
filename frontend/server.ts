@@ -3,7 +3,7 @@ import next from 'next'
 import { initializeSocketIO } from './app/api/socket/route'
 
 const dev = process.env.NODE_ENV !== 'production'
-const hostname = 'localhost'
+const hostname = process.env.HOSTNAME || (dev ? 'localhost' : '0.0.0.0')
 const port = parseInt(process.env.PORT || '3000', 10)
 
 const app = next({ dev, hostname, port })
@@ -20,7 +20,7 @@ app.prepare().then(() => {
       console.error('Failed to start server:', err)
       process.exit(1)
     })
-    .listen(port, () => {
+    .listen(port, hostname, () => {
       console.log(`> Ready on http://${hostname}:${port}`)
       console.log('> Socket.IO server attached')
     })

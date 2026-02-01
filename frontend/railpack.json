@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "steps": {
+    "build": {
+      "cache": [
+        "node_modules",
+        ".bun/cache",
+        ".next/cache"
+      ],
+      "env": {
+        "NODE_ENV": "production",
+        "NEXT_TELEMETRY_DISABLED": "1"
+      },
+      "commands": [
+        "bun install",
+        "bun run build"
+      ]
+    }
+  },
+  "deploy": {
+    "startCommand": "HOSTNAME=0.0.0.0 bun server.ts"
+  }
+}
