@@ -59,11 +59,6 @@ export default function GameCanvasClient({ scene = 'GridScene' }: GameCanvasClie
       className="absolute inset-0 z-1"
       style={{
         touchAction: 'none',
-        // Scale down game canvas on mobile for more swipe room
-        transform: typeof window !== 'undefined' && window.innerWidth < 600
-          ? 'scale(0.85)'  // 85% scale on mobile
-          : 'scale(1)',
-        transformOrigin: 'center center',
       }}
       suppressHydrationWarning={true}
     />
