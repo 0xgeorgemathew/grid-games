@@ -31,14 +31,13 @@
         ]
       }
     ],
-    "PostToolUse": [
+    "SessionStart": [
       {
-        "matcher": "Bash",
-        "condition": "TOOL_INPUT_COMMAND =~ git commit.*-m",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'MSG=$(git log -1 --format=%s); if [[ \"$MSG\" =~ ^(feat|refactor|fix|perf|test|build): ]]; then echo \"📝 Feature commit detected - CLAUDE.md will be updated\"; exit 0; else echo \"ℹ️ Skipping docs update for $MSG\"; exit 0; fi'"
+            "command": "bash -c 'LAST_MSG=$(git log -1 --format=%s 2>/dev/null); if [[ \"$LAST_MSG\" =~ ^(feat|refactor|fix|perf|test|build): ]]; then echo \"\"; echo \"📝 Last commit was a feature commit: $LAST_MSG\"; echo \"💡 Consider running the revise-claude-md skill to update CLAUDE.md\"; echo \"\"; fi'"
           }
         ]
       }
