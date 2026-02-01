@@ -17,10 +17,11 @@ app.prepare().then(() => {
 
   httpServer
     .once('error', (err) => {
-      console.error(err)
+      console.error('Failed to start server:', err)
       process.exit(1)
     })
     .listen(port, () => {
-      // Server ready
+      console.log(`> Ready on http://${hostname}:${port}`)
+      console.log('> Socket.IO server attached')
     })
 })

@@ -6,6 +6,7 @@ import { setupGameEvents } from './game-events'
 // Global singleton for Socket.IO server (attached to custom server)
 declare global {
   var _socketIOServer: SocketIOServer | undefined
+  var _socketIOCleanup: (() => void) | undefined
 }
 
 export const runtime = 'nodejs'
@@ -34,8 +35,18 @@ export function initializeSocketIO(httpServer: HTTPServer): SocketIOServer {
     },
   })
 
-  setupGameEvents(io)
+  const { cleanup } = setupGameEvents(io)
   global._socketIOServer = io
+  global._socketIOCleanup = cleanup
 
   return io
+}
+
+// Export cleanup function for graceful shutdown
+export function cleanupSocketIO(): void {
+  if (global._socketIOCleanup) {
+    global._socketIOCleanup()
+    global._socketIOCleanup = undefined
+  }
+  global._socketIOServer = undefined
 }

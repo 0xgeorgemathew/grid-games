@@ -6,22 +6,16 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { GridScanBackground } from '@/components/GridScanBackground'
 
 const TRADER_NAMES = [
-  'Apex',
-  'Vortex',
-  'Neon',
-  'Cipher',
-  'Flux',
-  'Zenith',
-  'Nova',
+  'Alfa',
+  'Bravo',
+  'Charlie',
+  'Delta',
   'Echo',
-  'Drift',
-  'Pulse',
-  'Quark',
-  'Titan',
-  'Orbit',
-  'Prism',
-  'Shift',
-  'Wave',
+  'Foxtrot',
+  'Golf',
+  'Hotel',
+  'India',
+  'Juliet',
 ]
 
 export function MatchmakingScreen() {

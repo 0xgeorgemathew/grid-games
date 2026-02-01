@@ -3,17 +3,66 @@ import { Socket } from 'socket.io'
 import { Player } from '@/game/types/trading'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 
+// Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
+const DEBUG_FUNDS = process.env.DEBUG_FUNDS === 'true'
+
+// =============================================================================
+// Settlement Guard - Prevent duplicate settlement race conditions
+// =============================================================================
+
+const settlementsInProgress = new Set<string>()
+const settlementsInProgressTimestamps = new Map<string, number>()
+
+let settlementCleanupInterval: NodeJS.Timeout | null = null
+
+// Cleanup old settlement entries (prevent memory leak)
+const startSettlementCleanup = () => {
+  if (settlementCleanupInterval) return // Already started
+
+  settlementCleanupInterval = setInterval(() => {
+    const now = Date.now()
+    const STALE_THRESHOLD_MS = 30000 // 30 seconds
+
+    for (const [orderId, timestamp] of settlementsInProgressTimestamps) {
+      if (now - timestamp > STALE_THRESHOLD_MS) {
+        settlementsInProgress.delete(orderId)
+        settlementsInProgressTimestamps.delete(orderId)
+      }
+    }
+  }, 60000) // Run every minute
+}
+
+const stopSettlementCleanup = () => {
+  if (settlementCleanupInterval) {
+    clearInterval(settlementCleanupInterval)
+    settlementCleanupInterval = null
+  }
+}
+
 // =============================================================================
 // Price Feed Manager - Real-time Binance WebSocket
 // =============================================================================
 
 class PriceFeedManager {
   private ws: WebSocket | null = null
-  private currentPrice: number = DEFAULT_BTC_PRICE
   private latestPrice: number = DEFAULT_BTC_PRICE
   private subscribers: Set<(price: number) => void> = new Set()
+  private reconnectTimeout: NodeJS.Timeout | null = null
+  private symbol: string = 'btcusdt'
+  private isShutdown = false
 
   connect(symbol: string = 'btcusdt'): void {
+    // Exit if shutdown
+    if (this.isShutdown) return
+
+    this.symbol = symbol
+
+    // Clear any pending reconnect timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
+    }
+
     if (this.ws) {
       this.ws.close()
     }
@@ -22,27 +71,53 @@ class PriceFeedManager {
     this.ws = new WebSocket(url)
 
     this.ws.onmessage = (event) => {
+      if (this.isShutdown) return
       const raw = JSON.parse(event.data.toString())
       const price = parseFloat(raw.p)
 
       // Update latest price
       this.latestPrice = price
-      this.currentPrice = price
       this.subscribers.forEach((cb) => cb(price))
     }
 
     this.ws.onerror = (error) => {
+      if (this.isShutdown) return
       console.error('[PriceFeed] Server WebSocket error:', error)
     }
 
     this.ws.onclose = () => {
+      // Exit if shutdown
+      if (this.isShutdown) return
+
       // Auto-reconnect after 5s
-      setTimeout(() => this.connect(symbol), 5000)
+      this.reconnectTimeout = setTimeout(() => {
+        if (!this.isShutdown) {
+          this.connect(this.symbol)
+        }
+      }, 5000)
     }
   }
 
-  getPrice(): number {
-    return this.currentPrice
+  disconnect(): void {
+    this.isShutdown = true
+
+    // Clear reconnect timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
+    }
+
+    // Close WebSocket
+    if (this.ws) {
+      this.ws.onclose = null // Prevent reconnect trigger
+      this.ws.onerror = null
+      this.ws.onmessage = null
+      this.ws.close()
+      this.ws = null
+    }
+
+    // Clear subscribers
+    this.subscribers.clear()
   }
 
   getLatestPrice(): number {
@@ -82,6 +157,7 @@ interface PendingOrder {
   coinType: 'call' | 'put' | 'whale'
   priceAtOrder: number
   settlesAt: number
+  isPlayer1: boolean // Stored at order creation to avoid lookup issues at settlement
 }
 
 // =============================================================================
@@ -94,7 +170,8 @@ class GameRoom {
   readonly coins: Map<string, Coin>
   readonly pendingOrders: Map<string, PendingOrder>
   tugOfWar = 0
-  currentSymbol = 'ethusdt'
+  private isClosing = false
+  isShutdown = false // Prevents settlement timeouts from operating on deleted rooms
 
   private intervals = new Set<NodeJS.Timeout>()
   private timeouts = new Set<NodeJS.Timeout>()
@@ -162,12 +239,24 @@ class GameRoom {
   // Find winner (highest dollars, or first if tied)
   getWinner(): Player | undefined {
     const players = Array.from(this.players.values())
+    if (players.length === 0) {
+      return undefined
+    }
     return players.reduce((a, b) => (a.dollars > b.dollars ? a : b), players[0])
   }
 
   // Check if any player is dead
   hasDeadPlayer(): boolean {
     return Array.from(this.players.values()).some((p) => p.dollars <= 0)
+  }
+
+  // Closing state management
+  getIsClosing(): boolean {
+    return this.isClosing
+  }
+
+  setClosing(): void {
+    this.isClosing = true
   }
 }
 
@@ -198,6 +287,9 @@ class RoomManager {
   deleteRoom(roomId: string): void {
     const room = this.rooms.get(roomId)
     if (!room) return
+
+    // Mark room as shutdown BEFORE cleanup (prevents settlement timeouts from operating)
+    room.isShutdown = true
 
     // Clear player mappings
     for (const playerId of room.getPlayerIds()) {
@@ -284,71 +376,135 @@ function validateCoinType(coinType: string): coinType is 'call' | 'put' | 'whale
 // =============================================================================
 
 function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): void {
-  // Validate room state
-  if (room.players.size === 0) {
-    console.error(`[Settlement] ERROR: Room ${room.id} has no players`)
+  // Atomic guard: prevent double settlement
+  if (settlementsInProgress.has(order.id)) {
+    console.log(`[Settlement] Skipping ${order.id} - already in progress`)
     return
   }
 
-  const playerIds = room.getPlayerIds()
-  if (playerIds.length < 2) {
-    console.error(`[Settlement] ERROR: Room ${room.id} has only ${playerIds.length} player(s)`)
+  // Verify order still exists
+  if (!room.pendingOrders.has(order.id)) {
+    console.log(`[Settlement] Order ${order.id} already settled`)
     return
   }
 
-  const finalPrice = priceFeed.getLatestPrice()
-
-  // Settlement always uses latest price for simplicity and reliability
-  console.log(`[Settlement] Order ${order.id} - ${order.coinType.toUpperCase()}: $${order.priceAtOrder.toFixed(2)} → $${finalPrice.toFixed(2)}`)
-
-  const priceChange = (finalPrice - order.priceAtOrder) / order.priceAtOrder
-
-  let isCorrect = false
-  if (order.coinType === 'call') isCorrect = priceChange > 0
-  else if (order.coinType === 'put') isCorrect = priceChange < 0
-  else if (order.coinType === 'whale') isCorrect = Math.random() < 0.8
-
-  const impact = order.coinType === 'whale' ? 2 : 1
-  const isPlayer1 = order.playerId === playerIds[0]
-
-  if (isCorrect) {
-    const opponentId = playerIds.find((id) => id !== order.playerId)!
-    const opponent = room.players.get(opponentId)
-    if (!opponent) {
-      console.error(`[Settlement] ERROR: Opponent ${opponentId} not found in room ${room.id}`)
-      // Still emit settlement event so client gets feedback
-    } else {
-      opponent.dollars -= impact
+  settlementsInProgress.add(order.id)
+  settlementsInProgressTimestamps.set(order.id, Date.now())
+  try {
+    // Validate room state
+    if (room.players.size === 0) {
+      console.error(`[Settlement] ERROR: Room ${room.id} has no players`)
+      return
     }
+
+    const playerIds = room.getPlayerIds()
+    if (playerIds.length < 2) {
+      console.error(`[Settlement] ERROR: Room ${room.id} has only ${playerIds.length} player(s)`)
+      return
+    }
+
+    const finalPrice = priceFeed.getLatestPrice()
+
+    // Settlement always uses latest price for simplicity and reliability
+    console.log(
+      `[Settlement] Order ${order.id} - ${order.coinType.toUpperCase()}: $${order.priceAtOrder.toFixed(2)} → $${finalPrice.toFixed(2)}`
+    )
+
+    const priceChange = (finalPrice - order.priceAtOrder) / order.priceAtOrder
+
+    let isCorrect = false
+    if (order.coinType === 'call') isCorrect = priceChange > 0
+    else if (order.coinType === 'put') isCorrect = priceChange < 0
+    else if (order.coinType === 'whale') isCorrect = Math.random() < 0.8
+
+    const impact = order.coinType === 'whale' ? 2 : 1
+    // Use stored isPlayer1 from order creation time (not current playerIds lookup)
+    const isPlayer1 = order.isPlayer1
+
+    // === FUND TRACKING: Log state BEFORE transfer ===
+    const playersBefore = Array.from(room.players.values()).map((p) => ({
+      id: p.id.slice(-6),
+      name: p.name,
+      dollars: p.dollars,
+    }))
+    const totalBefore = playersBefore.reduce((sum, p) => sum + p.dollars, 0)
+
+    let winnerId: string | null = null
+    let winnerName: string | null = null
+    let loserId: string | null = null
+    let loserName: string | null = null
+
+    // ZERO-SUM: Transfer funds from loser to winner
+    if (isCorrect) {
+      // Player who placed the order won
+      winnerId = order.playerId
+      winnerName = order.playerName
+      loserId = playerIds.find((id) => id !== order.playerId) || null
+      const loser = room.players.get(loserId || '')
+      if (loser) loserName = loser?.name
+    } else {
+      // Player who placed the order lost
+      loserId = order.playerId
+      loserName = order.playerName
+      winnerId = playerIds.find((id) => id !== order.playerId) || null
+      const winner = room.players.get(winnerId || '')
+      if (winner) winnerName = winner?.name
+    }
+
+    // Apply transfer: winner gains, loser loses
+    const winner = room.players.get(winnerId || '')
+    const loser = room.players.get(loserId || '')
+    if (winner) winner.dollars += impact
+    if (loser) loser.dollars = Math.max(0, loser.dollars - impact) // Loser can't go below 0
+
     room.tugOfWar += isPlayer1 ? -impact : impact
-  } else {
-    const player = room.players.get(order.playerId)
-    if (!player) {
-      console.error(`[Settlement] ERROR: Player ${order.playerId} not found in room ${room.id}`)
-    } else {
-      player.dollars -= impact
+
+    // === FUND TRACKING: Log state AFTER transfer ===
+    const playersAfter = Array.from(room.players.values()).map((p) => ({
+      id: p.id.slice(-6),
+      name: p.name,
+      dollars: p.dollars,
+    }))
+    const totalAfter = playersAfter.reduce((sum, p) => sum + p.dollars, 0)
+
+    // FUND CONSERVATION CHECK - total should always be 20 (unless capped at 0)
+    if (totalAfter !== totalBefore) {
+      const cappedLoss = totalBefore - totalAfter
+      if (cappedLoss > 0) {
+        console.warn(
+          `[FUND CAP] Room ${room.id.slice(-6)}: ${cappedLoss} lost to zero-cap (loser went below 0)`
+        )
+      }
     }
-    room.tugOfWar += isPlayer1 ? impact : -impact
+
+    room.removePendingOrder(order.id)
+
+    // Log settlement result for debugging (controlled by DEBUG_FUNDS env var)
+    if (DEBUG_FUNDS) {
+      console.log(
+        `[Settlement] ${order.coinType.toUpperCase()} order ${order.id.slice(-8)}:`,
+        `${order.playerName} ${isCorrect ? 'WON' : 'LOST'}`,
+        `$${order.priceAtOrder.toFixed(2)} → $${finalPrice.toFixed(2)}`,
+        `(${(priceChange * 100).toFixed(2)}%)`,
+        `\n  BEFORE: ${playersBefore.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalBefore})`,
+        `\n  TRANSFER: $${impact} from ${loserName || 'Unknown'} → ${winnerName || 'Unknown'}`,
+        `\n  AFTER:  ${playersAfter.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalAfter})`
+      )
+    }
+
+    io.to(room.id).emit('order_settled', {
+      orderId: order.id,
+      playerId: order.playerId,
+      playerName: order.playerName,
+      coinType: order.coinType,
+      isCorrect,
+      priceAtOrder: order.priceAtOrder,
+      finalPrice: finalPrice,
+    })
+  } finally {
+    settlementsInProgress.delete(order.id)
+    settlementsInProgressTimestamps.delete(order.id)
   }
-
-  room.removePendingOrder(order.id)
-
-  // Log settlement result for debugging
-  console.log(`[Settlement] ${order.coinType.toUpperCase()} order ${order.id.slice(-8)}:`,
-    `${order.playerName} ${isCorrect ? 'WON' : 'LOST'}`,
-    `$${order.priceAtOrder.toFixed(2)} → $${finalPrice.toFixed(2)}`,
-    `(${((priceChange * 100).toFixed(2))}%)`
-  )
-
-  io.to(room.id).emit('order_settled', {
-    orderId: order.id,
-    playerId: order.playerId,
-    playerName: order.playerName,
-    coinType: order.coinType,
-    isCorrect,
-    priceAtOrder: order.priceAtOrder,
-    finalPrice: finalPrice,
-  })
 }
 
 // =============================================================================
@@ -455,7 +611,8 @@ function createMatch(
 
   manager.removeWaitingPlayer(playerId2)
   // Delay game loop start to allow clients to initialize Phaser scenes
-  setTimeout(() => startGameLoop(io, manager, room), 5000)
+  const startGameTimeout = setTimeout(() => startGameLoop(io, manager, room), 5000)
+  room.trackTimeout(startGameTimeout)
 }
 
 function handleSlice(
@@ -469,12 +626,55 @@ function handleSlice(
 
   // Handle gas immediately (penalty to slicer)
   if (data.coinType === 'gas') {
+    // === FUND TRACKING: Log state BEFORE gas transfer ===
+    const playersBefore = Array.from(room.players.values()).map((p) => ({
+      id: p.id.slice(-6),
+      name: p.name,
+      dollars: p.dollars,
+    }))
+    const totalBefore = playersBefore.reduce((sum, p) => sum + p.dollars, 0)
+
     const player = room.players.get(playerId)
+    const opponentId = room.getPlayerIds().find((id) => id !== playerId)
+    const opponent = room.players.get(opponentId || '')
+
+    // ZERO-SUM: Gas transfers $1 from slicer to opponent (penalty for slicing gas)
     if (player) {
-      player.dollars -= 1
-      const playerIds = room.getPlayerIds()
-      room.tugOfWar += playerId === playerIds[0] ? 1 : -1
+      player.dollars = Math.max(0, player.dollars - 1)
     }
+    if (opponent) {
+      opponent.dollars += 1
+    }
+    const playerIds = room.getPlayerIds()
+    room.tugOfWar += playerId === playerIds[0] ? 1 : -1
+
+    // === FUND TRACKING: Log state AFTER gas transfer ===
+    const playersAfter = Array.from(room.players.values()).map((p) => ({
+      id: p.id.slice(-6),
+      name: p.name,
+      dollars: p.dollars,
+    }))
+    const totalAfter = playersAfter.reduce((sum, p) => sum + p.dollars, 0)
+
+    // FUND CONSERVATION CHECK
+    if (totalAfter !== totalBefore) {
+      const cappedLoss = totalBefore - totalAfter
+      if (cappedLoss > 0) {
+        console.warn(
+          `[FUND CAP] GAS: Room ${room.id.slice(-6)}: ${cappedLoss} lost to zero-cap`
+        )
+      }
+    }
+
+    if (DEBUG_FUNDS) {
+      console.log(
+        `[GAS] ${player?.name || 'Unknown'} sliced gas: $1 penalty`,
+        `\n  BEFORE: ${playersBefore.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalBefore})`,
+        `\n  TRANSFER: $1 from ${player?.name || 'Unknown'} → ${opponent?.name || 'Unknown'}`,
+        `\n  AFTER:  ${playersAfter.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalAfter})`
+      )
+    }
+
     io.to(room.id).emit('player_hit', { playerId, damage: 1, reason: 'gas' })
     return
   }
@@ -483,6 +683,10 @@ function handleSlice(
     return
   }
 
+  // Determine if this player is player 1 (for tug-of-war calculation at settlement)
+  const playerIds = room.getPlayerIds()
+  const isPlayer1 = playerId === playerIds[0]
+
   const order: PendingOrder = {
     id: `order-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
     playerId,
@@ -490,6 +694,7 @@ function handleSlice(
     coinType: data.coinType,
     priceAtOrder: data.priceAtSlice,
     settlesAt: Date.now() + 10000, // 10 seconds
+    isPlayer1, // Stored at creation to avoid lookup issues at settlement
   }
 
   room.addPendingOrder(order)
@@ -512,6 +717,15 @@ function handleSlice(
 
   // Schedule settlement
   const timeoutId = setTimeout(() => {
+    // Skip if room is shutdown or closing
+    if (room.isShutdown) {
+      console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} is shutdown`)
+      return
+    }
+    if (room.getIsClosing()) {
+      console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} is closing`)
+      return
+    }
     // Double-check: room exists AND order still pending (not already settled)
     if (manager.hasRoom(room.id) && room.pendingOrders.has(order.id)) {
       settleOrder(io, room, order)
@@ -526,6 +740,9 @@ function handleSlice(
 
 function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
   if (room.hasDeadPlayer()) {
+    // Prevent new operations
+    room.setClosing()
+
     const winner = room.getWinner()
 
     // CRITICAL: Settle all pending orders before deleting room
@@ -539,8 +756,8 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       roomId: room.id,
     })
 
-    // Delete room after all settlements are sent (allow time for events)
-    setTimeout(() => manager.deleteRoom(room.id), 1000)  // Reduced to 1s since we settle immediately
+    // Delete room immediately (all orders settled above)
+    manager.deleteRoom(room.id)
   }
 }
 
@@ -548,25 +765,39 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
 // Main Export - Setup Game Events
 // =============================================================================
 
-export function setupGameEvents(io: SocketIOServer): void {
+export function setupGameEvents(io: SocketIOServer): { cleanup: () => void } {
   // Start price feed
   priceFeed.connect('btcusdt')
 
+  // Start settlement cleanup
+  startSettlementCleanup()
+
   const manager = new RoomManager()
 
-  // Periodic cleanup of stale waiting players
-  setInterval(() => manager.cleanupStaleWaitingPlayers(), 30000)
+  // Periodic cleanup of stale waiting players (tracked for cleanup)
+  const cleanupInterval = setInterval(() => manager.cleanupStaleWaitingPlayers(), 30000)
+
+  // Cleanup function for graceful shutdown
+  const cleanup = () => {
+    clearInterval(cleanupInterval)
+    stopSettlementCleanup()
+    priceFeed.disconnect()
+  }
 
   io.on('connection', (socket: Socket) => {
     socket.on('find_match', ({ playerName }: { playerName: string }) => {
       try {
         const validatedName = validatePlayerName(playerName)
 
-        // Check for waiting player
+        // Check for waiting player - double-check connection status before matching
         for (const [waitingId, waiting] of manager.getWaitingPlayers()) {
-          if (waitingId !== socket.id && io.of('/').sockets.get(waitingId)?.connected) {
-            createMatch(io, manager, socket.id, waitingId, validatedName, waiting.name)
-            return
+          if (waitingId !== socket.id) {
+            const waitingSocket = io.of('/').sockets.get(waitingId)
+            // CRITICAL: Verify socket is still connected AND is the same socket
+            if (waitingSocket?.connected && waitingSocket.id === waitingId) {
+              createMatch(io, manager, socket.id, waitingId, validatedName, waiting.name)
+              return
+            }
           }
         }
 
@@ -607,9 +838,21 @@ export function setupGameEvents(io: SocketIOServer): void {
         const room = manager.getRoom(roomId)
         if (room?.hasPlayer(socket.id)) {
           io.to(roomId).emit('opponent_disconnected')
-          setTimeout(() => manager.deleteRoom(roomId), 5000)
+
+          // Only schedule room deletion if no pending orders
+          // This prevents race condition where settlements are in progress
+          const hasPendingOrders = room.pendingOrders.size > 0
+          if (!hasPendingOrders) {
+            setTimeout(() => manager.deleteRoom(roomId), 5000)
+          } else {
+            // If there are pending orders, let them settle naturally
+            // Room will be cleaned up by checkGameOver when a player dies
+            console.log(`[Disconnect] Room ${roomId} has pending orders, delaying deletion`)
+          }
         }
       }
     })
   })
+
+  return { cleanup }
 }

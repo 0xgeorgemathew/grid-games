@@ -77,6 +77,12 @@ export class TradingScene extends Scene {
   // Change detection for blade path (prevents unnecessary updates)
   private lastBladePoint: Geom.Point | null = null
 
+  // Shutdown flag to prevent events after destruction
+  private isShutdown: boolean = false
+
+  // Reusable blade point to prevent GC
+  private reusableBladePoint = new Geom.Point(0, 0)
+
   constructor() {
     super({ key: 'TradingScene' })
     this.eventEmitter = new Phaser.Events.EventEmitter()
@@ -121,20 +127,30 @@ export class TradingScene extends Scene {
 
     // Track mouse movement for blade trail (with change detection)
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      const currentPoint = new Geom.Point(pointer.x, pointer.y)
+      // Reuse point object to prevent GC
+      this.reusableBladePoint.x = pointer.x
+      this.reusableBladePoint.y = pointer.y
+
       // Only update if position actually changed (prevents unnecessary updates)
       if (
         !this.lastBladePoint ||
-        this.lastBladePoint.x !== currentPoint.x ||
-        this.lastBladePoint.y !== currentPoint.y
+        this.lastBladePoint.x !== this.reusableBladePoint.x ||
+        this.lastBladePoint.y !== this.reusableBladePoint.y
       ) {
-        this.bladePath.push(currentPoint)
+        // Create new point for the path (we need separate objects for the path)
+        const pathPoint = new Geom.Point(this.reusableBladePoint.x, this.reusableBladePoint.y)
+        this.bladePath.push(pathPoint)
         // Limit trail length for performance (longer on mobile for smoother visuals)
         const maxTrailLength = this.isMobile ? this.mobileTrailLength : this.desktopTrailLength
         if (this.bladePath.length > maxTrailLength) {
-          this.bladePath.shift()
+          const removed = this.bladePath.shift()
+          // Explicitly destroy removed point
+          if (removed) {
+            removed.x = 0
+            removed.y = 0
+          }
         }
-        this.lastBladePoint = currentPoint
+        this.lastBladePoint = pathPoint
       }
     })
 
@@ -361,14 +377,15 @@ export class TradingScene extends Scene {
       const tokenObj = token as Token
       if (!tokenObj.active) return
 
-      // Store old position for spatial grid update
-      const oldX = (tokenObj.getData('oldX') as number) ?? tokenObj.x
-      const oldY = (tokenObj.getData('oldY') as number) ?? tokenObj.y
+      // Get tracked grid position (not current position)
+      const gridX = (tokenObj.getData('gridX') as number) ?? tokenObj.x
+      const gridY = (tokenObj.getData('gridY') as number) ?? tokenObj.y
       const coinId = tokenObj.getData('id')
 
       // Remove coins that fall below screen
       if (tokenObj.y > sceneHeight + 50) {
-        this.removeCoinFromGrid(coinId, tokenObj.x, tokenObj.y)
+        // Remove from tracked grid position (not current position)
+        this.removeCoinFromGrid(coinId, gridX, gridY)
 
         // Return to pool
         tokenObj.setActive(false)
@@ -380,11 +397,11 @@ export class TradingScene extends Scene {
       }
 
       // Update spatial grid if token moved (incremental update)
-      if (Math.abs(tokenObj.x - oldX) > 1 || Math.abs(tokenObj.y - oldY) > 1) {
-        this.removeCoinFromGrid(coinId, oldX, oldY)
+      if (Math.abs(tokenObj.x - gridX) > 1 || Math.abs(tokenObj.y - gridY) > 1) {
+        this.removeCoinFromGrid(coinId, gridX, gridY)
         this.addCoinToGrid(coinId, tokenObj.x, tokenObj.y)
-        tokenObj.setData('oldX', tokenObj.x)
-        tokenObj.setData('oldY', tokenObj.y)
+        tokenObj.setData('gridX', tokenObj.x)
+        tokenObj.setData('gridY', tokenObj.y)
       }
     })
   }
@@ -397,8 +414,12 @@ export class TradingScene extends Scene {
     }) as Token | undefined
 
     if (token) {
-      // Remove from spatial grid
-      this.removeCoinFromGrid(coinId, token.x, token.y)
+      // Get tracked grid position (not current position)
+      const gridX = (token.getData('gridX') as number) ?? token.x
+      const gridY = (token.getData('gridY') as number) ?? token.y
+
+      // Remove from spatial grid using tracked position
+      this.removeCoinFromGrid(coinId, gridX, gridY)
 
       // Disable physics before returning to pool
       if (token.body) {
@@ -412,6 +433,12 @@ export class TradingScene extends Scene {
   }
 
   shutdown(): void {
+    // Set shutdown flag FIRST to prevent any further event processing
+    this.isShutdown = true
+
+    // Kill ALL active tweens BEFORE cleanup
+    this.tweens.killAll()
+
     // Signal scene not ready before destroying event emitter
     const setReady = (window as unknown as { setSceneReady?: (ready: boolean) => void })
       .setSceneReady
@@ -424,10 +451,17 @@ export class TradingScene extends Scene {
 
     this.eventEmitter.destroy()
     this.spatialGrid.clear()
+
+    // Clean up opponent slices
     this.opponentSlices.forEach((t) => t.destroy())
+    this.opponentSlices.length = 0
 
     // Remove input event listeners to prevent memory leaks
     this.input.off('pointermove')
+
+    // Clean up blade path
+    this.bladePath.length = 0
+    this.lastBladePoint = null
 
     // Clean up split effect pool
     this.splitEffectPool.forEach((effect) => {
@@ -534,16 +568,25 @@ export class TradingScene extends Scene {
     const token = this.tokenPool.get(data.x, data.y) as Token
     if (!token) return
 
+    // Re-enable physics body (it was disabled when returned to pool)
+    if (token.body && token.body.enable) {
+      token.body.enable = true
+    }
+
     // Initialize token state
     token.spawn(data.x, data.y, data.coinType, data.coinId, config, this.isMobile)
 
-    // Add to spatial grid (for collision detection)
+    // Track the actual position in the grid (after spawn, in case spawn() modified it)
+    token.setData('gridX', token.x)
+    token.setData('gridY', token.y)
+
+    // Add to spatial grid using the tracked position
     this.addCoinToGrid(data.coinId, token.x, token.y)
   }
 
   private handleOpponentSlice(data: { playerName: string; coinType: CoinType }): void {
     // Guard against events firing after scene shutdown
-    if (!this.add || !this.cameras) return
+    if (this.isShutdown || !this.add || !this.cameras) return
 
     const config = COIN_CONFIG[data.coinType]
 
@@ -666,6 +709,26 @@ export class TradingScene extends Scene {
     leftContainer.setRotation(0)
     rightContainer.setRotation(0)
 
+    // Track completion separately
+    let leftComplete = false
+    let rightComplete = false
+
+    const handleComplete = () => {
+      // Guard against shutdown
+      if (this.isShutdown) return
+
+      if (pooled) {
+        // Only return when BOTH complete
+        if (leftComplete && rightComplete) {
+          this.returnSplitEffectToPool(pooled)
+        }
+      } else {
+        // Non-pooled: each cleans up its own container
+        leftContainer?.destroy()
+        rightContainer?.destroy()
+      }
+    }
+
     // Animate halves flying apart
     this.tweens.add({
       targets: leftContainer,
@@ -676,11 +739,8 @@ export class TradingScene extends Scene {
       duration: 400,
       ease: 'Power2',
       onComplete: () => {
-        if (pooled) {
-          this.returnSplitEffectToPool(pooled)
-        } else {
-          leftContainer.destroy()
-        }
+        leftComplete = true
+        handleComplete()
       },
     })
 
@@ -693,11 +753,8 @@ export class TradingScene extends Scene {
       duration: 400,
       ease: 'Power2',
       onComplete: () => {
-        if (pooled) {
-          // Already returned to pool in left tween
-        } else {
-          rightContainer.destroy()
-        }
+        rightComplete = true
+        handleComplete()
       },
     })
   }
