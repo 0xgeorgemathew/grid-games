@@ -354,6 +354,41 @@ class RoomManager {
       }
     }
   }
+
+  // Emergency shutdown - settles all pending orders and clears all state
+  emergencyShutdown(io: SocketIOServer): void {
+    console.log('[RoomManager] Emergency shutdown - settling all pending orders...')
+
+    // Settle all pending orders in all rooms
+    for (const [roomId, room] of this.rooms) {
+      // Mark room as shutdown to prevent new events
+      room.isShutdown = true
+
+      // Settle all pending orders immediately
+      for (const [orderId, order] of room.pendingOrders) {
+        settleOrder(io, room, order)
+      }
+
+      // Notify players of shutdown
+      const winner = room.getWinner()
+      io.to(roomId).emit('game_over', {
+        winnerId: winner?.id,
+        winnerName: winner?.name,
+        roomId,
+        reason: 'server_shutdown',
+      })
+
+      // Cleanup room timers
+      room.cleanup()
+    }
+
+    // Clear manager state
+    this.rooms.clear()
+    this.waitingPlayers.clear()
+    this.playerToRoom.clear()
+
+    console.log('[RoomManager] Emergency shutdown complete - all orders settled')
+  }
 }
 
 // =============================================================================
@@ -765,7 +800,10 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
 // Main Export - Setup Game Events
 // =============================================================================
 
-export function setupGameEvents(io: SocketIOServer): { cleanup: () => void } {
+export function setupGameEvents(io: SocketIOServer): {
+  cleanup: () => void
+  emergencyShutdown: () => void
+} {
   // Start price feed
   priceFeed.connect('btcusdt')
 
@@ -782,6 +820,11 @@ export function setupGameEvents(io: SocketIOServer): { cleanup: () => void } {
     clearInterval(cleanupInterval)
     stopSettlementCleanup()
     priceFeed.disconnect()
+  }
+
+  // Emergency shutdown - settles all pending orders before closing
+  const emergencyShutdown = () => {
+    manager.emergencyShutdown(io)
   }
 
   io.on('connection', (socket: Socket) => {
@@ -854,5 +897,5 @@ export function setupGameEvents(io: SocketIOServer): { cleanup: () => void } {
     })
   })
 
-  return { cleanup }
+  return { cleanup, emergencyShutdown }
 }

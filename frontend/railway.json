@@ -3,7 +3,7 @@
   "build": {
     "builder": "RAILPACK",
     "watchPatterns": [
-      "frontend/**",
+      "**",
       "railpack.json",
       "railway.json"
     ]
@@ -13,6 +13,8 @@
     "numReplicas": 1,
     "sleepApplication": false,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
+    "restartPolicyMaxRetries": 10,
+    "healthcheckPath": "/api/health",
+    "healthcheckGracePeriod": 30000
   }
 }

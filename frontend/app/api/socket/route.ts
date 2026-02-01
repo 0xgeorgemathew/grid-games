@@ -22,24 +22,45 @@ export async function GET(req: NextRequest) {
 }
 
 // Export for use by custom server
-export function initializeSocketIO(httpServer: HTTPServer): SocketIOServer {
+// Returns: io instance, cleanup function, and RoomManager for emergency shutdown
+export function initializeSocketIO(httpServer: HTTPServer): {
+  io: SocketIOServer
+  cleanup: () => void
+  emergencyShutdown: () => void
+} {
   if (global._socketIOServer) {
-    return global._socketIOServer
+    return {
+      io: global._socketIOServer,
+      cleanup: global._socketIOCleanup || (() => {}),
+      emergencyShutdown: () => {},
+    }
   }
+
+  // In production, REQUIRE explicit ALLOWED_ORIGINS for security
+  const isProd = process.env.NODE_ENV === 'production'
+  const originConfig = isProd
+    ? process.env.ALLOWED_ORIGINS?.split(',') ||
+      (() => {
+        throw new Error(
+          'ALLOWED_ORIGINS environment variable required in production. ' +
+            'Set it to your Railway domain (e.g., https://your-app.railway.app)'
+        )
+      })()
+    : process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000']
 
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+      origin: originConfig,
       methods: ['GET', 'POST'],
       credentials: true,
     },
   })
 
-  const { cleanup } = setupGameEvents(io)
+  const { cleanup, emergencyShutdown } = setupGameEvents(io)
   global._socketIOServer = io
   global._socketIOCleanup = cleanup
 
-  return io
+  return { io, cleanup, emergencyShutdown }
 }
 
 // Export cleanup function for graceful shutdown
