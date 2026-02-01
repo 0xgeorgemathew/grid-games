@@ -30,7 +30,7 @@ export default function Home() {
 
   return (
     <div className="h-dvh w-screen bg-tron-black relative overflow-hidden">
-      {/* Background - Grid with candlesticks */}
+      {/* Background */}
       <GameCanvasBackground />
 
       {/* Top UI Layer */}
