@@ -74,8 +74,6 @@ export class TradingScene extends Scene {
   private gridScrollOffset: number = 0
   private gridBackScrollOffset: number = 0
   private scanlineY: number = 0
-  private pulseEffects: Array<{ x: number; y: number; radius: number; alpha: number }> = []
-  private pulseTimer: number = 0
   private gridGlowLines: Set<number> = new Set()
   private gridGlowTimer: number = 0
 
@@ -343,16 +341,6 @@ export class TradingScene extends Scene {
     this.gridBackScrollOffset = (this.gridBackScrollOffset + 5 * (delta / 1000)) % BACK_GRID_SIZE
     this.scanlineY = (this.scanlineY + height / (6 * 60)) % height // 6-second sweep
 
-    // Update pulse timer
-    this.pulseTimer += delta
-    if (this.pulseTimer > 200) {
-      // Pulse every 200ms (5 per second)
-      this.pulseTimer = 0
-      const x = Phaser.Math.Between(0, width)
-      const y = Phaser.Math.Between(0, height)
-      this.pulseEffects.push({ x, y, radius: 0, alpha: 1 })
-    }
-
     // Update glow timer (change every 3 seconds)
     this.gridGlowTimer += delta
     if (this.gridGlowTimer > 3000) {
@@ -362,6 +350,7 @@ export class TradingScene extends Scene {
 
     // Clear and redraw back grid (parallax layer)
     this.gridBackGraphics.clear()
+    this.gridBackGraphics.setBlendMode(Phaser.BlendModes.ADD) // Tron glow effect
     this.gridBackGraphics.lineStyle(1, GRID_COLOR, 0.1)
     for (let x = 0; x <= width; x += BACK_GRID_SIZE) {
       this.gridBackGraphics.lineBetween(x, 0, x, height)
@@ -373,40 +362,26 @@ export class TradingScene extends Scene {
     // Clear and redraw front grid
     this.gridGraphics.clear()
 
-    // Fill background
+    // Fill background (use NORMAL blend mode for solid fill)
+    this.gridGraphics.setBlendMode(Phaser.BlendModes.NORMAL)
     this.gridGraphics.fillStyle(0x0a0a0a, 1)
     this.gridGraphics.fillRect(0, 0, width, height)
 
-    // Draw front grid with scroll
+    // Draw front grid with scroll (use ADDITIVE blend mode for glow)
+    this.gridGraphics.setBlendMode(Phaser.BlendModes.ADD)
     const numVerticalLines = Math.ceil(width / FRONT_GRID_SIZE)
     for (let i = 0; i <= numVerticalLines; i++) {
       const x = i * FRONT_GRID_SIZE
       const isGlow = this.gridGlowLines.has(i)
       const alpha = isGlow ? 0.4 : 0.25
-      const lineWidth = isGlow ? 3 : 1
 
-      this.gridGraphics.lineStyle(lineWidth, GRID_COLOR, alpha)
+      this.gridGraphics.lineStyle(1, GRID_COLOR, alpha)
       this.gridGraphics.lineBetween(x, 0, x, height)
     }
 
     for (let y = -FRONT_GRID_SIZE + this.gridScrollOffset; y <= height; y += FRONT_GRID_SIZE) {
       this.gridGraphics.lineStyle(1, GRID_COLOR, 0.25)
       this.gridGraphics.lineBetween(0, y, width, y)
-    }
-
-    // Draw pulse effects (expanding circles at intersections)
-    for (let i = this.pulseEffects.length - 1; i >= 0; i--) {
-      const pulse = this.pulseEffects[i]
-      pulse.radius += 100 * (delta / 1000)
-      pulse.alpha -= 0.5 * (delta / 1000)
-
-      if (pulse.alpha <= 0) {
-        this.pulseEffects.splice(i, 1)
-        continue
-      }
-
-      this.gridGraphics.lineStyle(2, GRID_COLOR, pulse.alpha * 0.3)
-      this.gridGraphics.strokeCircle(pulse.x, pulse.y, pulse.radius)
     }
 
     // Draw scanline
@@ -660,7 +635,6 @@ export class TradingScene extends Scene {
     // Clear particle arrays properly (use length=0 instead of reassignment)
     this.particles.length = 0
     this.sliceParticles.length = 0
-    this.pulseEffects.length = 0
     this.gridGlowLines.clear()
   }
 

@@ -56,6 +56,7 @@ export class Token extends GameObjects.Container {
     // Reset container state
     this.setVisible(true)
     this.setActive(true)
+    this.setDepth(10) // Render above grid (depth -1) and below blade (depth 1000)
 
     // Update texture
     this.image.setTexture(`texture_${type}`)
