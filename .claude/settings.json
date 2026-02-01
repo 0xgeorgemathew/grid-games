@@ -31,13 +31,16 @@
         ]
       }
     ],
-    "SessionStart": [
+    "SessionStart": [],
+    "PostToolUse": [
       {
-        "matcher": "*",
+        "matcher": "Bash",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash -c 'LAST_MSG=$(git log -1 --format=%s 2>/dev/null); if [[ \"$LAST_MSG\" =~ ^(feat|refactor|fix|perf|test|build): ]]; then echo \"\"; echo \"📝 Last commit was a feature commit: $LAST_MSG\"; echo \"💡 Consider running the revise-claude-md skill to update CLAUDE.md\"; echo \"\"; fi'"
+            "type": "agent",
+            "prompt": "Check the `tool_input` in $ARGUMENTS. 1. If the command was NOT a 'git commit', exit immediately. 2. If it WAS a commit, use `git show --stat` or `git diff HEAD^` to see what changed. 3. Read `CLAUDE.md`. 4. If the code changes represent a new pattern, architecture decision, or important context, use the `Edit` tool to update `CLAUDE.md` (and other relevant files) to reflect this. Keep updates concise.",
+            "timeout": 120,
+            "model": "claude-3-5-haiku-20241022"
           }
         ]
       }
