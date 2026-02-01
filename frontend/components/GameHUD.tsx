@@ -1,9 +1,11 @@
 'use client'
 
-import React from 'react'
+import React, { useState } from 'react'
 import { useTradingStore } from '@/game/stores/trading-store'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
+import { HowToPlayModal } from '@/components/HowToPlayModal'
+import { Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -16,7 +18,7 @@ type PlayerColor = 'green' | 'red'
 
 interface PlayerHealthBarProps {
   name: string
-  health: number
+  dollars: number
   color: PlayerColor
   index: number
 }
@@ -46,7 +48,7 @@ const itemVariants = {
   },
 }
 
-function PlayerHealthBar({ name, health, color, index }: PlayerHealthBarProps) {
+function PlayerHealthBar({ name, dollars, color, index }: PlayerHealthBarProps) {
   const colorClasses = {
     green: {
       text: 'text-tron-cyan',
@@ -63,8 +65,8 @@ function PlayerHealthBar({ name, health, color, index }: PlayerHealthBarProps) {
   } as const
 
   const classes = colorClasses[color]
-  const isLowHealth = health < 30
-  const healthColor = isLowHealth
+  const isLowDollars = dollars <= 3
+  const dollarsColor = isLowDollars
     ? color === 'green'
       ? 'text-red-400'
       : 'text-orange-300'
@@ -74,9 +76,9 @@ function PlayerHealthBar({ name, health, color, index }: PlayerHealthBarProps) {
     <motion.div variants={itemVariants} className="space-y-2" initial="hidden" animate="visible">
       <div className="flex items-center justify-between">
         <motion.span
-          className={cn('font-bold text-sm sm:text-base tracking-wide', healthColor)}
+          className={cn('font-bold text-sm sm:text-base tracking-wide', dollarsColor)}
           animate={{
-            textShadow: isLowHealth
+            textShadow: isLowDollars
               ? `0 0 10px ${color === 'green' ? 'rgba(255,68,68,0.8)' : 'rgba(255,107,0,0.8)'}, 0 0 20px ${color === 'green' ? 'rgba(255,68,68,0.5)' : 'rgba(255,107,0,0.5)'}`
               : '0 0 10px rgba(0,243,255,0.5)',
           }}
@@ -89,32 +91,32 @@ function PlayerHealthBar({ name, health, color, index }: PlayerHealthBarProps) {
           className={cn(
             'text-xs px-2 py-0.5 font-mono',
             classes.border,
-            isLowHealth ? 'animate-pulse' : ''
+            isLowDollars ? 'animate-pulse' : ''
           )}
         >
           <AnimatePresence mode="wait">
             <motion.span
-              key={health}
-              initial={{ scale: 1.3, color: isLowHealth ? '#ff4444' : '#00f3ff' }}
-              animate={{ scale: 1, color: isLowHealth ? '#ff4444' : '#00f3ff' }}
+              key={dollars}
+              initial={{ scale: 1.3, color: isLowDollars ? '#ff4444' : '#00f3ff' }}
+              animate={{ scale: 1, color: isLowDollars ? '#ff4444' : '#00f3ff' }}
               exit={{ scale: 0.8 }}
               transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-              className={cn(isLowHealth ? 'text-red-400' : classes.text)}
+              className={cn(isLowDollars ? 'text-red-400' : classes.text)}
             >
-              {health} HP
+              ${dollars}
             </motion.span>
           </AnimatePresence>
         </Badge>
       </div>
       <div className="relative">
         <Progress
-          value={health}
+          value={dollars * 10} // Max is 10 dollars, progress needs 0-100
           className={cn(PROGRESS_HEIGHT, PROGRESS_BG, 'overflow-hidden border border-white/10')}
-          indicatorClassName={cn(classes.progress, isLowHealth ? classes.glow : '')}
+          indicatorClassName={cn(classes.progress, isLowDollars ? classes.glow : '')}
         />
-        {/* Glow overlay for critical health */}
+        {/* Glow overlay for critical dollars */}
         <AnimatePresence>
-          {isLowHealth && (
+          {isLowDollars && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: [0.3, 0.6, 0.3] }}
@@ -268,63 +270,76 @@ function TugOfWarMeter({ value, isPlayer1 }: { value: number; isPlayer1: boolean
 
 export const GameHUD = React.memo(function GameHUD() {
   const { players, localPlayerId, isPlayer1, tugOfWar } = useTradingStore()
+  const [showHowToPlay, setShowHowToPlay] = useState(false)
 
   const localPlayer = players.find((p) => p.id === localPlayerId)
   const opponent = players.find((p) => p.id !== localPlayerId)
 
   return (
-    <motion.div
-      className="absolute top-0 left-0 right-0 z-10 p-3 sm:p-5 pointer-events-none"
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-    >
-      <div className="max-w-4xl mx-auto space-y-3 sm:space-y-5">
-        {/* Glassmorphic panel container */}
-        <motion.div
-          className="glass-panel-vibrant rounded-xl p-3 sm:p-4"
-          animate={{
-            boxShadow: [
-              '0 0 20px rgba(0,243,255,0.1), inset 0 0 20px rgba(0,243,255,0.03)',
-              '0 0 30px rgba(0,243,255,0.15), inset 0 0 30px rgba(0,243,255,0.05)',
-              '0 0 20px rgba(0,243,255,0.1), inset 0 0 20px rgba(0,243,255,0.03)',
-            ],
-          }}
-          transition={{ duration: 3, repeat: Infinity }}
-        >
-          {/* Player Health Bars */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-10">
-            {localPlayer && (
-              <PlayerHealthBar
-                name={localPlayer.name}
-                health={localPlayer.health}
-                color="green"
-                index={0}
-              />
-            )}
-            {opponent && (
-              <PlayerHealthBar
-                name={opponent.name}
-                health={opponent.health}
-                color="red"
-                index={1}
-              />
-            )}
-          </div>
-
-          {/* Divider */}
+    <>
+      <motion.div
+        className="absolute top-0 left-0 right-0 z-10 p-3 sm:p-5 pointer-events-none"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <div className="max-w-4xl mx-auto space-y-3 sm:space-y-5">
+          {/* Glassmorphic panel container */}
           <motion.div
-            className="my-3 h-px bg-gradient-to-r from-transparent via-tron-cyan/50 to-transparent"
+            className="glass-panel-vibrant rounded-xl p-3 sm:p-4 relative"
             animate={{
-              opacity: [0.3, 0.6, 0.3],
+              boxShadow: [
+                '0 0 20px rgba(0,243,255,0.1), inset 0 0 20px rgba(0,243,255,0.03)',
+                '0 0 30px rgba(0,243,255,0.15), inset 0 0 30px rgba(0,243,255,0.05)',
+                '0 0 20px rgba(0,243,255,0.1), inset 0 0 20px rgba(0,243,255,0.03)',
+              ],
             }}
-            transition={{ duration: 2, repeat: Infinity }}
-          />
+            transition={{ duration: 3, repeat: Infinity }}
+          >
+            {/* Help button */}
+            <button
+              onClick={() => setShowHowToPlay(true)}
+              className="absolute top-2 right-2 p-2 hover:bg-tron-cyan/10 rounded transition-colors pointer-events-auto"
+            >
+              <Info className="w-4 h-4 text-tron-cyan" />
+            </button>
 
-          {/* Tug of War Meter */}
-          <TugOfWarMeter value={tugOfWar} isPlayer1={isPlayer1} />
-        </motion.div>
-      </div>
-    </motion.div>
+            {/* Player Health Bars */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-10">
+              {localPlayer && (
+                <PlayerHealthBar
+                  name={localPlayer.name}
+                  dollars={localPlayer.dollars}
+                  color="green"
+                  index={0}
+                />
+              )}
+              {opponent && (
+                <PlayerHealthBar
+                  name={opponent.name}
+                  dollars={opponent.dollars}
+                  color="red"
+                  index={1}
+                />
+              )}
+            </div>
+
+            {/* Divider */}
+            <motion.div
+              className="my-3 h-px bg-gradient-to-r from-transparent via-tron-cyan/50 to-transparent"
+              animate={{
+                opacity: [0.3, 0.6, 0.3],
+              }}
+              transition={{ duration: 2, repeat: Infinity }}
+            />
+
+            {/* Tug of War Meter */}
+            <TugOfWarMeter value={tugOfWar} isPlayer1={isPlayer1} />
+          </motion.div>
+        </div>
+      </motion.div>
+
+      <HowToPlayModal isOpen={showHowToPlay} onClose={() => setShowHowToPlay(false)} />
+    </>
   )
 })

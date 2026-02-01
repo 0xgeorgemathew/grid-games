@@ -33,7 +33,7 @@ export function getCoinConfigScale(): number {
 
 // Visual theme colors (consolidated magic numbers)
 export const COLORS = {
-  background: 0x1a1a2e,
+  background: 0x0a0a0f, // Match MatchmakingScreen dark theme
   gridLine: 0x4a4a6a,
   hoverFill: 0x4a4a6a,
   selectedFill: 0xff00ff,
@@ -59,8 +59,14 @@ const PHYSICS_CONFIG = {
   arcade: { gravity: { x: 0, y: 0 }, fps: 45 },
 } as const
 
+// Input config for better mobile/touch handling
+const INPUT_CONFIG = {
+  mouse: { target: document.getElementById('phaser-game') },
+  touch: { target: document.getElementById('phaser-game') },
+} as const
+
 interface PhaserConfigOptions {
-  scene: Phaser.Scene
+  scene: Phaser.Types.Scenes.SceneType
   width: number
   height: number
   fitToScreen?: boolean
@@ -76,10 +82,11 @@ export function createPhaserConfig(options: PhaserConfigOptions): Phaser.Types.C
     height,
     backgroundColor: COLORS.background,
     fps: {
-      target: 45,
+      target: 60, // Increase from 45 to 60 for smoother gameplay
       forceSetTimeOut: false,
     },
     physics: PHYSICS_CONFIG,
+    input: INPUT_CONFIG, // Add input config
     scene: [scene],
   }
 
@@ -95,7 +102,7 @@ export function createPhaserConfig(options: PhaserConfigOptions): Phaser.Types.C
 
 // Convenience factory for GridScene
 export function createGridPhaserConfig(
-  scene: Phaser.Scene,
+  scene: Phaser.Types.Scenes.SceneType,
   grid: GridConfig = DEFAULT_GRID
 ): Phaser.Types.Core.GameConfig {
   return createPhaserConfig({
@@ -106,7 +113,9 @@ export function createGridPhaserConfig(
 }
 
 // Convenience factory for TradingScene
-export function createTradingPhaserConfig(scene: Phaser.Scene): Phaser.Types.Core.GameConfig {
+export function createTradingPhaserConfig(
+  scene: Phaser.Types.Scenes.SceneType
+): Phaser.Types.Core.GameConfig {
   return createPhaserConfig({
     scene,
     width: TRADING_DIMENSIONS.width,

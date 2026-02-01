@@ -7,10 +7,7 @@ import { cn } from '@/lib/utils'
 import type { CryptoSymbol } from '@/game/stores/trading-store'
 
 const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
-  ethusdt: 'ETH',
   btcusdt: 'BTC',
-  bnbusdt: 'BNB',
-  solusdt: 'SOL',
 } as const
 
 function formatPrice(price: number): string {
@@ -20,7 +17,7 @@ function formatPrice(price: number): string {
 }
 
 export function PriceTicker() {
-  const { priceData, isPriceConnected, selectedCrypto, connectPriceFeed, isPlaying } =
+  const { priceData, isPriceConnected, selectedCrypto, connectPriceFeed, isPlaying, priceError, manualReconnect } =
     useTradingStore()
 
   // Connect to price feed when game starts
@@ -41,6 +38,9 @@ export function PriceTicker() {
   const priceGlow = isPositive
     ? '0 0 10px rgba(0, 243, 255, 0.8), 0 0 20px rgba(0, 243, 255, 0.4)'
     : '0 0 10px rgba(255, 107, 0, 0.8), 0 0 20px rgba(255, 107, 0, 0.4)'
+
+  // Check if manual reconnect is needed
+  const needsManualReconnect = priceError?.includes('Max retries')
 
   return (
     <motion.div
@@ -104,25 +104,39 @@ export function PriceTicker() {
                 'flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono',
                 isPriceConnected
                   ? 'bg-tron-cyan/10 text-tron-cyan border border-tron-cyan/30'
+                  : priceError
+                  ? 'bg-red-500/10 text-red-400 border border-red-500/30'
                   : 'bg-tron-orange/10 text-tron-orange border border-tron-orange/30'
               )}
               animate={{
-                opacity: isPriceConnected ? [1, 0.7, 1] : [0.5, 1, 0.5],
+                opacity: isPriceConnected ? [1, 0.7, 1] : priceError ? 1 : [0.5, 1, 0.5],
               }}
-              transition={{ duration: 2, repeat: Infinity }}
+              transition={{ duration: 2, repeat: isPriceConnected ? Infinity : 0 }}
             >
               <motion.div
                 className={cn(
                   'w-1.5 h-1.5 rounded-full',
-                  isPriceConnected ? 'bg-tron-cyan' : 'bg-tron-orange'
+                  isPriceConnected ? 'bg-tron-cyan' : priceError ? 'bg-red-400' : 'bg-tron-orange'
                 )}
                 animate={{
-                  scale: isPriceConnected ? [1, 1.3, 1] : [0.8, 1, 0.8],
+                  scale: isPriceConnected ? [1, 1.3, 1] : priceError ? 1 : [0.8, 1, 0.8],
                 }}
-                transition={{ duration: 1.5, repeat: Infinity }}
+                transition={{ duration: 1.5, repeat: isPriceConnected ? Infinity : 0 }}
               />
-              {isPriceConnected ? 'LIVE' : 'CONNECTING'}
+              {isPriceConnected ? 'LIVE' : priceError ? 'ERROR' : 'CONNECTING'}
             </motion.div>
+
+            {/* Manual Reconnect Button */}
+            {needsManualReconnect && (
+              <motion.button
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                onClick={manualReconnect}
+                className="px-2 py-1 rounded text-xs font-mono bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors"
+              >
+                Reconnect
+              </motion.button>
+            )}
 
             {/* Crypto Selector */}
             <div className="flex gap-1">

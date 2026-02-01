@@ -2,13 +2,105 @@ import { Server as SocketIOServer } from 'socket.io'
 import { Socket } from 'socket.io'
 
 // =============================================================================
+// Price Feed Manager - Real-time Binance WebSocket
+// =============================================================================
+
+class PriceFeedManager {
+  private ws: WebSocket | null = null
+  private currentPrice: number = 3400
+  private subscribers: Set<(price: number) => void> = new Set()
+  private MAX_BUFFER_SIZE = 10000 // Store ~10s of trades
+  private priceBuffer: Array<{
+    price: number
+    size: number
+    side: 'BUY' | 'SELL'
+    timestamp: number
+    tradeId: number
+  }> = []
+
+  connect(symbol: string = 'btcusdt'): void {
+    if (this.ws) {
+      this.ws.close()
+    }
+
+    const url = `wss://stream.binance.com:9443/ws/${symbol}@aggTrade`
+    this.ws = new WebSocket(url)
+
+    this.ws.onmessage = (event) => {
+      const raw = JSON.parse(event.data.toString())
+
+      // Parse aggregate trade format
+      const trade = {
+        price: parseFloat(raw.p), // Trade price
+        size: parseFloat(raw.q), // Trade quantity
+        side: raw.m ? ('SELL' as const) : ('BUY' as const), // Trade direction
+        timestamp: raw.T, // Trade time (ms)
+        tradeId: raw.a, // Aggregate trade ID
+      }
+
+      // Store in circular buffer for settlement resolution
+      this.priceBuffer.push(trade)
+      if (this.priceBuffer.length > this.MAX_BUFFER_SIZE) {
+        this.priceBuffer.shift()
+      }
+
+      // Update current price for backward compatibility
+      this.currentPrice = trade.price
+      this.subscribers.forEach((cb) => cb(trade.price))
+    }
+
+    this.ws.onerror = (error) => {
+      console.error('[PriceFeed] Server WebSocket error:', error)
+    }
+
+    this.ws.onclose = () => {
+      // Auto-reconnect after 5s
+      setTimeout(() => this.connect(symbol), 5000)
+    }
+  }
+
+  getPrice(): number {
+    return this.currentPrice
+  }
+
+  getPriceAtTimestamp(targetTimestamp: number): number | null {
+    if (this.priceBuffer.length === 0) return null
+
+    // Find the trade with timestamp closest to targetTimestamp
+    let closestTrade = this.priceBuffer[0]
+    let minDiff = Math.abs(this.priceBuffer[0].timestamp - targetTimestamp)
+
+    for (const trade of this.priceBuffer) {
+      const diff = Math.abs(trade.timestamp - targetTimestamp)
+      if (diff < minDiff) {
+        minDiff = diff
+        closestTrade = trade
+      }
+    }
+
+    // Only return if within 100ms of target time
+    if (minDiff <= 100) {
+      return closestTrade.price
+    }
+    return null
+  }
+
+  subscribe(callback: (price: number) => void): () => void {
+    this.subscribers.add(callback)
+    return () => this.subscribers.delete(callback)
+  }
+}
+
+const priceFeed = new PriceFeedManager()
+
+// =============================================================================
 // Type Definitions
 // =============================================================================
 
 interface PlayerState {
   id: string
   name: string
-  health: number
+  dollars: number
   score: number
 }
 
@@ -57,7 +149,7 @@ class GameRoom {
   }
 
   addPlayer(id: string, name: string): void {
-    this.players.set(id, { id, name, health: 100, score: 0 })
+    this.players.set(id, { id, name, dollars: 10, score: 0 })
   }
 
   removePlayer(id: string): void {
@@ -109,15 +201,15 @@ class GameRoom {
     this.timeouts.clear()
   }
 
-  // Find winner (highest health, or first if tied)
+  // Find winner (highest dollars, or first if tied)
   getWinner(): PlayerState | undefined {
     const players = Array.from(this.players.values())
-    return players.reduce((a, b) => (a.health > b.health ? a : b), players[0])
+    return players.reduce((a, b) => (a.dollars > b.dollars ? a : b), players[0])
   }
 
   // Check if any player is dead
   hasDeadPlayer(): boolean {
-    return Array.from(this.players.values()).some((p) => p.health <= 0)
+    return Array.from(this.players.values()).some((p) => p.dollars <= 0)
   }
 }
 
@@ -236,26 +328,32 @@ function validateCoinType(coinType: string): coinType is 'call' | 'put' | 'whale
 // =============================================================================
 
 function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): void {
-  const currentPrice = 3400 // TODO: Get from price feed
-  const priceChange = (currentPrice - order.priceAtOrder) / order.priceAtOrder
+  const finalPrice = priceFeed.getPriceAtTimestamp(order.settlesAt)
+
+  if (finalPrice === null) {
+    console.error(`[Settlement] No price found for timestamp ${order.settlesAt}`)
+    return // Skip settlement if no price data available
+  }
+
+  const priceChange = (finalPrice - order.priceAtOrder) / order.priceAtOrder
 
   let isCorrect = false
   if (order.coinType === 'call') isCorrect = priceChange > 0
   else if (order.coinType === 'put') isCorrect = priceChange < 0
   else if (order.coinType === 'whale') isCorrect = Math.random() < 0.8
 
-  const impact = order.coinType === 'whale' ? 20 : 10
+  const impact = order.coinType === 'whale' ? 2 : 1
   const playerIds = room.getPlayerIds()
   const isPlayer1 = order.playerId === playerIds[0]
 
   if (isCorrect) {
     const opponentId = playerIds.find((id) => id !== order.playerId)!
     const opponent = room.players.get(opponentId)
-    if (opponent) opponent.health -= impact
+    if (opponent) opponent.dollars -= impact
     room.tugOfWar += isPlayer1 ? -impact : impact
   } else {
     const player = room.players.get(order.playerId)
-    if (player) player.health -= impact
+    if (player) player.dollars -= impact
     room.tugOfWar += isPlayer1 ? impact : -impact
   }
 
@@ -268,7 +366,7 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
     coinType: order.coinType,
     isCorrect,
     priceAtOrder: order.priceAtOrder,
-    finalPrice: currentPrice,
+    finalPrice: finalPrice,
   })
 }
 
@@ -291,7 +389,7 @@ function spawnCoin(room: GameRoom): Coin {
   const coin: Coin = {
     id: coinId,
     type,
-    x: 100 + Math.random() * 400,
+    x: Math.random() * 500, // Spawns across full width (0-500)
     y: -50,
   }
 
@@ -307,15 +405,16 @@ function spawnCoin(room: GameRoom): Coin {
 // =============================================================================
 
 function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
-  console.log(`[Room ${room.id}] Game loop started, spawning first coin in 1.5s...`)
-  // Spawn coins every 1.5s
-  const spawnInterval = setInterval(() => {
-    // Stop if room no longer exists
-    if (!manager.hasRoom(room.id)) {
-      clearInterval(spawnInterval)
+  console.log(`[Room ${room.id}] Game loop started, spawning first coin soon...`)
+
+  // Helper function to spawn coin with randomized delay
+  const scheduleNextSpawn = () => {
+    // Stop if room no longer exists or has fewer than 2 players
+    if (!manager.hasRoom(room.id) || room.players.size < 2) {
       return
     }
 
+    // Spawn coin
     const coin = spawnCoin(room)
     io.to(room.id).emit('coin_spawn', {
       coinId: coin.id,
@@ -323,9 +422,15 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       x: coin.x,
       y: coin.y,
     })
-  }, 1500)
 
-  room.trackInterval(spawnInterval)
+    // Schedule next spawn with random interval (800-1200ms)
+    const nextDelay = Math.floor(Math.random() * 401) + 800 // 800-1200ms
+    const timeoutId = setTimeout(scheduleNextSpawn, nextDelay)
+    room.trackTimeout(timeoutId)
+  }
+
+  // Start first spawn immediately
+  scheduleNextSpawn()
 
   // End game after 3 minutes
   const endGameTimeout = setTimeout(() => {
@@ -335,7 +440,6 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       winnerName: winner?.name,
       reason: 'time_limit',
     })
-    // Note: RoomManager.deleteRoom() will call room.cleanup()
   }, 180000)
 
   room.trackTimeout(endGameTimeout)
@@ -368,8 +472,8 @@ function createMatch(
   io.to(roomId).emit('match_found', {
     roomId,
     players: [
-      { id: playerId1, name: name1 },
-      { id: playerId2, name: name2 },
+      { id: playerId1, name: name1, dollars: 10, score: 0 },
+      { id: playerId2, name: name2, dollars: 10, score: 0 },
     ],
   })
 
@@ -391,11 +495,11 @@ function handleSlice(
   if (data.coinType === 'gas') {
     const player = room.players.get(playerId)
     if (player) {
-      player.health -= 10
+      player.dollars -= 1
       const playerIds = room.getPlayerIds()
-      room.tugOfWar += playerId === playerIds[0] ? 10 : -10
+      room.tugOfWar += playerId === playerIds[0] ? 1 : -1
     }
-    io.to(room.id).emit('player_hit', { playerId, damage: 10, reason: 'gas' })
+    io.to(room.id).emit('player_hit', { playerId, damage: 1, reason: 'gas' })
     return
   }
 
@@ -410,7 +514,7 @@ function handleSlice(
     playerName: room.players.get(playerId)?.name || 'Unknown',
     coinType: data.coinType,
     priceAtOrder: data.priceAtSlice,
-    settlesAt: Date.now() + 5000,
+    settlesAt: Date.now() + 10000, // 10 seconds
   }
 
   room.addPendingOrder(order)
@@ -437,7 +541,7 @@ function handleSlice(
       settleOrder(io, room, order)
       checkGameOver(io, manager, room)
     }
-  }, 5000)
+  }, 10000) // 10 seconds
 
   room.trackTimeout(timeoutId)
 }
@@ -459,6 +563,9 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
 // =============================================================================
 
 export function setupGameEvents(io: SocketIOServer): void {
+  // Start price feed
+  priceFeed.connect('btcusdt')
+
   const manager = new RoomManager()
 
   // Periodic cleanup of stale waiting players

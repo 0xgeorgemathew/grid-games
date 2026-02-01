@@ -12,28 +12,53 @@ interface GameCanvasClientProps {
   scene?: SceneType
 }
 
-// Scene type → (scene instance, config factory) mapping
-function createSceneAndConfig(type: SceneType) {
+// Scene type → config factory mapping (pass scene classes, not instances)
+function createConfigForScene(type: SceneType) {
   if (type === 'TradingScene') {
-    const sceneInstance = new TradingScene()
-    return { sceneInstance, config: createTradingPhaserConfig(sceneInstance) }
+    return createTradingPhaserConfig(TradingScene)
   }
 
-  const sceneInstance = new GridScene('GridScene', DEFAULT_GRID)
-  return { sceneInstance, config: createGridPhaserConfig(sceneInstance) }
+  return createGridPhaserConfig(GridScene, DEFAULT_GRID)
 }
 
+// Module-level singleton to prevent duplicate game instances from React StrictMode
+let globalGameInstance: Game | null = null
+
 export default function GameCanvasClient({ scene = 'GridScene' }: GameCanvasClientProps) {
-  const gameInstanceRef = useRef<Game | null>(null)
+  const parentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const { config } = createSceneAndConfig(scene)
-    gameInstanceRef.current = new Game(config)
+    // Module-level check survives StrictMode unmount/remount
+    if (globalGameInstance) {
+      return
+    }
+
+    const config = createConfigForScene(scene)
+    // Ensure parent element exists before creating game
+    if (!parentRef.current) {
+      console.error('[GameCanvasClient] Parent ref not available')
+      return
+    }
+
+    console.log('[GameCanvasClient] Creating Phaser game')
+    globalGameInstance = new Game(config)
 
     return () => {
-      gameInstanceRef.current?.destroy(true)
+      if (globalGameInstance) {
+        console.log('[GameCanvasClient] Destroying Phaser game')
+        globalGameInstance.destroy(true)
+        globalGameInstance = null
+      }
     }
   }, [scene])
 
-  return <div id="phaser-game" className="w-full h-full" style={{ touchAction: 'none' }} />
+  return (
+    <div
+      ref={parentRef}
+      id="phaser-game"
+      className="absolute inset-0 z-1"
+      style={{ touchAction: 'none' }}
+      suppressHydrationWarning={true}
+    />
+  )
 }

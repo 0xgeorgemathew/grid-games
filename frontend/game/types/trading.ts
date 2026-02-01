@@ -3,7 +3,7 @@ export type CoinType = 'call' | 'put' | 'gas' | 'whale'
 export type Player = {
   id: string
   name: string
-  health: number
+  dollars: number
   score: number
 }
 
@@ -56,4 +56,7 @@ export type PriceData = {
   price: number
   change: number
   changePercent: number
+  tradeSize?: number // Quantity traded (BTC)
+  tradeSide?: 'BUY' | 'SELL' // Trade direction
+  tradeTime?: number // Trade timestamp (ms)
 }

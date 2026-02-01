@@ -6,6 +6,7 @@ import { GameHUD } from '@/components/GameHUD'
 import { SettlementFeed } from '@/components/SettlementFeed'
 import { PriceTicker } from '@/components/PriceTicker'
 import { PendingOrdersBar } from '@/components/PendingOrdersBar'
+import { PositionIndicator } from '@/components/PositionIndicator'
 import { GameCanvasBackground } from '@/components/GameCanvasBackground'
 import GameCanvas from '@/components/GameCanvas'
 import { useEffect } from 'react'
@@ -42,6 +43,7 @@ export default function Home() {
 
       {/* Bottom UI Layer */}
       <PendingOrdersBar />
+      <PositionIndicator />
       <SettlementFeed />
     </div>
   )

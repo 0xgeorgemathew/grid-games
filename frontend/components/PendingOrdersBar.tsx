@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import type { OrderPlacedEvent } from '@/game/types/trading'
 
 const ORDER_CARD_SIZE = 70
-const SETTLEMENT_TIME = 5000 // 5 seconds
+const SETTLEMENT_TIME = 10000 // 10 seconds (matches server)
 
 const COIN_STYLES: Record<string, { bg: string; border: string; glow: string; icon: string }> = {
   call: {
@@ -75,8 +75,6 @@ interface OrderCardProps {
 
 function OrderCard({ order, isLocalPlayer, index, onSettle }: OrderCardProps) {
   const [timeRemaining, setTimeRemaining] = useState(SETTLEMENT_TIME)
-  const [isSettling, setIsSettling] = useState(false)
-  const [result, setResult] = useState<'win' | 'loss' | null>(null)
 
   const coinStyle = COIN_STYLES[order.coinType] ?? COIN_STYLES.call
   const isLocalPlayerCard = isLocalPlayer
@@ -89,24 +87,16 @@ function OrderCard({ order, isLocalPlayer, index, onSettle }: OrderCardProps) {
       const remaining = Math.max(0, endTime - Date.now())
       setTimeRemaining(remaining)
 
-      if (remaining === 0 && !isSettling) {
-        // Simulate settlement result (in real implementation, this comes from server)
-        setIsSettling(true)
-        const isWin = Math.random() > 0.5 // Placeholder - real result comes from server
-        setResult(isWin ? 'win' : 'loss')
-
-        // Remove after showing result
-        setTimeout(() => {
-          onSettle(order.orderId)
-        }, 800)
-      } else if (remaining > 0) {
+      // Trust server to send order_settled event
+      // Settlement result handled by SettlementFeed component
+      if (remaining > 0) {
         requestAnimationFrame(updateCountdown)
       }
     }
 
     const rafId = requestAnimationFrame(updateCountdown)
     return () => cancelAnimationFrame(rafId)
-  }, [order.settlesAt, isSettling, onSettle, order.orderId])
+  }, [order.settlesAt])
 
   const timePercent = (timeRemaining / SETTLEMENT_TIME) * 100
   const isUrgent = timeRemaining < 2000 // Less than 2 seconds
@@ -185,27 +175,6 @@ function OrderCard({ order, isLocalPlayer, index, onSettle }: OrderCardProps) {
           }}
         />
       </svg>
-
-      {/* Settlement result overlay */}
-      <AnimatePresence>
-        {result && (
-          <motion.div
-            className="absolute inset-0 flex items-center justify-center text-2xl font-bold"
-            initial={{ scale: 0, rotate: -180, opacity: 0 }}
-            animate={{ scale: 1, rotate: 0, opacity: 1 }}
-            exit={{ scale: 1.5, opacity: 0 }}
-            transition={{
-              type: 'spring',
-              stiffness: 500,
-              damping: 20,
-            }}
-          >
-            <span className={result === 'win' ? 'text-green-400' : 'text-red-400'}>
-              {result === 'win' ? '✓' : '✗'}
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Player indicator (small dot for opponent) */}
       {!isLocalPlayerCard && (

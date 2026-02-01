@@ -30,6 +30,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "condition": "TOOL_INPUT_COMMAND =~ git commit.*-m",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'MSG=$(git log -1 --format=%s); if [[ \"$MSG\" =~ ^(feat|refactor|fix|perf|test|build): ]]; then echo \"📝 Feature commit detected - CLAUDE.md will be updated\"; exit 0; else echo \"ℹ️ Skipping docs update for $MSG\"; exit 0; fi'"
+          }
+        ]
+      }
     ]
   }
 }

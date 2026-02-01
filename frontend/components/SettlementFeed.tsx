@@ -92,6 +92,11 @@ function SettlementItem({ settlement, isLocalPlayer, index }: SettlementItemProp
   const playerNameColor = isLocalPlayer ? 'text-tron-cyan font-bold' : 'text-tron-white-dim'
   const priceChangeColor = priceChange >= 0 ? 'text-green-400' : 'text-red-400'
 
+  // Dollar amount display
+  const dollarAmount = settlement.coinType === 'whale' ? 2 : 1
+  const dollarChange = isWin ? `+$${dollarAmount}` : `-$${dollarAmount}`
+  const dollarColor = isWin ? 'text-green-400' : 'text-red-400'
+
   return (
     <motion.div
       variants={itemVariants}
@@ -141,6 +146,18 @@ function SettlementItem({ settlement, isLocalPlayer, index }: SettlementItemProp
 
           {/* Player name */}
           <span className={cn('text-xs truncate', playerNameColor)}>{settlement.playerName}</span>
+
+          {/* Dollar amount display for local player */}
+          {isLocalPlayer && (
+            <motion.div
+              className={cn('px-2 py-1 rounded text-sm font-bold font-mono', isWin ? 'bg-green-500/20' : 'bg-red-500/20')}
+              initial={{ scale: 1.2 }}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 20 }}
+            >
+              <span className={dollarColor}>{dollarChange}</span>
+            </motion.div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

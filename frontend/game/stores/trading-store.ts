@@ -13,7 +13,7 @@ import type {
 } from '../types/trading'
 
 // Export CryptoSymbol type for use in components
-export type CryptoSymbol = 'ethusdt' | 'btcusdt' | 'bnbusdt' | 'solusdt'
+export type CryptoSymbol = 'btcusdt' // BTC only - like test-stream.ts
 
 // Event bridge interface for React ↔ Phaser communication
 // Both Phaser.Events.EventEmitter and Node's EventEmitter implement this subset
@@ -30,18 +30,15 @@ declare global {
 }
 
 // Game constants
-const STANDARD_DAMAGE = 10
-const WHALE_DAMAGE = 20
+const STANDARD_DAMAGE = 1
+const WHALE_DAMAGE = 2
 const TUG_OF_WAR_MIN = -100
 const TUG_OF_WAR_MAX = 100
 
 // Binance WebSocket configuration
 const BINANCE_WS_URL = 'wss://stream.binance.com:9443/ws'
 const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
-  ethusdt: 'ETH/USD',
   btcusdt: 'BTC/USD',
-  bnbusdt: 'BNB/USD',
-  solusdt: 'SOL/USD',
 }
 
 interface TradingState {
@@ -60,7 +57,7 @@ interface TradingState {
 
   // Game state
   tugOfWar: number
-  activeOrders: Map<string, OrderPlacedEvent> // Active orders (5s countdown)
+  activeOrders: Map<string, OrderPlacedEvent> // Active orders (10s countdown)
   pendingOrders: Map<string, SettlementEvent> // Settlement history
 
   // Price feed
@@ -68,6 +65,12 @@ interface TradingState {
   priceData: PriceData | null
   isPriceConnected: boolean
   selectedCrypto: CryptoSymbol
+  reconnectAttempts: number
+  maxReconnectAttempts: number
+  reconnectDelay: number
+  priceError: string | null
+  lastPriceUpdate: number
+  firstPrice: number | null // Track first price for change calculation
 
   // Actions
   connect: () => void
@@ -83,6 +86,7 @@ interface TradingState {
   removeActiveOrder: (orderId: string) => void
   connectPriceFeed: (symbol: CryptoSymbol) => void
   disconnectPriceFeed: () => void
+  manualReconnect: () => void
   resetGame: () => void
 }
 
@@ -98,7 +102,7 @@ function calculateTugOfWarDelta(isPlayer1: boolean, isCorrect: boolean, damage: 
 
 function applyDamageToPlayer(players: Player[], playerId: string, damage: number): Player[] {
   return players.map((p) =>
-    p.id === playerId ? { ...p, health: Math.max(0, p.health - damage) } : p
+    p.id === playerId ? { ...p, dollars: Math.max(0, p.dollars - damage) } : p
   )
 }
 
@@ -128,7 +132,13 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   priceSocket: null,
   priceData: null,
   isPriceConnected: false,
-  selectedCrypto: 'ethusdt',
+  selectedCrypto: 'btcusdt',
+  reconnectAttempts: 0,
+  maxReconnectAttempts: 10,
+  reconnectDelay: 1000,
+  priceError: null,
+  lastPriceUpdate: 0,
+  firstPrice: null,
 
   connect: () => {
     const socket = io({
@@ -159,6 +169,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     })
 
     socket.on('coin_spawn', (coin: CoinSpawnEvent) => {
+      console.log('[Store] coin_spawn event received from server:', coin)
       get().spawnCoin(coin)
     })
 
@@ -204,10 +215,19 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   spawnCoin: (coin) => {
+    console.log('[Store] spawnCoin called:', {
+      coinId: coin.coinId,
+      coinType: coin.coinType,
+      x: coin.x,
+      y: coin.y,
+      isSceneReady: get().isSceneReady,
+      phaserEventsExists: !!window.phaserEvents,
+    })
     if (get().isSceneReady && window.phaserEvents) {
+      console.log('[Store] Emitting coin_spawn to Phaser via window.phaserEvents')
       window.phaserEvents.emit('coin_spawn', coin)
     } else if (!get().isSceneReady) {
-      console.warn('[Store] Scene not ready, coin spawn buffered (not implemented)')
+      console.warn('[Store] Scene not ready, coin spawn buffered (not implemented)', coin)
     }
   },
 
@@ -279,60 +299,104 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   connectPriceFeed: (symbol: CryptoSymbol) => {
-    const { priceSocket } = get()
+    const { priceSocket, reconnectAttempts, maxReconnectAttempts } = get()
 
     // Close existing connection if any
     if (priceSocket) {
       priceSocket.close()
     }
 
-    set({ selectedCrypto: symbol, isPriceConnected: false, priceData: null })
+    set({ selectedCrypto: symbol, isPriceConnected: false, priceData: null, priceError: null, firstPrice: null })
 
     try {
-      // Connect to Binance WebSocket (same as HTML prototype)
-      const ws = new WebSocket(`${BINANCE_WS_URL}/${symbol}@ticker`)
+      // Connect to Binance WebSocket with aggTrade stream
+      const ws = new WebSocket(`${BINANCE_WS_URL}/${symbol}@aggTrade`)
+
+      let firstPrice: number | null = null
 
       ws.onopen = () => {
-        set({ isPriceConnected: true, priceSocket: ws })
+        set({ isPriceConnected: true, priceSocket: ws, reconnectAttempts: 0, priceError: null })
       }
 
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data)
-        const price = parseFloat(data.c) // Current price
-        const open = parseFloat(data.o) // Open price
-        const change = price - open
-        const changePercent = (change / open) * 100
+      let lastPriceUpdate = 0
+      const PRICE_THROTTLE_MS = 500 // Update UI max 2x per second
 
+      ws.onmessage = (event) => {
+        const raw = JSON.parse(event.data)
+
+        // Parse aggregate trade format
+        const trade = {
+          price: parseFloat(raw.p),
+          size: parseFloat(raw.q),
+          side: raw.m ? ('SELL' as const) : ('BUY' as const),
+          timestamp: raw.T,
+        }
+
+        // Initialize firstPrice on first trade
+        if (!firstPrice) {
+          firstPrice = trade.price
+          set({ firstPrice })
+        }
+
+        // Calculate change from first price of session
+        const change = trade.price - firstPrice
+        const changePercent = (change / trade.price) * 100
+
+        const now = Date.now()
+
+        // Always update priceData (needed for settlements), but throttle UI updates
         set({
           priceData: {
             symbol: symbol.toUpperCase(),
-            price,
+            price: trade.price,
             change,
             changePercent,
+            tradeSize: trade.size,
+            tradeSide: trade.side,
+            tradeTime: trade.timestamp,
           },
+          lastPriceUpdate: now,
         })
       }
 
       ws.onerror = (error) => {
-        console.error('[PriceFeed] WebSocket error:', error)
-        set({ isPriceConnected: false })
+        const errorContext = {
+          type: 'WebSocket error',
+          url: `${BINANCE_WS_URL}/${symbol}@aggTrade`,
+          timestamp: new Date().toISOString(),
+          readyState: ws.readyState,
+        }
+        console.error('[PriceFeed] WebSocket error:', errorContext)
+
+        set({
+          isPriceConnected: false,
+          priceError: `Connection failed (${reconnectAttempts + 1}/${maxReconnectAttempts})`,
+        })
       }
 
       ws.onclose = () => {
         set({ isPriceConnected: false, priceSocket: null })
-        // Auto-reconnect after 5 seconds
+
+        // Exponential backoff reconnection
+        const baseDelay = 1000
+        const maxDelay = 30000
+        const delay = Math.min(maxDelay, baseDelay * Math.pow(2, reconnectAttempts))
+
         setTimeout(() => {
-          const { selectedCrypto, isPlaying } = get()
-          if (isPlaying) {
+          const { selectedCrypto, isPlaying, reconnectAttempts: currentAttempts, maxReconnectAttempts: maxAttempts } = get()
+          if (isPlaying && currentAttempts < maxAttempts) {
+            set({ reconnectAttempts: currentAttempts + 1 })
             get().connectPriceFeed(selectedCrypto)
+          } else if (currentAttempts >= maxAttempts) {
+            set({ priceError: 'Max retries reached. Manual reconnect required.' })
           }
-        }, 5000)
+        }, delay)
       }
 
       set({ priceSocket: ws })
     } catch (error) {
       console.error('[PriceFeed] Failed to connect:', error)
-      set({ isPriceConnected: false })
+      set({ isPriceConnected: false, priceError: 'Connection failed' })
     }
   },
 
@@ -354,5 +418,11 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       isPlaying: false,
       isMatching: false,
     })
+  },
+
+  manualReconnect: () => {
+    const { selectedCrypto } = get()
+    set({ reconnectAttempts: 0, priceError: null })
+    get().connectPriceFeed(selectedCrypto)
   },
 }))
