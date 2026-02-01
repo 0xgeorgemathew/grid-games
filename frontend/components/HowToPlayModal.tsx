@@ -45,16 +45,27 @@ export function HowToPlayModal({ isOpen, onClose }: HowToPlayModalProps) {
               <div className="space-y-4 text-sm text-tron-white/80">
                 <div>
                   <h3 className="font-bold text-tron-cyan mb-1">🎯 Objective</h3>
-                  <p>Predict if BTC price will go UP or DOWN in 10 seconds. Correct predictions damage your opponent. Reach $0 opponent value to win!</p>
+                  <p>
+                    Predict if BTC price will go UP or DOWN in 10 seconds. Correct predictions
+                    damage your opponent. Reach $0 opponent value to win!
+                  </p>
                 </div>
 
                 <div>
                   <h3 className="font-bold text-tron-cyan mb-1">⚡ Slice Coins</h3>
                   <ul className="list-disc list-inside space-y-1">
-                    <li><span className="text-green-400">▲ CALL</span> - Predict price UP</li>
-                    <li><span className="text-red-400">▼ PUT</span> - Predict price DOWN</li>
-                    <li><span className="text-yellow-400">⚡ GAS</span> - Penalty, avoid!</li>
-                    <li><span className="text-purple-400">★ WHALE</span> - Bonus (80% win chance)</li>
+                    <li>
+                      <span className="text-green-400">▲ CALL</span> - Predict price UP
+                    </li>
+                    <li>
+                      <span className="text-red-400">▼ PUT</span> - Predict price DOWN
+                    </li>
+                    <li>
+                      <span className="text-yellow-400">⚡ GAS</span> - Penalty, avoid!
+                    </li>
+                    <li>
+                      <span className="text-purple-400">★ WHALE</span> - Bonus (80% win chance)
+                    </li>
                   </ul>
                 </div>
 
@@ -65,7 +76,10 @@ export function HowToPlayModal({ isOpen, onClose }: HowToPlayModalProps) {
 
                 <div>
                   <h3 className="font-bold text-tron-cyan mb-1">📍 Position Indicator</h3>
-                  <p>Watch the bottom indicator for your prediction entry, direction, and outcome (✓ win, ✗ lose).</p>
+                  <p>
+                    Watch the bottom indicator for your prediction entry, direction, and outcome (✓
+                    win, ✗ lose).
+                  </p>
                 </div>
               </div>
             </motion.div>

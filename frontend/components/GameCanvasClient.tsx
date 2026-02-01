@@ -36,16 +36,13 @@ export default function GameCanvasClient({ scene = 'GridScene' }: GameCanvasClie
     const config = createConfigForScene(scene)
     // Ensure parent element exists before creating game
     if (!parentRef.current) {
-      console.error('[GameCanvasClient] Parent ref not available')
       return
     }
 
-    console.log('[GameCanvasClient] Creating Phaser game')
     globalGameInstance = new Game(config)
 
     return () => {
       if (globalGameInstance) {
-        console.log('[GameCanvasClient] Destroying Phaser game')
         globalGameInstance.destroy(true)
         globalGameInstance = null
       }

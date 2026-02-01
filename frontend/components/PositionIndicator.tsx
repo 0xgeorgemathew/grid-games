@@ -5,6 +5,7 @@ import { useTradingStore } from '@/game/stores/trading-store'
 import { Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useEffect, useState } from 'react'
+import { formatPrice } from '@/lib/formatPrice'
 
 export function PositionIndicator() {
   const { activeOrders, localPlayerId, pendingOrders } = useTradingStore()
@@ -22,7 +23,7 @@ export function PositionIndicator() {
 
   // Get local player's active orders
   const localOrders = Array.from(activeOrders.values())
-    .filter(order => order.playerId === localPlayerId)
+    .filter((order) => order.playerId === localPlayerId)
     .sort((a, b) => a.settlesAt - b.settlesAt)
     .slice(0, 3) // Max 3 visible
 
@@ -49,7 +50,11 @@ export function PositionIndicator() {
                 transition={{ delay: index * 0.1 }}
                 className={cn(
                   'glass-panel-vibrant rounded-lg p-3 mb-2',
-                  settled ? (isWin ? 'border-green-500/50' : 'border-red-500/50') : 'border-tron-cyan/30'
+                  settled
+                    ? isWin
+                      ? 'border-green-500/50'
+                      : 'border-red-500/50'
+                    : 'border-tron-cyan/30'
                 )}
               >
                 <div className="flex items-center justify-between">
@@ -58,7 +63,7 @@ export function PositionIndicator() {
                     <div className="flex flex-col">
                       <span className="text-xs text-tron-white-dim">Entry</span>
                       <span className="text-sm font-mono font-bold text-tron-cyan">
-                        ${order.priceAtOrder.toFixed(2)}
+                        ${formatPrice(order.priceAtOrder)}
                       </span>
                     </div>
 
@@ -68,16 +73,8 @@ export function PositionIndicator() {
                         'w-8 h-8 rounded-full flex items-center justify-center',
                         isCall ? 'bg-green-500/20' : 'bg-red-500/20'
                       )}
-                      animate={
-                        !settled
-                          ? { y: [0, -3, 0, 3, 0] }
-                          : {}
-                      }
-                      transition={
-                        !settled
-                          ? { duration: 1.5, repeat: Infinity }
-                          : {}
-                      }
+                      animate={!settled ? { y: [0, -3, 0, 3, 0] } : {}}
+                      transition={!settled ? { duration: 1.5, repeat: Infinity } : {}}
                     >
                       {isCall ? (
                         <span className="text-green-400 text-lg">▲</span>
@@ -90,19 +87,17 @@ export function PositionIndicator() {
                     {!settled ? (
                       <div className="flex flex-col">
                         <span className="text-xs text-tron-white-dim">Expires</span>
-                        <span className="text-sm font-mono">
-                          {(timeLeft / 1000).toFixed(1)}s
-                        </span>
+                        <span className="text-sm font-mono">{(timeLeft / 1000).toFixed(1)}s</span>
                       </div>
                     ) : (
-                      <div className={cn(
-                        'flex items-center gap-1 px-2 py-1 rounded',
-                        isWin ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                      )}>
+                      <div
+                        className={cn(
+                          'flex items-center gap-1 px-2 py-1 rounded',
+                          isWin ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                        )}
+                      >
                         {isWin ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
-                        <span className="text-sm font-bold">
-                          {isWin ? '+$1' : '-$1'}
-                        </span>
+                        <span className="text-sm font-bold">{isWin ? '+$1' : '-$1'}</span>
                       </div>
                     )}
                   </div>
@@ -114,7 +109,9 @@ export function PositionIndicator() {
                         <motion.div
                           className={cn(
                             'h-full',
-                            isCall ? 'bg-gradient-to-r from-green-500 to-green-400' : 'bg-gradient-to-r from-red-500 to-red-400'
+                            isCall
+                              ? 'bg-gradient-to-r from-green-500 to-green-400'
+                              : 'bg-gradient-to-r from-red-500 to-red-400'
                           )}
                           initial={{ width: '100%' }}
                           animate={{ width: `${progress * 100}%` }}
@@ -125,12 +122,14 @@ export function PositionIndicator() {
                   )}
 
                   {/* Coin Type Badge */}
-                  <div className={cn(
-                    'px-2 py-1 rounded text-xs font-bold font-mono',
-                    order.coinType === 'call' && 'bg-green-500/20 text-green-400',
-                    order.coinType === 'put' && 'bg-red-500/20 text-red-400',
-                    order.coinType === 'whale' && 'bg-purple-500/20 text-purple-400'
-                  )}>
+                  <div
+                    className={cn(
+                      'px-2 py-1 rounded text-xs font-bold font-mono',
+                      order.coinType === 'call' && 'bg-green-500/20 text-green-400',
+                      order.coinType === 'put' && 'bg-red-500/20 text-red-400',
+                      order.coinType === 'whale' && 'bg-purple-500/20 text-purple-400'
+                    )}
+                  >
                     {order.coinType.toUpperCase()}
                   </div>
                 </div>

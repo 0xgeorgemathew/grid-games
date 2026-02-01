@@ -4,6 +4,7 @@ import { useTradingStore } from '@/game/stores/trading-store'
 import { Badge } from '@/components/ui/badge'
 import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
+import { formatPrice } from '@/lib/formatPrice'
 import type { SettlementEvent } from '@/game/types/trading'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -150,7 +151,10 @@ function SettlementItem({ settlement, isLocalPlayer, index }: SettlementItemProp
           {/* Dollar amount display for local player */}
           {isLocalPlayer && (
             <motion.div
-              className={cn('px-2 py-1 rounded text-sm font-bold font-mono', isWin ? 'bg-green-500/20' : 'bg-red-500/20')}
+              className={cn(
+                'px-2 py-1 rounded text-sm font-bold font-mono',
+                isWin ? 'bg-green-500/20' : 'bg-red-500/20'
+              )}
               initial={{ scale: 1.2 }}
               animate={{ scale: 1 }}
               transition={{ type: 'spring', stiffness: 500, damping: 20 }}
@@ -207,7 +211,7 @@ function SettlementItem({ settlement, isLocalPlayer, index }: SettlementItemProp
               animate={{ opacity: 1 }}
               transition={{ delay: 0.3 + index * 0.05 }}
             >
-              {Math.abs(priceChange).toFixed(2)}
+              {formatPrice(Math.abs(priceChange))}
             </motion.span>
           </div>
         </div>

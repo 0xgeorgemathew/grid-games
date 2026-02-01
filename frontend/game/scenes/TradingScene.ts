@@ -2,6 +2,7 @@ import { Scene, GameObjects, Geom, Physics } from 'phaser'
 import { useTradingStore, type PhaserEventBridge } from '../stores/trading-store'
 import type { CoinType } from '../types/trading'
 import { Token } from '../objects/Token'
+import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 
 // Coin configuration for visual rendering (Bitcoin-style)
 export const COIN_CONFIG = {
@@ -65,7 +66,12 @@ export class TradingScene extends Scene {
   private readonly desktopTrailLength: number = 10
 
   // Object pooling for split effects (prevents GC stutter)
-  private splitEffectPool: { left: Phaser.GameObjects.Graphics; right: Phaser.GameObjects.Graphics; leftContainer: Phaser.GameObjects.Container; rightContainer: Phaser.GameObjects.Container }[] = []
+  private splitEffectPool: {
+    left: Phaser.GameObjects.Graphics
+    right: Phaser.GameObjects.Graphics
+    leftContainer: Phaser.GameObjects.Container
+    rightContainer: Phaser.GameObjects.Container
+  }[] = []
   private readonly SPLIT_POOL_SIZE = 10
 
   // Change detection for blade path (prevents unnecessary updates)
@@ -117,7 +123,11 @@ export class TradingScene extends Scene {
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       const currentPoint = new Geom.Point(pointer.x, pointer.y)
       // Only update if position actually changed (prevents unnecessary updates)
-      if (!this.lastBladePoint || (this.lastBladePoint.x !== currentPoint.x || this.lastBladePoint.y !== currentPoint.y)) {
+      if (
+        !this.lastBladePoint ||
+        this.lastBladePoint.x !== currentPoint.x ||
+        this.lastBladePoint.y !== currentPoint.y
+      ) {
         this.bladePath.push(currentPoint)
         // Limit trail length for performance (longer on mobile for smoother visuals)
         const maxTrailLength = this.isMobile ? this.mobileTrailLength : this.desktopTrailLength
@@ -254,7 +264,7 @@ export class TradingScene extends Scene {
   private generateCachedTextures(): void {
     const textureKeys: Array<CoinType> = ['call', 'put', 'gas', 'whale']
 
-    textureKeys.forEach(type => {
+    textureKeys.forEach((type) => {
       const config = COIN_CONFIG[type]
       const diameter = config.radius * 2
 
@@ -282,11 +292,7 @@ export class TradingScene extends Scene {
 
       // Draw metallic shine
       graphics.fillStyle(0xffffff, 0.15)
-      graphics.fillCircle(
-        -config.radius * 0.3,
-        -config.radius * 0.3,
-        config.radius * 0.4
-      )
+      graphics.fillCircle(-config.radius * 0.3, -config.radius * 0.3, config.radius * 0.4)
 
       // Draw inner circle
       const innerRadius = config.radius * 0.75
@@ -310,12 +316,14 @@ export class TradingScene extends Scene {
       container.add(graphics)
 
       // 2. Draw symbol (₿ or ⚡)
-      const symbol = this.add.text(0, 2, config.symbol, {
-        fontSize: `${config.radius * 0.8}px`,
-        color: '#000000',
-        fontStyle: 'bold',
-        fontFamily: 'Arial, sans-serif',
-      }).setOrigin(0.5)
+      const symbol = this.add
+        .text(0, 2, config.symbol, {
+          fontSize: `${config.radius * 0.8}px`,
+          color: '#000000',
+          fontStyle: 'bold',
+          fontFamily: 'Arial, sans-serif',
+        })
+        .setOrigin(0.5)
       container.add(symbol)
 
       // 3. Draw arrow (if applicable)
@@ -323,11 +331,13 @@ export class TradingScene extends Scene {
         const arrowY = config.arrow === '▲' ? -config.radius * 0.5 : config.radius * 0.5
         const arrowColor = config.arrow === '▲' ? '#00ff00' : '#ff0000'
 
-        const arrow = this.add.text(0, arrowY, config.arrow, {
-          fontSize: `${config.radius * 0.4}px`,
-          color: arrowColor,
-          fontStyle: 'bold',
-        }).setOrigin(0.5)
+        const arrow = this.add
+          .text(0, arrowY, config.arrow, {
+            fontSize: `${config.radius * 0.4}px`,
+            color: arrowColor,
+            fontStyle: 'bold',
+          })
+          .setOrigin(0.5)
         container.add(arrow)
       }
 
@@ -352,8 +362,8 @@ export class TradingScene extends Scene {
       if (!tokenObj.active) return
 
       // Store old position for spatial grid update
-      const oldX = tokenObj.getData('oldX') as number ?? tokenObj.x
-      const oldY = tokenObj.getData('oldY') as number ?? tokenObj.y
+      const oldX = (tokenObj.getData('oldX') as number) ?? tokenObj.x
+      const oldY = (tokenObj.getData('oldY') as number) ?? tokenObj.y
       const coinId = tokenObj.getData('id')
 
       // Remove coins that fall below screen
@@ -381,12 +391,10 @@ export class TradingScene extends Scene {
 
   private removeCoin(coinId: string): void {
     // Find token in pool
-    const token = this.tokenPool.getChildren().find(
-      (t) => {
-        const tokenObj = t as Token
-        return tokenObj.getData('id') === coinId && tokenObj.active
-      }
-    ) as Token | undefined
+    const token = this.tokenPool.getChildren().find((t) => {
+      const tokenObj = t as Token
+      return tokenObj.getData('id') === coinId && tokenObj.active
+    }) as Token | undefined
 
     if (token) {
       // Remove from spatial grid
@@ -578,7 +586,7 @@ export class TradingScene extends Scene {
     }
 
     // Use price from store (with fallback for development/testing)
-    const currentPrice = store.priceData?.price ?? 3400
+    const currentPrice = store.priceData?.price ?? DEFAULT_BTC_PRICE
     store.sliceCoin(coinId, type, currentPrice)
 
     if (type === 'whale') {
@@ -589,7 +597,12 @@ export class TradingScene extends Scene {
     this.removeCoin(coinId)
   }
 
-  private getSplitEffectFromPool(): { left: Phaser.GameObjects.Graphics; right: Phaser.GameObjects.Graphics; leftContainer: Phaser.GameObjects.Container; rightContainer: Phaser.GameObjects.Container } | null {
+  private getSplitEffectFromPool(): {
+    left: Phaser.GameObjects.Graphics
+    right: Phaser.GameObjects.Graphics
+    leftContainer: Phaser.GameObjects.Container
+    rightContainer: Phaser.GameObjects.Container
+  } | null {
     const effect = this.splitEffectPool.pop()
     if (effect) {
       effect.left.setVisible(true)
@@ -600,7 +613,12 @@ export class TradingScene extends Scene {
     return effect || null
   }
 
-  private returnSplitEffectToPool(effect: { left: Phaser.GameObjects.Graphics; right: Phaser.GameObjects.Graphics; leftContainer: Phaser.GameObjects.Container; rightContainer: Phaser.GameObjects.Container }): void {
+  private returnSplitEffectToPool(effect: {
+    left: Phaser.GameObjects.Graphics
+    right: Phaser.GameObjects.Graphics
+    leftContainer: Phaser.GameObjects.Container
+    rightContainer: Phaser.GameObjects.Container
+  }): void {
     effect.left.setVisible(false)
     effect.right.setVisible(false)
     effect.leftContainer.setVisible(false)

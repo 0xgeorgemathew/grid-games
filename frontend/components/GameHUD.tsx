@@ -8,17 +8,12 @@ import { HowToPlayModal } from '@/components/HowToPlayModal'
 import { Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
+import { formatPrice } from '@/lib/formatPrice'
 import type { CryptoSymbol } from '@/game/stores/trading-store'
 
 const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
   btcusdt: 'BTC',
 } as const
-
-function formatPrice(price: number): string {
-  if (price < 1) return price.toFixed(6)
-  if (price < 100) return price.toFixed(4)
-  return price.toFixed(2)
-}
 
 const TUG_OF_WAR_MIN = -100
 const TUG_OF_WAR_MAX = 100
@@ -173,12 +168,7 @@ function TugOfWarMeter({ value, isPlayer1 }: { value: number; isPlayer1: boolean
   const opponentLabel = isPlayer1 ? 'OPP' : 'YOU'
 
   return (
-    <motion.div
-      variants={itemVariants}
-      className="relative"
-      initial="hidden"
-      animate="visible"
-    >
+    <motion.div variants={itemVariants} className="relative" initial="hidden" animate="visible">
       {/* Market Momentum label - hidden on mobile */}
       <div className="flex items-center justify-center gap-2 mb-1 hidden sm:flex">
         <motion.span
@@ -281,7 +271,19 @@ function TugOfWarMeter({ value, isPlayer1 }: { value: number; isPlayer1: boolean
 }
 
 export const GameHUD = React.memo(function GameHUD() {
-  const { players, localPlayerId, isPlayer1, tugOfWar, priceData, isPriceConnected, selectedCrypto, connectPriceFeed, isPlaying, priceError, manualReconnect } = useTradingStore()
+  const {
+    players,
+    localPlayerId,
+    isPlayer1,
+    tugOfWar,
+    priceData,
+    isPriceConnected,
+    selectedCrypto,
+    connectPriceFeed,
+    isPlaying,
+    priceError,
+    manualReconnect,
+  } = useTradingStore()
   const [showHowToPlay, setShowHowToPlay] = useState(false)
 
   // Connect to price feed when game starts
@@ -361,7 +363,10 @@ export const GameHUD = React.memo(function GameHUD() {
                         {CRYPTO_SYMBOLS[selectedCrypto]}:
                       </span>
                       <motion.span
-                        className={cn('text-base sm:text-lg font-black font-mono truncate', priceColor)}
+                        className={cn(
+                          'text-base sm:text-lg font-black font-mono truncate',
+                          priceColor
+                        )}
                         style={{
                           textShadow: priceGlow,
                         }}
@@ -399,8 +404,8 @@ export const GameHUD = React.memo(function GameHUD() {
                     isPriceConnected
                       ? 'bg-tron-cyan/10 text-tron-cyan border border-tron-cyan/30'
                       : priceError
-                      ? 'bg-red-500/10 text-red-400 border border-red-500/30'
-                      : 'bg-tron-orange/10 text-tron-orange border border-tron-orange/30'
+                        ? 'bg-red-500/10 text-red-400 border border-red-500/30'
+                        : 'bg-tron-orange/10 text-tron-orange border border-tron-orange/30'
                   )}
                   animate={{
                     opacity: isPriceConnected ? [1, 0.7, 1] : priceError ? 1 : [0.5, 1, 0.5],
@@ -410,7 +415,11 @@ export const GameHUD = React.memo(function GameHUD() {
                   <motion.div
                     className={cn(
                       'w-1 h-1 rounded-full',
-                      isPriceConnected ? 'bg-tron-cyan' : priceError ? 'bg-red-400' : 'bg-tron-orange'
+                      isPriceConnected
+                        ? 'bg-tron-cyan'
+                        : priceError
+                          ? 'bg-red-400'
+                          : 'bg-tron-orange'
                     )}
                     animate={{
                       scale: isPriceConnected ? [1, 1.3, 1] : priceError ? 1 : [0.8, 1, 0.8],
