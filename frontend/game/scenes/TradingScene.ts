@@ -70,12 +70,7 @@ export class TradingScene extends Scene {
 
   // Grid background
   private gridGraphics!: GameObjects.Graphics
-  private gridBackGraphics!: GameObjects.Graphics // Parallax back layer
   private gridScrollOffset: number = 0
-  private gridBackScrollOffset: number = 0
-  private scanlineY: number = 0
-  private gridGlowLines: Set<number> = new Set()
-  private gridGlowTimer: number = 0
 
   // Reusable geometry for collision detection (prevents GC stutter)
   private collisionLine = new Geom.Line(0, 0, 0, 0)
@@ -149,12 +144,9 @@ export class TradingScene extends Scene {
     this.sliceParticleGraphics.setDepth(1001) // On top of blade
 
     // Create grid graphics and draw background
-    this.gridBackGraphics = this.add.graphics()
-    this.gridBackGraphics.setDepth(-2) // Back parallax layer
     this.gridGraphics = this.add.graphics()
     this.gridGraphics.setDepth(-1) // Front grid layer
     this.drawGridBackground()
-    this.initializeGridGlows()
 
     // Generate cached textures for all coin types
     this.generateCachedTextures()
@@ -163,7 +155,7 @@ export class TradingScene extends Scene {
     this.tokenPool = this.physics.add.group({
       classType: Token,
       runChildUpdate: true,
-      maxSize: 30,
+      maxSize: 150, // Covers ~200 coins in 3-min game with safety margin
       active: true,
       createCallback: (token) => {
         const tokenObj = token as Token
@@ -315,78 +307,49 @@ export class TradingScene extends Scene {
     this.gridGraphics.fillRect(0, 0, width, height)
   }
 
-  private initializeGridGlows(): void {
-    // Select random lines for glow effect (20% of lines)
-    this.gridGlowLines.clear()
-    const width = this.cameras.main.width
-    const GRID_SIZE = 60
-    const numLines = Math.ceil(width / GRID_SIZE)
-    const numGlows = Math.ceil(numLines * 0.2)
-
-    for (let i = 0; i < numGlows; i++) {
-      this.gridGlowLines.add(Phaser.Math.Between(0, numLines))
-    }
-  }
-
   private updateGrid(): void {
     const width = this.cameras.main.width
     const height = this.cameras.main.height
-    const FRONT_GRID_SIZE = 60
-    const BACK_GRID_SIZE = 80
-    const GRID_COLOR = 0x00f3ff
-    const delta = 1000 / 60 // Assume 60fps
+    const GRID_SIZE = 60
+    const GRID_COLOR = 0x00f3ff // Tron cyan
+    const delta = 1000 / 60
 
-    // Update scroll offsets
-    this.gridScrollOffset = (this.gridScrollOffset + 10 * (delta / 1000)) % FRONT_GRID_SIZE
-    this.gridBackScrollOffset = (this.gridBackScrollOffset + 5 * (delta / 1000)) % BACK_GRID_SIZE
-    this.scanlineY = (this.scanlineY + height / (6 * 60)) % height // 6-second sweep
+    // Update scroll offset (slow perpetual motion)
+    this.gridScrollOffset = (this.gridScrollOffset + 5 * (delta / 1000)) % GRID_SIZE
 
-    // Update glow timer (change every 3 seconds)
-    this.gridGlowTimer += delta
-    if (this.gridGlowTimer > 3000) {
-      this.gridGlowTimer = 0
-      this.initializeGridGlows()
-    }
-
-    // Clear and redraw back grid (parallax layer)
-    this.gridBackGraphics.clear()
-    this.gridBackGraphics.setBlendMode(Phaser.BlendModes.ADD) // Tron glow effect
-    this.gridBackGraphics.lineStyle(1, GRID_COLOR, 0.1)
-    for (let x = 0; x <= width; x += BACK_GRID_SIZE) {
-      this.gridBackGraphics.lineBetween(x, 0, x, height)
-    }
-    for (let y = -BACK_GRID_SIZE + this.gridBackScrollOffset; y <= height; y += BACK_GRID_SIZE) {
-      this.gridBackGraphics.lineBetween(0, y, width, y)
-    }
-
-    // Clear and redraw front grid
+    // Clear and redraw single grid layer
     this.gridGraphics.clear()
 
-    // Fill background (use NORMAL blend mode for solid fill)
+    // Fill background
     this.gridGraphics.setBlendMode(Phaser.BlendModes.NORMAL)
     this.gridGraphics.fillStyle(0x0a0a0a, 1)
     this.gridGraphics.fillRect(0, 0, width, height)
 
-    // Draw front grid with scroll (use ADDITIVE blend mode for glow)
+    // Draw grid with perpetual neon glow (ADDITIVE blend mode)
     this.gridGraphics.setBlendMode(Phaser.BlendModes.ADD)
-    const numVerticalLines = Math.ceil(width / FRONT_GRID_SIZE)
+
+    // Vertical lines with perpetual shine (every 5th line gets extra glow)
+    const numVerticalLines = Math.ceil(width / GRID_SIZE)
     for (let i = 0; i <= numVerticalLines; i++) {
-      const x = i * FRONT_GRID_SIZE
-      const isGlow = this.gridGlowLines.has(i)
-      const alpha = isGlow ? 0.4 : 0.25
+      const x = i * GRID_SIZE
+      const isShineLine = i % 5 === 0
+      const alpha = isShineLine ? 0.35 : 0.25
 
       this.gridGraphics.lineStyle(1, GRID_COLOR, alpha)
       this.gridGraphics.lineBetween(x, 0, x, height)
+
+      // Extra glow layer for shine lines (draw twice for intensity)
+      if (isShineLine) {
+        this.gridGraphics.lineStyle(2, GRID_COLOR, 0.15)
+        this.gridGraphics.lineBetween(x, 0, x, height)
+      }
     }
 
-    for (let y = -FRONT_GRID_SIZE + this.gridScrollOffset; y <= height; y += FRONT_GRID_SIZE) {
+    // Horizontal lines with scroll
+    for (let y = -GRID_SIZE + this.gridScrollOffset; y <= height; y += GRID_SIZE) {
       this.gridGraphics.lineStyle(1, GRID_COLOR, 0.25)
       this.gridGraphics.lineBetween(0, y, width, y)
     }
-
-    // Draw scanline
-    this.gridGraphics.fillStyle(0x00f3ff, 0.03)
-    this.gridGraphics.fillRect(0, this.scanlineY, width, 4)
   }
 
   private generateCachedTextures(): void {
@@ -583,14 +546,12 @@ export class TradingScene extends Scene {
     this.particleGraphics?.destroy()
     this.sliceParticleGraphics?.destroy()
     this.gridGraphics?.destroy()
-    this.gridBackGraphics?.destroy()
 
     // Clear references
     this.bladeGraphics = null as any
     this.particleGraphics = null as any
     this.sliceParticleGraphics = null as any
     this.gridGraphics = null as any
-    this.gridBackGraphics = null as any
 
     // Clean up all active electrical arcs
     this.electricalArcs.forEach((arc) => arc.destroy())
@@ -635,7 +596,6 @@ export class TradingScene extends Scene {
     // Clear particle arrays properly (use length=0 instead of reassignment)
     this.particles.length = 0
     this.sliceParticles.length = 0
-    this.gridGlowLines.clear()
   }
 
   private drawBlade(): void {

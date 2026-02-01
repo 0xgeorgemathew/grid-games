@@ -16,7 +16,6 @@ export class Token extends GameObjects.Container {
   public body: Physics.Arcade.Body | null = null
   private image: GameObjects.Image
   private config: CoinConfig
-  private pulseTween?: Tweens.Tween
   private glowRing?: GameObjects.Graphics
   private spawnScaleTween?: Tweens.Tween
   private spawnRotationTween?: Tweens.Tween
@@ -57,9 +56,16 @@ export class Token extends GameObjects.Container {
     this.setVisible(true)
     this.setActive(true)
     this.setDepth(10) // Render above grid (depth -1) and below blade (depth 1000)
+    this.image.setDepth(10) // Ensure image inherits depth
 
-    // Update texture
-    this.image.setTexture(`texture_${type}`)
+    // Update texture with validation
+    const textureKey = `texture_${type}`
+    if (!this.scene.textures.exists(textureKey)) {
+      console.error(`Missing texture: ${textureKey}, falling back to texture_call`)
+      this.image.setTexture('texture_call')
+    } else {
+      this.image.setTexture(textureKey)
+    }
 
     // Apply mobile scale (1.3x larger on mobile for better visibility)
     const scale = isMobile ? 1.3 : 1
@@ -127,14 +133,11 @@ export class Token extends GameObjects.Container {
     const hitboxRadius = config.radius * 0.85 * scale
     this.body.setCircle(hitboxRadius)
 
-    // Start at scale 0 for spawn animation
-    this.setScale(0)
+    // Start at minimum visible scale (prevents stuck-at-0)
+    this.setScale(scale * 0.1)
 
     // Play spawn animation (elastic scale-in + rotation burst)
     this.playSpawnAnimation(scale, type)
-
-    // Start pulsing glow animation
-    this.startPulseAnimation()
 
     // Set initial angular velocity
     this.body.setAngularVelocity(rotationSpeed * 60) // Convert rad/s to deg/s for Phaser
@@ -167,6 +170,12 @@ export class Token extends GameObjects.Container {
           scale: targetScale,
           duration: 100,
           ease: 'Power2',
+          onComplete: () => {
+            // Fallback: ensure scale reaches target
+            if (this.scale !== targetScale) {
+              this.setScale(targetScale)
+            }
+          },
         })
       },
     })
@@ -178,23 +187,6 @@ export class Token extends GameObjects.Container {
       angle: rotationBurst * (180 / Math.PI), // Convert to degrees
       duration: 200,
       ease: 'Power2.easeOut',
-    })
-  }
-
-  private startPulseAnimation(): void {
-    // Kill existing pulse tween
-    if (this.pulseTween) {
-      this.pulseTween.destroy()
-    }
-
-    // Pulsing glow animation (2-second cycle)
-    this.pulseTween = this.scene.tweens.add({
-      targets: this.image,
-      alpha: 0.85,
-      duration: 1000,
-      ease: 'Sine.easeInOut',
-      yoyo: true,
-      repeat: -1,
     })
   }
 
@@ -214,10 +206,6 @@ export class Token extends GameObjects.Container {
     if (this.yoyoScaleTween) {
       this.yoyoScaleTween.destroy()
       this.yoyoScaleTween = undefined
-    }
-    if (this.pulseTween) {
-      this.pulseTween.destroy()
-      this.pulseTween = undefined
     }
 
     // Return to pool (deactivate)
@@ -249,10 +237,6 @@ export class Token extends GameObjects.Container {
     if (this.yoyoScaleTween) {
       this.yoyoScaleTween.destroy()
       this.yoyoScaleTween = undefined
-    }
-    if (this.pulseTween) {
-      this.pulseTween.destroy()
-      this.pulseTween = undefined
     }
 
     // Destroy graphics objects
