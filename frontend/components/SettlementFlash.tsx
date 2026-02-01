@@ -64,9 +64,7 @@ export function SettlementFlash() {
           <motion.div
             className={cn(
               'absolute inset-0',
-              isLocalPlayerWinner
-                ? 'bg-green-500/5'
-                : 'bg-red-500/5'
+              isLocalPlayerWinner ? 'bg-green-500/5' : 'bg-red-500/5'
             )}
             animate={{
               opacity: [0, 0.3, 0],

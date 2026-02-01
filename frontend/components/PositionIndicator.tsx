@@ -157,11 +157,7 @@ export function PositionIndicator() {
                                   }
                                 : {}
                             }
-                            transition={
-                              timeLeft < 3000
-                                ? { duration: 0.5, repeat: Infinity }
-                                : {}
-                            }
+                            transition={timeLeft < 3000 ? { duration: 0.5, repeat: Infinity } : {}}
                           >
                             {(timeLeft / 1000).toFixed(1)}s
                           </motion.span>
@@ -243,9 +239,12 @@ export function PositionIndicator() {
                   <div
                     className={cn(
                       'px-2 py-1.5 rounded-lg text-xs font-bold font-mono shrink-0',
-                      order.coinType === 'call' && 'bg-green-500/20 text-green-400 border border-green-500/30',
-                      order.coinType === 'put' && 'bg-red-500/20 text-red-400 border border-red-500/30',
-                      order.coinType === 'whale' && 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                      order.coinType === 'call' &&
+                        'bg-green-500/20 text-green-400 border border-green-500/30',
+                      order.coinType === 'put' &&
+                        'bg-red-500/20 text-red-400 border border-red-500/30',
+                      order.coinType === 'whale' &&
+                        'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                     )}
                   >
                     {order.coinType === 'whale' ? '🐋' : order.coinType.toUpperCase()}

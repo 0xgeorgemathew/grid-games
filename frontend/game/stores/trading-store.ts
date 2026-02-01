@@ -115,7 +115,12 @@ function applyDamageToPlayer(players: Player[], playerId: string, damage: number
 }
 
 // ZERO-SUM: Transfer funds from loser to winner (loser capped at 0)
-function transferFunds(players: Player[], winnerId: string, loserId: string, amount: number): Player[] {
+function transferFunds(
+  players: Player[],
+  winnerId: string,
+  loserId: string,
+  amount: number
+): Player[] {
   return players.map((p) => {
     if (p.id === winnerId) {
       return { ...p, dollars: p.dollars + amount }
@@ -307,11 +312,16 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     const amount = getDamageForCoinType(settlement.coinType)
 
     // ZERO-SUM: Determine winner and loser
-    const winnerId = settlement.isCorrect ? settlement.playerId : players.find((p) => p.id !== settlement.playerId)?.id
-    const loserId = settlement.isCorrect ? players.find((p) => p.id !== settlement.playerId)?.id : settlement.playerId
+    const winnerId = settlement.isCorrect
+      ? settlement.playerId
+      : players.find((p) => p.id !== settlement.playerId)?.id
+    const loserId = settlement.isCorrect
+      ? players.find((p) => p.id !== settlement.playerId)?.id
+      : settlement.playerId
 
     // Apply transfer: winner gains, loser loses (capped at 0)
-    const newPlayers = winnerId && loserId ? transferFunds(players, winnerId, loserId, amount) : players
+    const newPlayers =
+      winnerId && loserId ? transferFunds(players, winnerId, loserId, amount) : players
 
     // Debug logging (controlled by DEBUG_FUNDS env var)
     if (DEBUG_FUNDS) {
@@ -374,7 +384,8 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     const loserId = data.playerId // The player who sliced gas
     const winnerId = players.find((p) => p.id !== data.playerId)?.id // Opponent gains
 
-    const newPlayers = winnerId && loserId ? transferFunds(players, winnerId, loserId, data.damage) : players
+    const newPlayers =
+      winnerId && loserId ? transferFunds(players, winnerId, loserId, data.damage) : players
 
     // Debug logging (controlled by DEBUG_FUNDS env var)
     if (DEBUG_FUNDS) {
@@ -389,9 +400,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       if (totalAfter !== totalBefore) {
         const cappedLoss = totalBefore - totalAfter
         if (cappedLoss > 0) {
-          console.warn(
-            `[CLIENT FUND CAP] PlayerHit: ${cappedLoss} lost to zero-cap`
-          )
+          console.warn(`[CLIENT FUND CAP] PlayerHit: ${cappedLoss} lost to zero-cap`)
         }
       }
 

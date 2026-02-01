@@ -324,7 +324,6 @@ export const GameHUD = React.memo(function GameHUD() {
             }}
             transition={{ duration: 3, repeat: Infinity }}
           >
-
             {/* Price Bar - Centered with minimal indicators */}
             <motion.div
               variants={itemVariants}
@@ -337,14 +336,14 @@ export const GameHUD = React.memo(function GameHUD() {
                 <motion.div
                   className={cn(
                     'w-2 h-2 rounded-full',
-                    isPriceConnected
-                      ? 'bg-tron-cyan'
-                      : priceError
-                        ? 'bg-red-400'
-                        : 'bg-tron-orange'
+                    isPriceConnected ? 'bg-tron-cyan' : priceError ? 'bg-red-400' : 'bg-tron-orange'
                   )}
                   animate={{
-                    scale: isPriceConnected ? [1, 1.4, 1] : priceError ? [1, 1.2, 1] : [0.8, 1, 0.8],
+                    scale: isPriceConnected
+                      ? [1, 1.4, 1]
+                      : priceError
+                        ? [1, 1.2, 1]
+                        : [0.8, 1, 0.8],
                     opacity: isPriceConnected ? [1, 0.7, 1] : 1,
                   }}
                   transition={{
@@ -384,9 +383,7 @@ export const GameHUD = React.memo(function GameHUD() {
                   <motion.span
                     className={cn(
                       'text-sm sm:text-lg font-bold font-mono shrink-0 px-2 py-0.5 rounded',
-                      isPositive
-                        ? 'bg-green-500/20 text-green-400'
-                        : 'bg-red-500/20 text-red-400'
+                      isPositive ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
                     )}
                     style={{
                       textShadow: priceGlow,

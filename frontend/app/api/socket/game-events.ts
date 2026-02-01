@@ -695,9 +695,7 @@ function handleSlice(
     if (totalAfter !== totalBefore) {
       const cappedLoss = totalBefore - totalAfter
       if (cappedLoss > 0) {
-        console.warn(
-          `[FUND CAP] GAS: Room ${room.id.slice(-6)}: ${cappedLoss} lost to zero-cap`
-        )
+        console.warn(`[FUND CAP] GAS: Room ${room.id.slice(-6)}: ${cappedLoss} lost to zero-cap`)
       }
     }
 
