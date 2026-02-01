@@ -4,7 +4,6 @@ import { useTradingStore } from '@/game/stores/trading-store'
 import { MatchmakingScreen } from '@/components/MatchmakingScreen'
 import { GameHUD } from '@/components/GameHUD'
 import { SettlementFeed } from '@/components/SettlementFeed'
-import { PriceTicker } from '@/components/PriceTicker'
 import { PendingOrdersBar } from '@/components/PendingOrdersBar'
 import { PositionIndicator } from '@/components/PositionIndicator'
 import { GameCanvasBackground } from '@/components/GameCanvasBackground'
@@ -35,7 +34,6 @@ export default function Home() {
       <GameCanvasBackground />
 
       {/* Top UI Layer */}
-      <PriceTicker />
       <GameHUD />
 
       {/* Game Canvas - Phaser Scene */}

@@ -5,6 +5,7 @@ import { useTradingStore } from '@/game/stores/trading-store'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { HowToPlayModal } from '@/components/HowToPlayModal'
+import { PriceTicker } from '@/components/PriceTicker'
 import { Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -296,6 +297,16 @@ export const GameHUD = React.memo(function GameHUD() {
             }}
             transition={{ duration: 3, repeat: Infinity }}
           >
+            {/* Price Ticker Section */}
+            <PriceTicker />
+
+            {/* Divider */}
+            <motion.div
+              className="my-3 h-px bg-gradient-to-r from-transparent via-tron-cyan/50 to-transparent"
+              animate={{ opacity: [0.3, 0.6, 0.3] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            />
+
             {/* Help button */}
             <button
               onClick={() => setShowHowToPlay(true)}
