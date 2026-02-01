@@ -37,6 +37,5 @@ export function initializeSocketIO(httpServer: HTTPServer): SocketIOServer {
   setupGameEvents(io)
   global._socketIOServer = io
 
-  console.log('[Socket.IO] Server initialized')
   return io
 }
