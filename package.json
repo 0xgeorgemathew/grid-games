@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "cd frontend && bun run dev",
-    "build": "cd frontend && bun run build",
+    "build": "cd frontend && bun x next build",
     "start": "cd frontend && bun run start",
     "lint": "cd frontend && bun run lint",
     "format": "cd frontend && bun run format",
