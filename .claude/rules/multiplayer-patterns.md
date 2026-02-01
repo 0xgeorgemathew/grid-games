@@ -1,49 +1,29 @@
-# Multiplayer Game Reliability Patterns
+# Multiplayer Reliability Patterns
 
-> Phaser + Socket.IO patterns to prevent race conditions, memory leaks, and silent failures in real-time multiplayer games.
+Phaser + Socket.IO patterns for preventing race conditions, memory leaks, and silent failures in real-time multiplayer games.
 
-## Pattern 1: Race Condition Prevention with Atomic Guards
+## 1. Race Condition Prevention
 
-Use Set/Map tracking and double-check guards to prevent duplicate settlements and race conditions in async operations.
-
-**Problem:** Async operations (setTimeout, network calls) can execute after game state changes (room deleted, order already settled).
-
-**Solution:** Double-check guards verify both room existence AND order pending status before executing.
+Use double-check guards to prevent duplicate operations when async callbacks execute after state changes.
 
 ```typescript
-// Track pending orders in Map for O(1) lookup
-class GameRoom {
-  readonly pendingOrders: Map<string, PendingOrder>
-}
-
-// Schedule settlement with double-check guard
 const timeoutId = setTimeout(() => {
-  // CRITICAL: Check room exists AND order still pending
   if (manager.hasRoom(room.id) && room.pendingOrders.has(order.id)) {
     settleOrder(io, room, order)
     checkGameOver(io, manager, room)
-  } else if (!manager.hasRoom(room.id)) {
-    console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} no longer exists`)
   }
 }, 10000)
 
 room.trackTimeout(timeoutId)
 ```
 
-**When to use:**
-- All setTimeout/setInterval operations that access game state
-- Async callbacks that modify shared state
-- Event handlers that may fire after cleanup
+**Use with:** `setTimeout`/`setInterval`, async callbacks, event handlers that may fire after cleanup.
 
 ---
 
-## Pattern 2: Memory Leak Prevention with Timer Tracking
+## 2. Memory Leak Prevention
 
-Track all intervals/timeouts in GameRoom for cleanup. Never use global timers.
-
-**Problem:** Uncleared timers persist after room deletion, causing memory leaks and zombie operations.
-
-**Solution:** Track all timers in GameRoom, clear all during cleanup.
+Track all timers in GameRoom for cleanup. Never use global timers.
 
 ```typescript
 class GameRoom {
@@ -70,26 +50,18 @@ class GameRoom {
 deleteRoom(roomId: string): void {
   const room = this.rooms.get(roomId)
   if (!room) return
-
-  room.cleanup() // Clear all tracked timers
+  room.cleanup()
   this.rooms.delete(roomId)
 }
 ```
 
-**When to use:**
-- All game loops (spawning, settlement timers)
-- Room-scoped timers (never global)
-- Any setInterval/setTimeout tied to game state
+**Use with:** Game loops, spawning timers, settlement timers, any room-scoped `setInterval`/`setTimeout`.
 
 ---
 
-## Pattern 3: Room Lifecycle Management
+## 3. Room Lifecycle Management
 
-Settle all pending orders before room deletion. Use state flags to prevent operations on closing rooms.
-
-**Problem:** Deleting rooms with pending orders causes data loss and inconsistent state.
-
-**Solution:** Force settle all orders before deletion. Delay deletion by 1s to ensure events sent.
+Settle all pending orders before room deletion to prevent data loss. Delay deletion to ensure events are sent.
 
 ```typescript
 function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
@@ -107,32 +79,24 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       roomId: room.id,
     })
 
-    // Delete room after all settlements are sent
     setTimeout(() => manager.deleteRoom(room.id), 1000)
   }
 }
 ```
 
-**When to use:**
-- Game over conditions (knockout, time limit)
-- Room cleanup (player disconnect, explicit close)
-- Any state transition that ends gameplay
+**Use with:** Game over conditions (knockout, time limit), player disconnect, any state transition ending gameplay.
 
 ---
 
-## Pattern 4: State Validation with Data Caching
+## 4. State Caching
 
-Cache state at order creation to avoid lookup errors during settlement.
-
-**Problem:** Settlement happens 10s after order creation. Player positions, room state may change or become unavailable.
-
-**Solution:** Cache all necessary state at order creation. Never rely on live lookups during settlement.
+Cache state at creation time, not during async operations. Player positions may change between order creation and settlement.
 
 ```typescript
 function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): void {
   const playerIds = room.getPlayerIds()
 
-  // Cache isPlayer1 at order creation (not during settlement)
+  // Cached at order creation, not settlement
   const isPlayer1 = order.playerId === playerIds[0]
 
   if (isCorrect) {
@@ -145,23 +109,15 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
 }
 ```
 
-**When to use:**
-- Order creation (cache player ID, position, timestamp)
-- Event emission (cache room state, player state)
-- Any async operation that needs stable state reference
+**Use with:** Order creation (player ID, position, timestamp), event emission, any async operation needing stable state.
 
 ---
 
-## Pattern 5: Client-Side Fallbacks for Orphaned State
+## 5. Client-Side Fallbacks
 
-Clean up orphaned orders when server events are missed (e.g., reconnect after room deletion).
-
-**Problem:** Network issues, reconnects, or race conditions can leave client state out of sync with server.
-
-**Solution:** Client-side cleanup intervals remove orphaned state. Graceful degradation shows errors instead of crashing.
+Clean up orphaned state when server events are missed. Use cleanup intervals to handle network issues gracefully.
 
 ```typescript
-// Client-side: Clean up orders that haven't settled after 15s
 useEffect(() => {
   const cleanupInterval = setInterval(() => {
     const now = Date.now()
@@ -172,32 +128,21 @@ useEffect(() => {
 
   return () => clearInterval(cleanupInterval)
 }, [])
-
-// Graceful degradation - show error state, don't crash
-{!latestSettlement ? (
-  <div className="text-red-400">Waiting for settlement...</div>
-) : (
-  <SettlementFlash />
-)}
 ```
 
-**When to use:**
-- Pending orders (cleanup after timeout + buffer)
-- Room state (remove deleted rooms)
-- Connection state (handle reconnects gracefully)
+**Use with:** Pending orders (timeout + buffer), room state, connection state handling.
 
 ---
 
 ## Key Principles
 
-1. **Track everything:** All timers, orders, rooms must be tracked for cleanup
-2. **Double-check guards:** Verify state before async operations execute
-3. **Cache at creation:** Store state when events occur, not when they settle
-4. **Clean up first:** Settle pending operations before deleting game state
-5. **Graceful degradation:** Show errors instead of crashing on state mismatches
+1. **Track everything:** Timers, orders, rooms for cleanup
+2. **Double-check guards:** Verify state before async operations
+3. **Cache at creation:** Store state when events occur
+4. **Clean up first:** Settle pending operations before deleting
+5. **Graceful degradation:** Show errors instead of crashing
 
-## Related Documentation
+## See Also
 
-- `.claude/rules/game-design.md` - HFT Battle game mechanics and architecture
+- `.claude/rules/game-design.md` - Game mechanics and architecture
 - `frontend/PRICE_SETTLEMENT_ARCHITECTURE.md` - Price feed data flow
-- `.claude/rules/workflows.md` - Multi-agent coordination patterns

@@ -1,84 +1,101 @@
-# Grid Games Agent & Skill Configuration
+# Grid Games Skills & Agents Reference
 
-> Grid Games: Real-time multiplayer web game with blockchain settlement (Next.js + Phaser + Foundry).
+> Quick reference for when to use each skill/agent. See `.claude/rules/workflows.md` for workflow patterns.
 
----
+## Superpowers Skills
 
-## Tool Types
+**Check before starting work.**
 
-| Tool   | Usage                          | Purpose                                  |
-| ------ | ------------------------------ | ---------------------------------------- |
-| `Skill` | `Skill("name", "description")` | Orchestrates multi-phase workflows       |
-| `Task`  | `Task({ subagent_type, ... })` | Executes specialized tasks autonomously |
-
----
-
-## Superpowers Plugin (Official)
-
-**Priority**: Always check if a superpowers skill applies before starting work.
-
-| Skill                          | Invocation                                           | Purpose                                              |
-| ------------------------------ | ---------------------------------------------------- | ---------------------------------------------------- |
-| **Process**                    |                                                      |                                                      |
-| `brainstorming`                | `Skill("superpowers:brainstorming")`                 | Creative work, exploring options                     |
-| `systematic-debugging`         | `Skill("superpowers:systematic-debugging")`          | Bugs, test failures                                  |
-| `writing-plans`                | `Skill("superpowers:writing-plans")`                 | Multi-step tasks from specs                          |
-| **Execution**                  |                                                      |                                                      |
-| `test-driven-development`      | `Skill("superpowers:test-driven-development")`       | Writing tests before code                            |
-| `executing-plans`              | `Skill("superpowers:executing-plans")`               | Following written plans                              |
-| `subagent-driven-development`  | `Skill("superpowers:subagent-driven-development")`   | Executing via parallel subagents                     |
-| **Quality**                    |                                                      |                                                      |
-| `verification-before-completion`| `Skill("superpowers:verification-before-completion")`| Before claiming work is complete                     |
-| `requesting-code-review`       | `Skill("superpowers:requesting-code-review")`        | Reviewing work before merging                        |
-| `receiving-code-review`        | `Skill("superpowers:receiving-code-review")`         | Applying review feedback                             |
-| **Utility**                    |                                                      |                                                      |
-| `using-superpowers`            | `Skill("superpowers:using-superpowers")`             | Entry point: establishes rules at start              |
-| `finishing-a-development-branch`| `Skill("superpowers:finishing-a-development-branch")`| Decide merge/PR/cleanup                              |
-| `using-git-worktrees`          | `Skill("superpowers:using-git-worktrees")`           | Create isolated worktrees                            |
-| `dispatching-parallel-agents`  | `Skill("superpowers:dispatching-parallel-agents")`   | Launch 2+ independent tasks                           |
-| `writing-skills`               | `Skill("superpowers:writing-skills")`                | Create or edit custom skills                         |
-
----
+| Skill | When to Use | Workflow |
+|-------|-------------|----------|
+| **Process** |||
+| `brainstorming` | Creative work, feature design | Explore options → Ask questions → Present approaches |
+| `systematic-debugging` | Bugs, test failures | Gather info → Form hypotheses → Verify → Fix |
+| `writing-plans` | Multi-step tasks from specs | Break down → Identify dependencies → Create plan |
+| **Execution** |||
+| `executing-plans` | Following written plans | Read plan → Execute step → Verify → Next step |
+| `subagent-driven-development` | Parallel independent tasks | Dispatch agents → Collect results → Integrate |
+| `test-driven-development` | Writing tests first | Write failing test → Implement → Pass → Refactor |
+| **Quality** |||
+| `verification-before-completion` | Before claiming done | Run tests → Type check → Lint → Confirm |
+| `requesting-code-review` | Pre-merge review | Launch reviewers → Consolidate findings → Fix issues |
+| `receiving-code-review` | Applying feedback | Verify claims → Question unclear → Implement fixes |
+| **Utility** |||
+| `using-superpowers` | Start of conversation | Establishes which skills apply |
+| `dispatching-parallel-agents` | 2+ independent tasks | Identify independence → Launch in parallel → Integrate |
+| `using-git-worktrees` | Isolated feature work | Create worktree → Work → Cleanup |
+| `finishing-a-development-branch` | After implementation | Run verification → Present merge/PR/cleanup options |
+| `writing-skills` | Creating custom skills | Draft skill → Test → Deploy |
 
 ## Functional Skills
 
-| Skill                    | Invocation                                   | Purpose                                               |
-| ------------------------ | -------------------------------------------- | ----------------------------------------------------- |
-| **Git**                  |                                              |                                                       |
-| `commit`                 | `Skill("commit-commands:commit")`            | Create a git commit with staged changes               |
-| `commit-push-pr`         | `Skill("commit-commands:commit-push-pr")`    | Commit, push to remote, and open a PR                 |
-| `clean_gone`             | `Skill("commit-commands:clean_gone")`        | Clean up [gone] branches and remove worktrees         |
-| **Documentation**        |                                              |                                                       |
-| `revise-claude-md`       | `Skill("claude-md-management:revise-claude-md")`| Update CLAUDE.md with learnings from current session |
-| `claude-md-improver`     | `Skill("claude-md-management:claude-md-improver")`| Audit and improve CLAUDE.md files                    |
-| **Code Review**          |                                              |                                                       |
-| `code-review`            | `Skill("code-review:code-review")`           | Review a pull request for bugs and quality issues     |
-| **Project-Specific**     |                                              |                                                       |
-| `feature-dev`            | `Skill("feature-dev:feature-dev", "...")`    | Full workflow: discover → explore → plan → implement  |
-| `frontend-design`        | `Skill("frontend-design", "...")`            | UI/UX components with design frameworks               |
-| **Grid Games Custom**    |                                              |                                                       |
-| `game-component`         | `Skill("game-component", "...")`             | Scaffold Phaser scenes with React integration         |
-
----
+| Skill | When to Use | Workflow |
+|-------|-------------|----------|
+| **Git** |||
+| `commit` | Commit staged changes | Stage → Write message → Commit |
+| `commit-push-pr` | Full PR workflow | Commit → Push → Create PR |
+| `clean_gone` | Cleanup stale branches | List gone → Remove branches → Cleanup worktrees |
+| **Docs** |||
+| `revise-claude-md` | Session learnings | Identify learnings → Update CLAUDE.md |
+| `claude-md-improver` | Audit project docs | Scan files → Evaluate quality → Update |
+| **Review** |||
+| `code-review` | Review pull request | Analyze changes → Report issues |
+| **Feature** |||
+| `feature-dev` | Full feature workflow | Discover → Explore → Plan → Implement |
+| `frontend-design` | UI/UX components | Understand requirements → Design → Implement |
+| **Grid Games** |||
+| `game-component` | Phaser scenes | Get requirements → Generate scene → Integrate |
 
 ## Agents (`Task` tool)
 
-**Use superpowers-based agent patterns** from `.claude/rules/workflows.md` for multi-agent coordination.
+**Use `dispatching-parallel-agents` skill for multi-agent coordination.**
 
-| Agent                   | `subagent_type` / `agentConfig`            | Purpose                                      |
-| ----------------------- | ----------------------------------------- | -------------------------------------------- |
-| **Official Plugins**    |                                           |                                              |
-| `code-explorer`         | `feature-dev:code-explorer`               | Trace code flow, map architecture            |
-| `code-architect`        | `feature-dev:code-architect`              | Design architecture, create blueprints       |
-| `code-reviewer`         | `feature-dev:code-reviewer`               | Review code (confidence ≥ 80)                |
-| `code-simplifier`       | `code-simplifier:code-simplifier`         | Refine recently modified code                |
-| `general-purpose`       | `general-purpose`                         | Multi-step tasks with all tools              |
-| **Grid Games Custom**   |                                           |                                              |
-| `game-logic-reviewer`   | `general-purpose` + `agentConfig`         | Review Phaser/Socket.IO for multiplayer issues |
-| `web3-auditor`          | `general-purpose` + `agentConfig`         | Review contracts for security and gas        |
+| Agent | When to Use | Workflow |
+|-------|-------------|----------|
+| **Official** |||
+| `code-explorer` | Trace code flow, map architecture | Define scope → Explore → Report findings |
+| `code-architect` | Design architecture approaches | Define requirements → Design → Present options |
+| `code-reviewer` | Review code quality | Define focus → Review → Report issues (confidence ≥80%) |
+| `code-simplifier` | Refine recently modified code | Identify complexity → Simplify → Verify |
+| `general-purpose` | Multi-step with all tools | Full task → Use all tools autonomously |
+| **Grid Games Custom** |||
+| `game-logic-reviewer` | Phaser/Socket.IO multiplayer issues | Review → Report memory leaks, race conditions, performance |
+| `web3-auditor` | Contract security/gas | Review → Report reentrancy, access control, optimization |
 
----
+### Custom Agent Usage
 
-## Workflow Reference
+```typescript
+// Game logic review
+Task({
+  subagent_type: "general-purpose",
+  agentConfig: "agents/game-logic-reviewer.md",
+  prompt: "Review TradingScene.ts for multiplayer reliability issues"
+})
 
-For multi-agent coordination patterns, parallel execution strategies, and detailed workflows, see `.claude/rules/workflows.md`.
+// Web3 audit
+Task({
+  subagent_type: "general-purpose",
+  agentConfig: "agents/web3-auditor.md",
+  prompt: "Review LiquidityVault.sol for security and gas optimization"
+})
+```
+
+## Quick Decision Tree
+
+```
+Starting work?
+├─ Creative/feature? → brainstorming
+├─ Bug/test failure? → systematic-debugging
+├─ Have spec? → writing-plans → executing-plans
+└─ Not sure? → using-superpowers
+
+Need parallel work?
+└─ dispatching-parallel-agents
+
+Done with code?
+├─ verification-before-completion
+└─ requesting-code-review → receiving-code-review
+
+Done with feature branch?
+└─ finishing-a-development-branch
+```

@@ -11,39 +11,8 @@
     }
   },
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "(Edit|Write)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'if [[ \"$TOOL_INPUT_FILE_PATH\" =~ ^\\.env ]] || [[ \"$TOOL_INPUT_FILE_PATH\" == \"contracts/key.json\" ]] || [[ \"$TOOL_INPUT_FILE_PATH\" =~ \\.(key|json)$ ]] && [[ \"$TOOL_INPUT_FILE_PATH\" =~ key ]]; then echo \"Editing environment files or private keys is blocked for security. Use environment variables instead.\" >&2; exit 1; fi; exit 0'"
-          }
-        ]
-      },
-      {
-        "matcher": "(Edit|Write)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'if [[ \"$TOOL_INPUT_FILE_PATH\" == \"package-lock.json\" ]] || [[ \"$TOOL_INPUT_FILE_PATH\" == \"contracts/package-lock.json\" ]] || [[ \"$TOOL_INPUT_FILE_PATH\" == \"frontend/package-lock.json\" ]]; then echo \"Lock files should only be modified via npm install. Use npm install to add/update dependencies.\" >&2; exit 1; fi; exit 0'"
-          }
-        ]
-      }
-    ],
+    "PreToolUse": [],
     "SessionStart": [],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "agent",
-            "prompt": "Check the `tool_input` in $ARGUMENTS. 1. If the command was NOT a 'git commit', exit immediately. 2. If it WAS a commit, use `git show --stat` or `git diff HEAD^` to see what changed. 3. Read `CLAUDE.md`. 4. If the code changes represent a new pattern, architecture decision, or important context, use the `Edit` tool to update `CLAUDE.md` (and other relevant files) to reflect this. Keep updates concise.",
-            "timeout": 120,
-            "model": "claude-3-5-haiku-20241022"
-          }
-        ]
-      }
-    ]
+    "PostToolUse": []
   }
 }

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Grid Games is a monorepo containing a web-based game with real-time multiplayer and blockchain settlement. The project consists of two independent subprojects:
 
-- **frontend/**: Next.js web app with Phaser game engine and embedded Socket.IO server (port 3001)
+- **frontend/**: Next.js web app with Phaser game engine and embedded Socket.IO server (port 3000)
 - **contracts/**: Foundry smart contracts for game liquidity and settlement
 - ~~backend/**~~: *Removed - Socket.IO server now embedded in frontend*
 
@@ -15,7 +15,7 @@ Grid Games is a monorepo containing a web-based game with real-time multiplayer 
 1. **Tone**: Concise, direct, engineering-focused. No conversational filler.
 2. **Code Output**: Snippets only. No test files (`.spec.ts`, `.test.tsx`, `.t.sol`) or full boilerplate unless requested.
 3. **Architecture**:
-   - Frontend logic in `hooks/` or `stores/`; components are visual only
+   - Frontend logic in `stores/` (Zustand); components are visual only
    - Phaser handles physics, React handles UI overlays. Never mix the two DOMs
 4. **Problem Solving**: Default to simplest, fastest solution. Complexity requires justification.
 
@@ -25,7 +25,9 @@ Grid Games is a monorepo containing a web-based game with real-time multiplayer 
 
 ```bash
 bun install           # Install dependencies
-bun run dev           # Start development server on localhost:3001
+bun run dev           # Start development server on localhost:3000
+bun run types         # TypeScript type checking
+bun run format        # Format code with Prettier
 bun run build         # Production build
 bun run start         # Start production server
 bun run lint          # Run ESLint
@@ -46,7 +48,7 @@ anvil                # Start local Ethereum node
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Frontend (Next.js:3001)                                     │
+│  Frontend (Next.js:3000)                                     │
 │  - React UI with SHADCN (dark/cyberpunk themes)            │
 │  - Phaser game canvas (client-side arcade physics)          │
 │  - Socket.IO server at /api/socket (embedded)               │
@@ -66,7 +68,7 @@ anvil                # Start local Ethereum node
 
 1. **HFT Battle**: Single-monolith architecture - Next.js App Router hosts both frontend and Socket.IO server at `/api/socket`
 2. **Blockchain**: Frontend interacts directly with contracts via ethers.js for settlements
-3. **Data Persistence**: Supabase for off-chain game data, blockchain for on-chain settlement
+3. **Data Persistence**: In-memory room state (no external DB for multiplayer)
 
 ### Multiplayer Game Patterns (HFT Battle)
 
