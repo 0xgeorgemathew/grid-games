@@ -4,35 +4,35 @@ import type { CoinType } from '../types/trading'
 import { Token } from '../objects/Token'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 
-// Coin configuration for visual rendering (Bitcoin-style)
+// Coin configuration for visual rendering (Futuristic Trading Terminal theme)
 export const COIN_CONFIG = {
   call: {
-    color: 0xf7931a, // Bitcoin orange
+    color: 0x00ff88, // Electric green (bullish)
     symbol: '₿',
     arrow: '▲',
     radius: 20,
-    innerColor: 0xffd700, // Gold inner
+    innerColor: 0x00cc6a, // Darker green inner
   },
   put: {
-    color: 0xf7931a, // Bitcoin orange
+    color: 0xff0088, // Hot pink (bearish)
     symbol: '₿',
     arrow: '▼',
     radius: 20,
-    innerColor: 0xcd8500, // Darker gold inner for puts
+    innerColor: 0xcc006a, // Darker pink inner
   },
   gas: {
-    color: 0xffff00, // Yellow
+    color: 0xffcc00, // Hazard yellow
     symbol: '⚡',
     arrow: '',
     radius: 20,
-    innerColor: 0xffaa00,
+    innerColor: 0xff8800, // Orange inner
   },
   whale: {
-    color: 0xffd700, // Gold
-    symbol: '₿',
-    arrow: '★',
+    color: 0x8800ff, // Regal purple
+    symbol: '★',
+    arrow: '',
     radius: 32,
-    innerColor: 0xffa500, // Orange inner
+    innerColor: 0x6600cc, // Deep violet inner
   },
 } as const
 
@@ -143,12 +143,7 @@ export class TradingScene extends Scene {
         // Limit trail length for performance (longer on mobile for smoother visuals)
         const maxTrailLength = this.isMobile ? this.mobileTrailLength : this.desktopTrailLength
         if (this.bladePath.length > maxTrailLength) {
-          const removed = this.bladePath.shift()
-          // Explicitly destroy removed point
-          if (removed) {
-            removed.x = 0
-            removed.y = 0
-          }
+          this.bladePath.shift() // Let GC handle destroyed point
         }
         this.lastBladePoint = pathPoint
       }
@@ -331,10 +326,10 @@ export class TradingScene extends Scene {
       graphics.strokeCircle(0, 0, innerRadius)
       container.add(graphics)
 
-      // 2. Draw symbol (₿ or ⚡)
+      // 2. Draw symbol (₿, ⚡, or ★)
       const symbol = this.add
         .text(0, 2, config.symbol, {
-          fontSize: `${config.radius * 0.8}px`,
+          fontSize: `${config.radius * 1.0}px`,
           color: '#000000',
           fontStyle: 'bold',
           fontFamily: 'Arial, sans-serif',
@@ -345,11 +340,11 @@ export class TradingScene extends Scene {
       // 3. Draw arrow (if applicable)
       if (config.arrow) {
         const arrowY = config.arrow === '▲' ? -config.radius * 0.5 : config.radius * 0.5
-        const arrowColor = config.arrow === '▲' ? '#00ff00' : '#ff0000'
+        const arrowColor = config.arrow === '▲' ? '#00ff88' : '#ff0088'
 
         const arrow = this.add
           .text(0, arrowY, config.arrow, {
-            fontSize: `${config.radius * 0.4}px`,
+            fontSize: `${config.radius * 0.5}px`,
             color: arrowColor,
             fontStyle: 'bold',
           })
@@ -459,8 +454,8 @@ export class TradingScene extends Scene {
     // Remove input event listeners to prevent memory leaks
     this.input.off('pointermove')
 
-    // Clean up blade path
-    this.bladePath.length = 0
+    // Clean up blade path (create new array, let old one be GC'd)
+    this.bladePath = []
     this.lastBladePoint = null
 
     // Clean up split effect pool
@@ -477,31 +472,40 @@ export class TradingScene extends Scene {
     this.bladeGraphics.clear()
     if (this.bladePath.length < 2) return
 
-    const lineWidth = this.isMobile ? 7 : 5
-    const trailColor = 0x00d9ff
+    const trailColor = 0x00d9ff // Tron cyan
+    const isMobile = this.isMobile
+    const coreWidth = isMobile ? 4 : 3
+    const glowWidth = isMobile ? 15 : 12
 
-    // Draw trail with alpha gradient (fade from tail to head)
+    // Set additive blend mode for luminous effect
+    this.bladeGraphics.setBlendMode(Phaser.BlendModes.ADD)
+
+    // Draw glow layer (outer diffuse glow)
     for (let i = 0; i < this.bladePath.length - 1; i++) {
       const p1 = this.bladePath[i]
       const p2 = this.bladePath[i + 1]
 
-      // Alpha increases from tail (0) to head (1)
-      const alpha = i / this.bladePath.length
+      // Exponential fade for smoother appearance
+      const t = i / (this.bladePath.length - 1)
+      const alpha = t * t * 0.4 // Quadratic curve, max 0.4 alpha
 
-      this.bladeGraphics.lineStyle(lineWidth, trailColor, alpha)
+      this.bladeGraphics.lineStyle(glowWidth, trailColor, alpha)
       this.bladeGraphics.beginPath()
       this.bladeGraphics.moveTo(p1.x, p1.y)
       this.bladeGraphics.lineTo(p2.x, p2.y)
       this.bladeGraphics.strokePath()
     }
 
-    // Add glow to head segment
-    if (this.bladePath.length >= 2) {
-      const lastIdx = this.bladePath.length - 1
-      const p1 = this.bladePath[lastIdx - 1]
-      const p2 = this.bladePath[lastIdx]
+    // Draw core layer (bright center)
+    for (let i = 0; i < this.bladePath.length - 1; i++) {
+      const p1 = this.bladePath[i]
+      const p2 = this.bladePath[i + 1]
 
-      this.bladeGraphics.lineStyle(lineWidth + 4, trailColor, 0.3)
+      // Sharper fade for core
+      const t = i / (this.bladePath.length - 1)
+      const alpha = t * t * t // Cubic curve for tighter bright core
+
+      this.bladeGraphics.lineStyle(coreWidth, 0xffffff, alpha)
       this.bladeGraphics.beginPath()
       this.bladeGraphics.moveTo(p1.x, p1.y)
       this.bladeGraphics.lineTo(p2.x, p2.y)

@@ -53,8 +53,8 @@ export class Token extends GameObjects.Container {
     // Update texture
     this.image.setTexture(`texture_${type}`)
 
-    // Apply mobile scale
-    const scale = isMobile ? 0.7 : 1
+    // Apply mobile scale (1.3x larger on mobile for better visibility)
+    const scale = isMobile ? 1.3 : 1
     this.setScale(scale)
 
     // Store metadata
