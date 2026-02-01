@@ -169,7 +169,6 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     })
 
     socket.on('coin_spawn', (coin: CoinSpawnEvent) => {
-      console.log('[Store] coin_spawn event received from server:', coin)
       get().spawnCoin(coin)
     })
 
@@ -215,19 +214,8 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   spawnCoin: (coin) => {
-    console.log('[Store] spawnCoin called:', {
-      coinId: coin.coinId,
-      coinType: coin.coinType,
-      x: coin.x,
-      y: coin.y,
-      isSceneReady: get().isSceneReady,
-      phaserEventsExists: !!window.phaserEvents,
-    })
     if (get().isSceneReady && window.phaserEvents) {
-      console.log('[Store] Emitting coin_spawn to Phaser via window.phaserEvents')
       window.phaserEvents.emit('coin_spawn', coin)
-    } else if (!get().isSceneReady) {
-      console.warn('[Store] Scene not ready, coin spawn buffered (not implemented)', coin)
     }
   },
 
@@ -306,7 +294,13 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       priceSocket.close()
     }
 
-    set({ selectedCrypto: symbol, isPriceConnected: false, priceData: null, priceError: null, firstPrice: null })
+    set({
+      selectedCrypto: symbol,
+      isPriceConnected: false,
+      priceData: null,
+      priceError: null,
+      firstPrice: null,
+    })
 
     try {
       // Connect to Binance WebSocket with aggTrade stream
@@ -383,7 +377,12 @@ export const useTradingStore = create<TradingState>((set, get) => ({
         const delay = Math.min(maxDelay, baseDelay * Math.pow(2, reconnectAttempts))
 
         setTimeout(() => {
-          const { selectedCrypto, isPlaying, reconnectAttempts: currentAttempts, maxReconnectAttempts: maxAttempts } = get()
+          const {
+            selectedCrypto,
+            isPlaying,
+            reconnectAttempts: currentAttempts,
+            maxReconnectAttempts: maxAttempts,
+          } = get()
           if (isPlaying && currentAttempts < maxAttempts) {
             set({ reconnectAttempts: currentAttempts + 1 })
             get().connectPriceFeed(selectedCrypto)
