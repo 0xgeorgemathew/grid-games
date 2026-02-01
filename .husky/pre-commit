@@ -1,1 +1,1 @@
-cd frontend && bun run type && bun run lint
+cd frontend && /Users/george/.bun/bin/bun run type && /Users/george/.bun/bin/bun run lint
