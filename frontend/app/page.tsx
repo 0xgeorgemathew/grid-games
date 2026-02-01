@@ -3,8 +3,6 @@
 import { useTradingStore } from '@/game/stores/trading-store'
 import { MatchmakingScreen } from '@/components/MatchmakingScreen'
 import { GameHUD } from '@/components/GameHUD'
-import { SettlementFeed } from '@/components/SettlementFeed'
-import { PendingOrdersBar } from '@/components/PendingOrdersBar'
 import { PositionIndicator } from '@/components/PositionIndicator'
 import { GameCanvasBackground } from '@/components/GameCanvasBackground'
 import GameCanvas from '@/components/GameCanvas'
@@ -40,9 +38,7 @@ export default function Home() {
       <GameCanvas scene="TradingScene" />
 
       {/* Bottom UI Layer */}
-      <PendingOrdersBar />
       <PositionIndicator />
-      <SettlementFeed />
     </div>
   )
 }

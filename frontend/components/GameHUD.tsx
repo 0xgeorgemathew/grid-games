@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from 'react'
 import { useTradingStore } from '@/game/stores/trading-store'
 import { Progress } from '@/components/ui/progress'
-import { Badge } from '@/components/ui/badge'
 import { HowToPlayModal } from '@/components/HowToPlayModal'
+import { SettlementFlash } from '@/components/SettlementFlash'
+import { CountUp } from '@/components/CountUp'
 import { Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -92,10 +93,9 @@ function PlayerHealthBar({ name, dollars, color, index }: PlayerHealthBarProps) 
         >
           {name}
         </motion.span>
-        <Badge
-          variant="outline"
+        <div
           className={cn(
-            'text-[10px] sm:text-xs px-1.5 py-0.5 font-mono shrink-0',
+            'text-[10px] sm:text-xs px-2 py-0.5 font-mono shrink-0 border rounded',
             classes.border,
             isLowDollars ? 'animate-pulse' : ''
           )}
@@ -112,7 +112,7 @@ function PlayerHealthBar({ name, dollars, color, index }: PlayerHealthBarProps) 
               ${dollars}
             </motion.span>
           </AnimatePresence>
-        </Badge>
+        </div>
       </div>
       <div className="relative">
         <Progress
@@ -282,7 +282,6 @@ export const GameHUD = React.memo(function GameHUD() {
     connectPriceFeed,
     isPlaying,
     priceError,
-    manualReconnect,
   } = useTradingStore()
   const [showHowToPlay, setShowHowToPlay] = useState(false)
 
@@ -293,26 +292,19 @@ export const GameHUD = React.memo(function GameHUD() {
     }
   }, [isPlaying, isPriceConnected, selectedCrypto, connectPriceFeed])
 
-  const handleCryptoChange = (symbol: CryptoSymbol) => {
-    if (symbol !== selectedCrypto) {
-      connectPriceFeed(symbol)
-    }
-  }
-
   const isPositive = priceData?.changePercent !== undefined && priceData.changePercent >= 0
   const priceColor = isPositive ? 'text-tron-cyan' : 'text-tron-orange'
   const priceGlow = isPositive
     ? '0 0 10px rgba(0, 243, 255, 0.8), 0 0 20px rgba(0, 243, 255, 0.4)'
     : '0 0 10px rgba(255, 107, 0, 0.8), 0 0 20px rgba(255, 107, 0, 0.4)'
 
-  // Check if manual reconnect is needed
-  const needsManualReconnect = priceError?.includes('Max retries')
-
   const localPlayer = players.find((p) => p.id === localPlayerId)
   const opponent = players.find((p) => p.id !== localPlayerId)
 
   return (
     <>
+      <SettlementFlash />
+      <HowToPlayModal isOpen={showHowToPlay} onClose={() => setShowHowToPlay(false)} />
       <motion.div
         className="absolute top-0 left-0 right-0 z-10 p-2 sm:p-3 pointer-events-none"
         variants={containerVariants}
@@ -322,7 +314,7 @@ export const GameHUD = React.memo(function GameHUD() {
         <div className="max-w-3xl sm:max-w-4xl mx-auto space-y-2 sm:space-y-3">
           {/* Glassmorphic panel container */}
           <motion.div
-            className="glass-panel-vibrant rounded-xl p-2 sm:p-3 relative"
+            className="glass-panel-vibrant rounded-xl p-2 sm:p-3"
             animate={{
               boxShadow: [
                 '0 0 20px rgba(0,243,255,0.1), inset 0 0 20px rgba(0,243,255,0.03)',
@@ -332,132 +324,99 @@ export const GameHUD = React.memo(function GameHUD() {
             }}
             transition={{ duration: 3, repeat: Infinity }}
           >
-            {/* Help button */}
-            <button
-              onClick={() => setShowHowToPlay(true)}
-              className="absolute top-2 right-2 p-1.5 hover:bg-tron-cyan/10 rounded transition-colors pointer-events-auto"
-            >
-              <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-tron-cyan" />
-            </button>
 
-            {/* Compact Price Bar - Inline */}
+            {/* Price Bar - Centered with minimal indicators */}
             <motion.div
               variants={itemVariants}
-              className="flex items-center justify-between gap-1.5 sm:gap-2 mb-2"
+              className="flex items-center justify-center gap-4 mb-2"
               initial="hidden"
               animate="visible"
             >
-              {/* Price Display */}
-              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
-                <AnimatePresence mode="wait">
-                  {priceData && (
-                    <motion.div
-                      key={`${priceData.price}-${priceData.symbol}`}
-                      initial={{ scale: 1 }}
-                      animate={{ scale: [1, 1.02, 1] }}
-                      exit={{ scale: 1 }}
-                      transition={{ duration: 0.3 }}
-                      className="flex items-center gap-1.5 sm:gap-2 min-w-0"
-                    >
-                      <span className="text-[10px] sm:text-xs text-tron-white-dim uppercase tracking-wider shrink-0">
-                        {CRYPTO_SYMBOLS[selectedCrypto]}:
-                      </span>
-                      <motion.span
-                        className={cn(
-                          'text-base sm:text-lg font-black font-mono truncate',
-                          priceColor
-                        )}
-                        style={{
-                          textShadow: priceGlow,
-                        }}
-                      >
-                        ${formatPrice(priceData.price)}
-                      </motion.span>
-                      <motion.span
-                        className={cn('text-xs sm:text-sm font-mono shrink-0', priceColor)}
-                        style={{
-                          textShadow: priceGlow,
-                        }}
-                        animate={{
-                          opacity: [1, 0.7, 1],
-                        }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                      >
-                        {priceData.changePercent >= 0 ? '+' : ''}
-                        {priceData.changePercent.toFixed(2)}%
-                      </motion.span>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {!priceData && (
-                  <span className="text-xs text-tron-white-dim animate-pulse">Connecting...</span>
-                )}
-              </div>
-
-              {/* Status & Crypto Selector */}
-              <div className="flex items-center gap-1 pointer-events-auto shrink-0">
-                {/* Connection Status */}
+              {/* Left: Connection dot only */}
+              <div className="w-6 flex justify-center shrink-0">
                 <motion.div
                   className={cn(
-                    'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-mono',
+                    'w-2 h-2 rounded-full',
                     isPriceConnected
-                      ? 'bg-tron-cyan/10 text-tron-cyan border border-tron-cyan/30'
+                      ? 'bg-tron-cyan'
                       : priceError
-                        ? 'bg-red-500/10 text-red-400 border border-red-500/30'
-                        : 'bg-tron-orange/10 text-tron-orange border border-tron-orange/30'
+                        ? 'bg-red-400'
+                        : 'bg-tron-orange'
                   )}
                   animate={{
-                    opacity: isPriceConnected ? [1, 0.7, 1] : priceError ? 1 : [0.5, 1, 0.5],
+                    scale: isPriceConnected ? [1, 1.4, 1] : priceError ? [1, 1.2, 1] : [0.8, 1, 0.8],
+                    opacity: isPriceConnected ? [1, 0.7, 1] : 1,
                   }}
-                  transition={{ duration: 2, repeat: isPriceConnected ? Infinity : 0 }}
-                >
-                  <motion.div
-                    className={cn(
-                      'w-1 h-1 rounded-full',
-                      isPriceConnected
-                        ? 'bg-tron-cyan'
-                        : priceError
-                          ? 'bg-red-400'
-                          : 'bg-tron-orange'
-                    )}
-                    animate={{
-                      scale: isPriceConnected ? [1, 1.3, 1] : priceError ? 1 : [0.8, 1, 0.8],
-                    }}
-                    transition={{ duration: 1.5, repeat: isPriceConnected ? Infinity : 0 }}
-                  />
-                  {isPriceConnected ? 'LIVE' : priceError ? 'ERR' : 'CONN'}
-                </motion.div>
-
-                {/* Manual Reconnect Button */}
-                {needsManualReconnect && (
-                  <motion.button
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    onClick={manualReconnect}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors"
-                  >
-                    Reconnect
-                  </motion.button>
-                )}
-
-                {/* Crypto Selector */}
-                {(Object.keys(CRYPTO_SYMBOLS) as CryptoSymbol[]).map((symbol) => (
-                  <button
-                    key={symbol}
-                    onClick={() => handleCryptoChange(symbol)}
-                    className={cn(
-                      'px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-mono transition-all',
-                      'border hover:scale-105 active:scale-95',
-                      selectedCrypto === symbol
-                        ? 'bg-tron-cyan/20 border-tron-cyan/50 text-tron-cyan shadow-[0_0_10px_rgba(0,243,255,0.3)]'
-                        : 'border-tron-white/10 text-tron-white-dim hover:border-tron-cyan/30 hover:text-tron-cyan/70'
-                    )}
-                  >
-                    {CRYPTO_SYMBOLS[symbol]}
-                  </button>
-                ))}
+                  transition={{
+                    duration: isPriceConnected ? 1.5 : 0.5,
+                    repeat: isPriceConnected ? Infinity : 3,
+                  }}
+                  style={{
+                    boxShadow: isPriceConnected
+                      ? '0 0 8px rgba(0, 243, 255, 0.8)'
+                      : priceError
+                        ? '0 0 8px rgba(248, 113, 113, 0.8)'
+                        : '0 0 8px rgba(255, 107, 0, 0.8)',
+                  }}
+                />
               </div>
+
+              {/* Center: BTC price - no AnimatePresence, no blinking */}
+              {priceData ? (
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <span className="text-sm sm:text-base text-tron-white-dim uppercase tracking-[0.2em] font-bold shrink-0">
+                    {CRYPTO_SYMBOLS[selectedCrypto]}
+                  </span>
+
+                  <CountUp
+                    value={priceData.price}
+                    className={cn(
+                      'text-2xl sm:text-4xl font-black font-mono tracking-tight',
+                      priceColor
+                    )}
+                    style={{
+                      textShadow: isPositive
+                        ? '0 0 20px rgba(0, 243, 255, 0.8), 0 0 40px rgba(0, 243, 255, 0.4)'
+                        : '0 0 20px rgba(255, 107, 0, 0.8), 0 0 40px rgba(255, 107, 0, 0.4)',
+                    }}
+                  />
+
+                  <motion.span
+                    className={cn(
+                      'text-sm sm:text-lg font-bold font-mono shrink-0 px-2 py-0.5 rounded',
+                      isPositive
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-red-500/20 text-red-400'
+                    )}
+                    style={{
+                      textShadow: priceGlow,
+                    }}
+                    animate={{
+                      opacity: [1, 0.8, 1],
+                    }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                  >
+                    {priceData.changePercent >= 0 ? '+' : ''}
+                    {priceData.changePercent.toFixed(2)}%
+                  </motion.span>
+                </div>
+              ) : (
+                <motion.span
+                  animate={{ opacity: [0.3, 0.7, 0.3] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                  className="text-sm text-tron-white-dim animate-pulse"
+                >
+                  Connecting...
+                </motion.span>
+              )}
+
+              {/* Right: Help button */}
+              <button
+                onClick={() => setShowHowToPlay(true)}
+                className="w-6 h-6 flex items-center justify-center hover:bg-tron-cyan/10 rounded transition-colors pointer-events-auto shrink-0"
+              >
+                <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-tron-cyan" />
+              </button>
             </motion.div>
 
             {/* Divider */}
@@ -501,8 +460,6 @@ export const GameHUD = React.memo(function GameHUD() {
           </motion.div>
         </div>
       </motion.div>
-
-      <HowToPlayModal isOpen={showHowToPlay} onClose={() => setShowHowToPlay(false)} />
     </>
   )
 })

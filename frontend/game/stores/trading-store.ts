@@ -12,6 +12,9 @@ import type {
   PriceData,
 } from '../types/trading'
 
+// Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
+const DEBUG_FUNDS = typeof process !== 'undefined' && process.env?.DEBUG_FUNDS === 'true'
+
 // Export CryptoSymbol type for use in components
 export type CryptoSymbol = 'btcusdt' // BTC only - like test-stream.ts
 
@@ -48,6 +51,7 @@ interface TradingState {
   isMatching: boolean
   isPlaying: boolean
   isSceneReady: boolean // Phaser scene is ready to receive events
+  socketCleanupFunctions: Array<() => void>
 
   // Room/Players
   roomId: string | null
@@ -59,9 +63,11 @@ interface TradingState {
   tugOfWar: number
   activeOrders: Map<string, OrderPlacedEvent> // Active orders (10s countdown)
   pendingOrders: Map<string, SettlementEvent> // Settlement history
+  latestSettlement: SettlementEvent | null // Latest settlement for flash notification
 
   // Price feed
   priceSocket: WebSocket | null
+  priceReconnectTimer: NodeJS.Timeout | null // Track reconnection timer for cleanup
   priceData: PriceData | null
   isPriceConnected: boolean
   selectedCrypto: CryptoSymbol
@@ -89,6 +95,7 @@ interface TradingState {
   disconnectPriceFeed: () => void
   manualReconnect: () => void
   resetGame: () => void
+  clearLatestSettlement: () => void
 }
 
 function getDamageForCoinType(coinType: CoinType): number {
@@ -107,6 +114,19 @@ function applyDamageToPlayer(players: Player[], playerId: string, damage: number
   )
 }
 
+// ZERO-SUM: Transfer funds from loser to winner (loser capped at 0)
+function transferFunds(players: Player[], winnerId: string, loserId: string, amount: number): Player[] {
+  return players.map((p) => {
+    if (p.id === winnerId) {
+      return { ...p, dollars: p.dollars + amount }
+    }
+    if (p.id === loserId) {
+      return { ...p, dollars: Math.max(0, p.dollars - amount) }
+    }
+    return p
+  })
+}
+
 function getTargetPlayerId(settlement: SettlementEvent, players: Player[]): string | undefined {
   // Correct prediction damages opponent, incorrect damages self
   if (settlement.isCorrect) {
@@ -121,6 +141,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   isMatching: false,
   isPlaying: false,
   isSceneReady: false,
+  socketCleanupFunctions: [],
   roomId: null,
   localPlayerId: null,
   isPlayer1: false,
@@ -128,9 +149,11 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   tugOfWar: 0,
   activeOrders: new Map(),
   pendingOrders: new Map(),
+  latestSettlement: null,
 
   // Price feed state
   priceSocket: null,
+  priceReconnectTimer: null,
   priceData: null,
   isPriceConnected: false,
   selectedCrypto: 'btcusdt',
@@ -142,12 +165,15 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   firstPrice: null,
 
   connect: () => {
+    // Cleanup previous connection first
+    const { socketCleanupFunctions } = get()
+    socketCleanupFunctions.forEach((fn) => fn())
+
     const socket = io({
       transports: ['websocket', 'polling'],
     })
 
-    // Track cleanup functions for intervals/timeouts
-    const socketCleanupFunctions: Array<() => void> = []
+    const newCleanupFunctions: Array<() => void> = []
 
     socket.on('connect', () => {
       set({ isConnected: true, localPlayerId: socket.id })
@@ -157,14 +183,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
         get().cleanupOrphanedOrders()
       }, 5000)
 
-      socketCleanupFunctions.push(() => clearInterval(cleanupInterval))
+      newCleanupFunctions.push(() => clearInterval(cleanupInterval))
     })
 
     socket.on('disconnect', () => {
       set({ isConnected: false })
-      // Run all cleanup functions
-      socketCleanupFunctions.forEach(fn => fn())
-      socketCleanupFunctions.length = 0
+      const { socketCleanupFunctions } = get()
+      socketCleanupFunctions.forEach((fn) => fn())
+      set({ socketCleanupFunctions: [] })
     })
 
     socket.on('waiting_for_match', () => {
@@ -173,6 +199,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     socket.on('match_found', (data: MatchFoundEvent) => {
       const isPlayer1 = data.players[0]?.id === socket.id || false
+      if (DEBUG_FUNDS) {
+        const totalDollars = data.players.reduce((sum, p) => sum + p.dollars, 0)
+        console.log(
+          `[CLIENT MatchFound] Room ${data.roomId.slice(-6)}:`,
+          `You are ${isPlayer1 ? 'Player 1' : 'Player 2'}`,
+          `\n  Players: ${data.players.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalDollars})`
+        )
+      }
       set({
         isMatching: false,
         isPlaying: true,
@@ -211,12 +245,21 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       get().resetGame()
     })
 
-    set({ socket })
+    set({ socket, socketCleanupFunctions: newCleanupFunctions })
   },
 
   disconnect: () => {
-    const { socket } = get()
-    socket?.disconnect()
+    const { socket, socketCleanupFunctions } = get()
+
+    // Run cleanup BEFORE removing listeners
+    socketCleanupFunctions.forEach((fn) => fn())
+    set({ socketCleanupFunctions: [] })
+
+    // Remove all event listeners before disconnecting
+    if (socket) {
+      socket.removeAllListeners()
+      socket.disconnect()
+    }
     get().resetGame()
     set({ socket: null, isConnected: false })
   },
@@ -253,36 +296,117 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   handleOrderPlaced: (order) => {
     const { activeOrders } = get()
-    // Mutate the Map in place to avoid triggering unnecessary re-renders
-    activeOrders.set(order.orderId, order)
-    set({ activeOrders })
+    // Create new Map to trigger re-render (Zustand doesn't detect Map mutations)
+    const newActiveOrders = new Map(activeOrders)
+    newActiveOrders.set(order.orderId, order)
+    set({ activeOrders: newActiveOrders })
   },
 
   handleSettlement: (settlement) => {
     const { isPlayer1, players, pendingOrders, tugOfWar, activeOrders } = get()
-    const damage = getDamageForCoinType(settlement.coinType)
+    const amount = getDamageForCoinType(settlement.coinType)
 
-    const tugOfWarDelta = calculateTugOfWarDelta(isPlayer1, settlement.isCorrect, damage)
-    const targetPlayerId = getTargetPlayerId(settlement, players)
+    // ZERO-SUM: Determine winner and loser
+    const winnerId = settlement.isCorrect ? settlement.playerId : players.find((p) => p.id !== settlement.playerId)?.id
+    const loserId = settlement.isCorrect ? players.find((p) => p.id !== settlement.playerId)?.id : settlement.playerId
 
-    // Remove from active orders and add to settlement history
-    activeOrders.delete(settlement.orderId)
-    pendingOrders.set(settlement.orderId, settlement)
+    // Apply transfer: winner gains, loser loses (capped at 0)
+    const newPlayers = winnerId && loserId ? transferFunds(players, winnerId, loserId, amount) : players
+
+    // Debug logging (controlled by DEBUG_FUNDS env var)
+    if (DEBUG_FUNDS) {
+      const totalBefore = players.reduce((sum, p) => sum + p.dollars, 0)
+      const playersBefore = players.map((p) => `${p.name}:${p.dollars}`).join(' | ')
+      const totalAfter = newPlayers.reduce((sum, p) => sum + p.dollars, 0)
+      const playersAfter = newPlayers.map((p) => `${p.name}:${p.dollars}`).join(' | ')
+      const winner = newPlayers.find((p) => p.id === winnerId)
+      const loser = newPlayers.find((p) => p.id === loserId)
+
+      // FUND CONSERVATION CHECK - total should stay same (unless capped at 0)
+      if (totalAfter !== totalBefore) {
+        const cappedLoss = totalBefore - totalAfter
+        if (cappedLoss > 0) {
+          console.warn(
+            `[CLIENT FUND CAP] Settlement: ${cappedLoss} lost to zero-cap (loser went below 0)`
+          )
+        }
+      }
+
+      console.log(
+        `[CLIENT Settlement] ${settlement.coinType.toUpperCase()} ${settlement.playerName} ${settlement.isCorrect ? 'WON' : 'LOST'}`,
+        `\n  BEFORE: ${playersBefore} (total: ${totalBefore})`,
+        `\n  TRANSFER: $${amount} from ${loser?.name || 'Unknown'} → ${winner?.name || 'Unknown'}`,
+        `\n  AFTER:  ${playersAfter} (total: ${totalAfter})`
+      )
+    }
+
+    const tugOfWarDelta = calculateTugOfWarDelta(isPlayer1, settlement.isCorrect, amount)
+
+    // Remove from active orders and add to settlement history (create new Maps to trigger re-render)
+    const newActiveOrders = new Map(activeOrders)
+    const newPendingOrders = new Map(pendingOrders)
+    newActiveOrders.delete(settlement.orderId)
+    newPendingOrders.set(settlement.orderId, settlement)
+
+    // Limit settlement history to prevent unbounded growth (keep last 50)
+    // Use iterator to get oldest key (O(1) instead of Array.from which is O(n))
+    const MAX_SETTLEMENT_HISTORY = 50
+    if (newPendingOrders.size > MAX_SETTLEMENT_HISTORY) {
+      const oldestKey = newPendingOrders.keys().next().value
+      if (oldestKey) {
+        newPendingOrders.delete(oldestKey)
+      }
+    }
 
     set({
-      activeOrders,
-      pendingOrders,
+      activeOrders: newActiveOrders,
+      pendingOrders: newPendingOrders,
       tugOfWar: Math.max(TUG_OF_WAR_MIN, Math.min(TUG_OF_WAR_MAX, tugOfWar + tugOfWarDelta)),
-      players: targetPlayerId ? applyDamageToPlayer(players, targetPlayerId, damage) : players,
+      players: newPlayers,
+      latestSettlement: settlement,
     })
   },
 
   handlePlayerHit: (data) => {
     const { isPlayer1, players, tugOfWar } = get()
+
+    // ZERO-SUM: For gas, the slicer loses and opponent gains
+    const loserId = data.playerId // The player who sliced gas
+    const winnerId = players.find((p) => p.id !== data.playerId)?.id // Opponent gains
+
+    const newPlayers = winnerId && loserId ? transferFunds(players, winnerId, loserId, data.damage) : players
+
+    // Debug logging (controlled by DEBUG_FUNDS env var)
+    if (DEBUG_FUNDS) {
+      const totalBefore = players.reduce((sum, p) => sum + p.dollars, 0)
+      const playersBefore = players.map((p) => `${p.name}:${p.dollars}`).join(' | ')
+      const totalAfter = newPlayers.reduce((sum, p) => sum + p.dollars, 0)
+      const playersAfter = newPlayers.map((p) => `${p.name}:${p.dollars}`).join(' | ')
+      const loser = newPlayers.find((p) => p.id === loserId)
+      const winner = newPlayers.find((p) => p.id === winnerId)
+
+      // FUND CONSERVATION CHECK - total should stay same (unless capped at 0)
+      if (totalAfter !== totalBefore) {
+        const cappedLoss = totalBefore - totalAfter
+        if (cappedLoss > 0) {
+          console.warn(
+            `[CLIENT FUND CAP] PlayerHit: ${cappedLoss} lost to zero-cap`
+          )
+        }
+      }
+
+      console.log(
+        `[CLIENT PlayerHit] ${loser?.name || 'Unknown'} hit by ${data.reason}: $${data.damage} penalty`,
+        `\n  BEFORE: ${playersBefore} (total: ${totalBefore})`,
+        `\n  TRANSFER: $${data.damage} from ${loser?.name || 'Unknown'} → ${winner?.name || 'Unknown'}`,
+        `\n  AFTER:  ${playersAfter} (total: ${totalAfter})`
+      )
+    }
+
     const tugOfWarDelta = calculateTugOfWarDelta(isPlayer1, false, data.damage)
 
     set({
-      players: applyDamageToPlayer(players, data.playerId, data.damage),
+      players: newPlayers,
       tugOfWar: Math.max(TUG_OF_WAR_MIN, Math.min(TUG_OF_WAR_MAX, tugOfWar + tugOfWarDelta)),
     })
   },
@@ -296,8 +420,9 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   removeActiveOrder: (orderId) => {
     const { activeOrders } = get()
-    activeOrders.delete(orderId)
-    set({ activeOrders })
+    const newActiveOrders = new Map(activeOrders)
+    newActiveOrders.delete(orderId)
+    set({ activeOrders: newActiveOrders })
   },
 
   cleanupOrphanedOrders: () => {
@@ -305,25 +430,34 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     const now = Date.now()
     let cleaned = 0
 
-    for (const [orderId, order] of activeOrders) {
+    const newActiveOrders = new Map(activeOrders)
+    for (const [orderId, order] of newActiveOrders) {
       // If order is 15+ seconds past settlement time, consider it orphaned
       if (now - order.settlesAt > 15000) {
         console.warn(`[Store] Cleaning up orphaned order ${orderId}`)
-        activeOrders.delete(orderId)
+        newActiveOrders.delete(orderId)
         cleaned++
       }
     }
 
     if (cleaned > 0) {
-      set({ activeOrders })
+      set({ activeOrders: newActiveOrders })
     }
   },
 
   connectPriceFeed: (symbol: CryptoSymbol) => {
-    const { priceSocket, reconnectAttempts, maxReconnectAttempts } = get()
+    const { priceSocket, priceReconnectTimer, reconnectAttempts, maxReconnectAttempts } = get()
+
+    // Clear any pending reconnection timer
+    if (priceReconnectTimer) {
+      clearTimeout(priceReconnectTimer)
+      set({ priceReconnectTimer: null })
+    }
 
     // Close existing connection if any
     if (priceSocket) {
+      // Clear onclose handler to prevent reconnection trigger
+      priceSocket.onclose = null
       priceSocket.close()
     }
 
@@ -332,21 +466,19 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       isPriceConnected: false,
       priceData: null,
       priceError: null,
-      firstPrice: null,
+      // DON'T reset firstPrice here - preserve across reconnects
     })
 
     try {
       // Connect to Binance WebSocket with aggTrade stream
       const ws = new WebSocket(`${BINANCE_WS_URL}/${symbol}@aggTrade`)
 
-      let firstPrice: number | null = null
+      let lastPriceUpdate = 0
+      const PRICE_THROTTLE_MS = 500 // Update UI max 2x per second
 
       ws.onopen = () => {
         set({ isPriceConnected: true, priceSocket: ws, reconnectAttempts: 0, priceError: null })
       }
-
-      let lastPriceUpdate = 0
-      const PRICE_THROTTLE_MS = 500 // Update UI max 2x per second
 
       ws.onmessage = (event) => {
         const raw = JSON.parse(event.data)
@@ -359,19 +491,32 @@ export const useTradingStore = create<TradingState>((set, get) => ({
           timestamp: raw.T,
         }
 
-        // Initialize firstPrice on first trade
-        if (!firstPrice) {
-          firstPrice = trade.price
-          set({ firstPrice })
+        // Get fresh firstPrice from state
+        const { firstPrice: currentFirstPrice } = get()
+
+        // Initialize firstPrice on first trade (with validation)
+        if (!currentFirstPrice && trade.price > 0) {
+          set({ firstPrice: trade.price })
+          return
+        }
+
+        // Only update if firstPrice was set successfully
+        if (!currentFirstPrice) {
+          return
         }
 
         // Calculate change from first price of session
-        const change = trade.price - firstPrice
-        const changePercent = (change / trade.price) * 100
+        const change = trade.price - currentFirstPrice
+        const changePercent = (change / currentFirstPrice) * 100
 
         const now = Date.now()
 
-        // Always update priceData (needed for settlements), but throttle UI updates
+        // THROTTLE: Only update UI every 500ms (2x/second)
+        if (now - lastPriceUpdate < PRICE_THROTTLE_MS) {
+          return
+        }
+        lastPriceUpdate = now
+
         set({
           priceData: {
             symbol: symbol.toUpperCase(),
@@ -404,28 +549,28 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       ws.onclose = () => {
         set({ isPriceConnected: false, priceSocket: null })
 
-        // Exponential backoff reconnection
-        const baseDelay = 1000
-        const maxDelay = 30000
-        const delay = Math.min(maxDelay, baseDelay * Math.pow(2, reconnectAttempts))
-
-        setTimeout(() => {
+        // Small delay to avoid synchronous reconnection during close event
+        const timerId = setTimeout(() => {
+          // Read fresh state from store (avoid stale closure)
+          const state = get()
           const {
-            selectedCrypto,
+            selectedCrypto: currentSymbol,
             isPlaying,
             reconnectAttempts: currentAttempts,
             maxReconnectAttempts: maxAttempts,
-          } = get()
+          } = state
+
           if (isPlaying && currentAttempts < maxAttempts) {
+            // Increment attempts first, then reconnect
             set({ reconnectAttempts: currentAttempts + 1 })
-            get().connectPriceFeed(selectedCrypto)
+            get().connectPriceFeed(currentSymbol)
           } else if (currentAttempts >= maxAttempts) {
             set({ priceError: 'Max retries reached. Manual reconnect required.' })
           }
-        }, delay)
-      }
+        }, 1) // 1ms delay - defers to next tick without awkward type casting
 
-      set({ priceSocket: ws })
+        set({ priceReconnectTimer: timerId as unknown as NodeJS.Timeout })
+      }
     } catch (error) {
       console.error('[PriceFeed] Failed to connect:', error)
       set({ isPriceConnected: false, priceError: 'Connection failed' })
@@ -433,8 +578,20 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   disconnectPriceFeed: () => {
-    const { priceSocket } = get()
+    const { priceSocket, priceReconnectTimer } = get()
+
+    // Clear reconnection timer
+    if (priceReconnectTimer) {
+      clearTimeout(priceReconnectTimer)
+      set({ priceReconnectTimer: null })
+    }
+
+    // Close WebSocket
     if (priceSocket) {
+      // Clear onclose handler to prevent reconnection trigger
+      priceSocket.onclose = null
+      priceSocket.onerror = null
+      priceSocket.onmessage = null
       priceSocket.close()
       set({ priceSocket: null, isPriceConnected: false, priceData: null })
     }
@@ -449,7 +606,12 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       pendingOrders: new Map(),
       isPlaying: false,
       isMatching: false,
+      latestSettlement: null,
     })
+  },
+
+  clearLatestSettlement: () => {
+    set({ latestSettlement: null })
   },
 
   manualReconnect: () => {
