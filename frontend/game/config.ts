@@ -23,8 +23,9 @@ export const TRADING_DIMENSIONS = {
 export function getMobileScaleMultiplier(): number {
   if (typeof window === 'undefined') return 1
   const width = window.innerWidth
-  // Scale down for screens smaller than 600px
-  return Math.max(0.6, Math.min(1, width / 600))
+  // Scale down more aggressively for screens smaller than 600px
+  // Minimum 0.5 scale (50% size) for very small screens
+  return Math.max(0.5, Math.min(1, width / 600))
 }
 
 export function getCoinConfigScale(): number {

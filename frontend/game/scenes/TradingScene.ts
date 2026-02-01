@@ -9,28 +9,28 @@ export const COIN_CONFIG = {
     color: 0xf7931a, // Bitcoin orange
     symbol: '₿',
     arrow: '▲',
-    radius: 28,
+    radius: 20,
     innerColor: 0xffd700, // Gold inner
   },
   put: {
     color: 0xf7931a, // Bitcoin orange
     symbol: '₿',
     arrow: '▼',
-    radius: 28,
+    radius: 20,
     innerColor: 0xcd8500, // Darker gold inner for puts
   },
   gas: {
     color: 0xffff00, // Yellow
     symbol: '⚡',
     arrow: '',
-    radius: 28,
+    radius: 20,
     innerColor: 0xffaa00,
   },
   whale: {
     color: 0xffd700, // Gold
     symbol: '₿',
     arrow: '★',
-    radius: 45,
+    radius: 32,
     innerColor: 0xffa500, // Orange inner
   },
 } as const
