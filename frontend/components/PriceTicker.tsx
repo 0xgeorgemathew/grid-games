@@ -44,13 +44,13 @@ export function PriceTicker() {
 
   return (
     <motion.div
-      className="absolute top-0 left-0 right-0 z-10 p-2 sm:p-3 pointer-events-none"
+      className="absolute top-0 left-0 right-0 z-10 p-4 sm:p-6 pointer-events-none"
       initial={{ y: -50, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: 0.3, type: 'spring', stiffness: 300, damping: 30 }}
     >
-      <div className="max-w-4xl mx-auto">
-        <div className="glass-panel-vibrant rounded-lg p-2 sm:p-3 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4">
+      <div>
+        <div className="glass-panel-vibrant rounded-lg p-4 sm:p-6 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4">
           {/* Price Display */}
           <div className="flex items-center gap-3">
             <AnimatePresence mode="wait">
@@ -63,11 +63,11 @@ export function PriceTicker() {
                   transition={{ duration: 0.3 }}
                   className="flex items-center gap-2 sm:gap-3"
                 >
-                  <span className="text-xs text-tron-white-dim uppercase tracking-wider">
+                  <span className="text-sm sm:text-lg text-tron-white-dim uppercase tracking-wider">
                     {CRYPTO_SYMBOLS[selectedCrypto]}/USD:
                   </span>
                   <motion.span
-                    className={cn('text-sm sm:text-base font-bold font-mono', priceColor)}
+                    className={cn('text-2xl sm:text-4xl font-black font-mono', priceColor)}
                     style={{
                       textShadow: priceGlow,
                     }}
@@ -75,7 +75,7 @@ export function PriceTicker() {
                     ${formatPrice(priceData.price)}
                   </motion.span>
                   <motion.span
-                    className={cn('text-xs sm:text-sm font-mono', priceColor)}
+                    className={cn('text-lg sm:text-2xl font-mono', priceColor)}
                     style={{
                       textShadow: priceGlow,
                     }}
