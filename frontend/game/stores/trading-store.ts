@@ -272,45 +272,59 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   findMatch: (playerName: string) => {
     const { socket } = get()
 
-    // CRITICAL: Use Phaser camera dimensions, NOT window.innerHeight
-    // window.innerHeight includes address bar on iOS, causing mismatch
-    const dims = (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions
-
     // Debug logging - track what dimensions are being used
     console.log(
       '[Matchmaking] sceneDimensions:',
-      dims,
+      (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions,
       '| window.innerWidth:',
       window.innerWidth,
       '| window.innerHeight:',
       window.innerHeight
     )
 
-    // Use Phaser defaults if sceneDimensions not yet set
-    const sceneWidth = dims?.width || 600   // Phaser default, not window.innerWidth
-    const sceneHeight = dims?.height || 800 // Phaser default, not window.innerHeight
+    // CRITICAL: Wait for sceneDimensions to be set by Phaser before matchmaking
+    // On iOS, this may take longer due to dynamic address bar resize behavior
+    const MAX_WAIT_TIME = 5000 // Wait max 5 seconds
+    const CHECK_INTERVAL = 100 // Check every 100ms
+    let elapsedTime = 0
 
-    // Add delay to ensure sceneDimensions is set after Phaser resize completes
-    // Increased to 200ms for iOS with dynamic address bar which may resize later
-    setTimeout(() => {
-      // Re-read dims in case they were updated during the delay
-      const updatedDims = (window as { sceneDimensions?: { width: number; height: number } })
+    const tryMatchmaking = () => {
+      const dims = (window as { sceneDimensions?: { width: number; height: number } })
         .sceneDimensions
-      const finalWidth = updatedDims?.width || sceneWidth
-      const finalHeight = updatedDims?.height || sceneHeight
 
-      console.log(
-        '[Matchmaking] Emitting find_match with dimensions:',
-        { width: finalWidth, height: finalHeight }
-      )
+      if (dims) {
+        // sceneDimensions is set - proceed with matchmaking
+        console.log(
+          '[Matchmaking] sceneDimensions ready, emitting find_match with:',
+          { width: dims.width, height: dims.height }
+        )
 
-      socket?.emit('find_match', {
-        playerName,
-        sceneWidth: finalWidth,
-        sceneHeight: finalHeight,
-      })
-      set({ isMatching: true })
-    }, 200)
+        socket?.emit('find_match', {
+          playerName,
+          sceneWidth: dims.width,
+          sceneHeight: dims.height,
+        })
+        set({ isMatching: true })
+      } else if (elapsedTime < MAX_WAIT_TIME) {
+        // sceneDimensions not ready, wait and retry
+        elapsedTime += CHECK_INTERVAL
+        setTimeout(tryMatchmaking, CHECK_INTERVAL)
+      } else {
+        // Timeout - use fallback defaults (shouldn't happen in normal operation)
+        console.warn(
+          '[Matchmaking] Timeout waiting for sceneDimensions, using defaults'
+        )
+        socket?.emit('find_match', {
+          playerName,
+          sceneWidth: 600,
+          sceneHeight: 800,
+        })
+        set({ isMatching: true })
+      }
+    }
+
+    // Start polling for sceneDimensions
+    tryMatchmaking()
   },
 
   spawnCoin: (coin) => {

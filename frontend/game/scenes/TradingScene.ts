@@ -218,12 +218,14 @@ export class TradingScene extends Scene {
     }
     ;(window as unknown as { setSceneReady?: (ready: boolean) => void }).setSceneReady?.(true)
 
-    // CRITICAL: Ensure dimensions are updated when resize completes
-    // This fixes the mismatch between window.innerHeight and camera height
+    // CRITICAL FIX: Use fixed game height (800) for consistent spawning across devices
+    // On iOS, cameras.main.height returns window.innerHeight (932px with address bar)
+    // which breaks bottom-toss detection. Server expects fixed height.
+    const GAME_HEIGHT = 800 // Fixed game height for consistent physics
     const updateDimensions = () => {
       const dims = {
         width: this.cameras.main.width,
-        height: this.cameras.main.height,
+        height: GAME_HEIGHT, // ALWAYS use 800, not camera height
       }
       ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = dims
 
@@ -231,6 +233,8 @@ export class TradingScene extends Scene {
       console.log(
         '[TradingScene] sceneDimensions updated:',
         dims,
+        '| camera.main.height:',
+        this.cameras.main.height,
         '| window.innerHeight:',
         window.innerHeight,
         '| gameSize:',

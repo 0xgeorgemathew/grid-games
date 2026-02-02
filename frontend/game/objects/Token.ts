@@ -127,14 +127,18 @@ export class Token extends GameObjects.Container {
     this.body.setVelocity(0, 0)
 
     // Configure physics (Fruit Ninja style - Upward toss from bottom)
-    const sceneHeight = this.scene.cameras.main.height
+    // CRITICAL: Use fixed game height (800) for consistent bottom-toss detection
+    // Server spawns at sceneHeight + 100 = 800 + 100 = 900
+    // On iOS, cameras.main.height would be 932 (window.innerHeight), breaking detection
+    const GAME_HEIGHT = 800 // MUST match server expectation
+    const sceneHeight = GAME_HEIGHT
     const isBottomToss = y > sceneHeight // Spawned from bottom edge
 
     // Debug logging - track spawn position relative to camera
     console.log(
       `[Token] Spawning at (${x.toFixed(0)}, ${y.toFixed(0)}) | ` +
-        `sceneHeight: ${sceneHeight} | isBottomToss: ${isBottomToss} | ` +
-        `type: ${type}`
+        `sceneHeight: ${sceneHeight} | camera.main.height: ${this.scene.cameras.main.height} | ` +
+        `isBottomToss: ${isBottomToss} | type: ${type}`
     )
 
     if (isBottomToss) {
