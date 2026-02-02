@@ -196,14 +196,12 @@ export class TradingScene extends Scene {
     // Clear blade trail when user stops interacting (mouse up / touch end)
     // This fixes the "ghost blade" issue where lingering points continue colliding
     this.input.on('pointerup', () => {
-      this.bladePath = []
-      this.lastBladePoint = null
+      this.clearBladeTrail()
     })
 
     // Also clear when pointer leaves the canvas (e.g., mouse dragged outside)
     this.input.on('pointerout', () => {
-      this.bladePath = []
-      this.lastBladePoint = null
+      this.clearBladeTrail()
     })
 
     // Expose event emitter to window for React bridge
@@ -224,7 +222,7 @@ export class TradingScene extends Scene {
     const GAME_HEIGHT = 800 // Fixed game height for consistent physics
     const updateDimensions = () => {
       // Guard: cameras.main may be undefined during scene shutdown or early initialization
-      if (!this.cameras || !this.cameras.main) {
+      if (!this.isCameraAvailable()) {
         console.warn('[TradingScene] cameras.main unavailable, skipping dimension update')
         return
       }
@@ -251,7 +249,7 @@ export class TradingScene extends Scene {
     // Handle resize events to update physics world bounds and redraw grid
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
       // Guard: cameras.main may be undefined during scene shutdown
-      if (!this.cameras || !this.cameras.main) return
+      if (!this.isCameraAvailable()) return
 
       this.physics.world.setBounds(0, 0, gameSize.width, gameSize.height)
       this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height)
@@ -943,6 +941,15 @@ export class TradingScene extends Scene {
         // NOTE: No break here - allows multi-coin combos in single fast swipe
       }
     }
+  }
+
+  private clearBladeTrail(): void {
+    this.bladePath = []
+    this.lastBladePoint = null
+  }
+
+  private isCameraAvailable(): boolean {
+    return this.cameras?.main !== undefined
   }
 
   private updateOpponentSlices(): void {

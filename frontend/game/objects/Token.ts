@@ -137,9 +137,7 @@ export class Token extends GameObjects.Container {
     // Debug logging - track spawn position relative to camera
     const cameraHeight = this.scene.cameras?.main?.height ?? 'undefined'
     console.log(
-      `[Token] Spawning at (${x.toFixed(0)}, ${y.toFixed(0)}) | ` +
-        `sceneHeight: ${sceneHeight} | camera.main.height: ${cameraHeight} | ` +
-        `isBottomToss: ${isBottomToss} | type: ${type}`
+      `[Token] Spawning at (${x.toFixed(0)}, ${y.toFixed(0)}) | sceneHeight: ${sceneHeight} | camera.main.height: ${cameraHeight} | isBottomToss: ${isBottomToss} | type: ${type}`
     )
 
     if (isBottomToss) {
@@ -174,17 +172,24 @@ export class Token extends GameObjects.Container {
     this.body.setAngularVelocity(rotationSpeed * 60) // Convert rad/s to deg/s for Phaser
   }
 
-  private playSpawnAnimation(targetScale: number, type: CoinType): void {
-    // Kill any existing spawn tweens
+  private cleanupTweens(): void {
     if (this.spawnScaleTween) {
       this.spawnScaleTween.destroy()
+      this.spawnScaleTween = undefined
     }
     if (this.spawnRotationTween) {
       this.spawnRotationTween.destroy()
+      this.spawnRotationTween = undefined
     }
     if (this.yoyoScaleTween) {
       this.yoyoScaleTween.destroy()
+      this.yoyoScaleTween = undefined
     }
+  }
+
+  private playSpawnAnimation(targetScale: number, type: CoinType): void {
+    // Kill any existing spawn tweens
+    this.cleanupTweens()
 
     // Check if this is a bottom-toss spawn (y > scene height)
     const sceneHeight = this.scene.cameras.main.height
@@ -246,18 +251,7 @@ export class Token extends GameObjects.Container {
    */
   onSlice(): void {
     // Kill all tweens to prevent memory leaks
-    if (this.spawnScaleTween) {
-      this.spawnScaleTween.destroy()
-      this.spawnScaleTween = undefined
-    }
-    if (this.spawnRotationTween) {
-      this.spawnRotationTween.destroy()
-      this.spawnRotationTween = undefined
-    }
-    if (this.yoyoScaleTween) {
-      this.yoyoScaleTween.destroy()
-      this.yoyoScaleTween = undefined
-    }
+    this.cleanupTweens()
 
     // Return to pool (deactivate)
     this.setActive(false)
@@ -277,18 +271,7 @@ export class Token extends GameObjects.Container {
    */
   destroy(): void {
     // Destroy all tweens to prevent memory leaks
-    if (this.spawnScaleTween) {
-      this.spawnScaleTween.destroy()
-      this.spawnScaleTween = undefined
-    }
-    if (this.spawnRotationTween) {
-      this.spawnRotationTween.destroy()
-      this.spawnRotationTween = undefined
-    }
-    if (this.yoyoScaleTween) {
-      this.yoyoScaleTween.destroy()
-      this.yoyoScaleTween = undefined
-    }
+    this.cleanupTweens()
 
     // Destroy graphics objects
     if (this.glowRing) {

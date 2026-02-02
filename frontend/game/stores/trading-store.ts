@@ -140,6 +140,41 @@ function getTargetPlayerId(settlement: SettlementEvent, players: Player[]): stri
   return settlement.playerId
 }
 
+// Helper for DEBUG_FUNDS logging - tracks fund transfers with conservation check
+function logFundTransfer(
+  playersBefore: Player[],
+  playersAfter: Player[],
+  winnerId: string,
+  loserId: string,
+  amount: number,
+  description: string,
+  details?: string // Optional prefix for custom logging context
+): void {
+  if (!DEBUG_FUNDS) return
+
+  const totalBefore = playersBefore.reduce((sum, p) => sum + p.dollars, 0)
+  const playersBeforeStr = playersBefore.map((p) => `${p.name}:${p.dollars}`).join(' | ')
+  const totalAfter = playersAfter.reduce((sum, p) => sum + p.dollars, 0)
+  const playersAfterStr = playersAfter.map((p) => `${p.name}:${p.dollars}`).join(' | ')
+  const winner = playersAfter.find((p) => p.id === winnerId)
+  const loser = playersAfter.find((p) => p.id === loserId)
+
+  // FUND CONSERVATION CHECK - total should stay same (unless capped at 0)
+  if (totalAfter !== totalBefore) {
+    const cappedLoss = totalBefore - totalAfter
+    if (cappedLoss > 0) {
+      console.warn(`[CLIENT FUND CAP] ${description}: ${cappedLoss} lost to zero-cap`)
+    }
+  }
+
+  console.log(
+    `[CLIENT ${description}]${details ? ` ${details}` : ''}`,
+    `\n  BEFORE: ${playersBeforeStr} (total: ${totalBefore})`,
+    `\n  TRANSFER: $${amount} from ${loser?.name || 'Unknown'} → ${winner?.name || 'Unknown'}`,
+    `\n  AFTER:  ${playersAfterStr} (total: ${totalAfter})`
+  )
+}
+
 export const useTradingStore = create<TradingState>((set, get) => ({
   socket: null,
   isConnected: false,
@@ -376,29 +411,15 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       winnerId && loserId ? transferFunds(players, winnerId, loserId, amount) : players
 
     // Debug logging (controlled by DEBUG_FUNDS env var)
-    if (DEBUG_FUNDS) {
-      const totalBefore = players.reduce((sum, p) => sum + p.dollars, 0)
-      const playersBefore = players.map((p) => `${p.name}:${p.dollars}`).join(' | ')
-      const totalAfter = newPlayers.reduce((sum, p) => sum + p.dollars, 0)
-      const playersAfter = newPlayers.map((p) => `${p.name}:${p.dollars}`).join(' | ')
-      const winner = newPlayers.find((p) => p.id === winnerId)
-      const loser = newPlayers.find((p) => p.id === loserId)
-
-      // FUND CONSERVATION CHECK - total should stay same (unless capped at 0)
-      if (totalAfter !== totalBefore) {
-        const cappedLoss = totalBefore - totalAfter
-        if (cappedLoss > 0) {
-          console.warn(
-            `[CLIENT FUND CAP] Settlement: ${cappedLoss} lost to zero-cap (loser went below 0)`
-          )
-        }
-      }
-
-      console.log(
-        `[CLIENT Settlement] ${settlement.coinType.toUpperCase()} ${settlement.playerName} ${settlement.isCorrect ? 'WON' : 'LOST'}`,
-        `\n  BEFORE: ${playersBefore} (total: ${totalBefore})`,
-        `\n  TRANSFER: $${amount} from ${loser?.name || 'Unknown'} → ${winner?.name || 'Unknown'}`,
-        `\n  AFTER:  ${playersAfter} (total: ${totalAfter})`
+    if (winnerId && loserId) {
+      logFundTransfer(
+        players,
+        newPlayers,
+        winnerId,
+        loserId,
+        amount,
+        'Settlement',
+        `${settlement.coinType.toUpperCase()} ${settlement.playerName} ${settlement.isCorrect ? 'WON' : 'LOST'}`
       )
     }
 
@@ -440,27 +461,16 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       winnerId && loserId ? transferFunds(players, winnerId, loserId, data.damage) : players
 
     // Debug logging (controlled by DEBUG_FUNDS env var)
-    if (DEBUG_FUNDS) {
-      const totalBefore = players.reduce((sum, p) => sum + p.dollars, 0)
-      const playersBefore = players.map((p) => `${p.name}:${p.dollars}`).join(' | ')
-      const totalAfter = newPlayers.reduce((sum, p) => sum + p.dollars, 0)
-      const playersAfter = newPlayers.map((p) => `${p.name}:${p.dollars}`).join(' | ')
+    if (winnerId && loserId) {
       const loser = newPlayers.find((p) => p.id === loserId)
-      const winner = newPlayers.find((p) => p.id === winnerId)
-
-      // FUND CONSERVATION CHECK - total should stay same (unless capped at 0)
-      if (totalAfter !== totalBefore) {
-        const cappedLoss = totalBefore - totalAfter
-        if (cappedLoss > 0) {
-          console.warn(`[CLIENT FUND CAP] PlayerHit: ${cappedLoss} lost to zero-cap`)
-        }
-      }
-
-      console.log(
-        `[CLIENT PlayerHit] ${loser?.name || 'Unknown'} hit by ${data.reason}: $${data.damage} penalty`,
-        `\n  BEFORE: ${playersBefore} (total: ${totalBefore})`,
-        `\n  TRANSFER: $${data.damage} from ${loser?.name || 'Unknown'} → ${winner?.name || 'Unknown'}`,
-        `\n  AFTER:  ${playersAfter} (total: ${totalAfter})`
+      logFundTransfer(
+        players,
+        newPlayers,
+        winnerId,
+        loserId,
+        data.damage,
+        'PlayerHit',
+        `${loser?.name || 'Unknown'} hit by ${data.reason}: $${data.damage} penalty`
       )
     }
 
