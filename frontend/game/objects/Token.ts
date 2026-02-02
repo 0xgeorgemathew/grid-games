@@ -41,6 +41,12 @@ export class Token extends GameObjects.Container {
   /**
    * Initialize token with type and position.
    * Called by object pool when spawning.
+   *
+   * Fruit Ninja-style bottom toss:
+   * - Spawn at y > sceneHeight for upward arc trajectory
+   * - Upward velocity: -400 to -600 px/s (reaches 60-80% screen height)
+   * - Horizontal drift: -50 to 50 px/s for variety
+   * - Gravity: 180 pulls arc back down for satisfying parabola
    */
   spawn(
     x: number,
@@ -120,12 +126,25 @@ export class Token extends GameObjects.Container {
     this.body.setAcceleration(0, 0)
     this.body.setVelocity(0, 0)
 
-    // Configure physics (Fruit Ninja style - Floaty Heavy feel)
-    this.body.setVelocity(
-      0, // X: No horizontal drift
-      Phaser.Math.Between(100, 200) // Y: Downwards 100-200
-    )
-    this.body.setGravity(0, 150) // Low gravity (Floaty feel)
+    // Configure physics (Fruit Ninja style - Upward toss from bottom)
+    const sceneHeight = this.scene.cameras.main.height
+    const isBottomToss = y > sceneHeight // Spawned from bottom edge
+
+    if (isBottomToss) {
+      // Bottom-toss physics: upward velocity with horizontal drift
+      this.body.setVelocity(
+        Phaser.Math.Between(-50, 50), // X: Horizontal drift for variety
+        Phaser.Math.Between(-400, -600) // Y: Upward toss (reaches 60-80% screen height)
+      )
+      this.body.setGravity(0, 180) // Gravity pulls arc back down
+    } else {
+      // Legacy falling behavior (for backward compatibility during transition)
+      this.body.setVelocity(
+        0, // X: No horizontal drift
+        Phaser.Math.Between(50, 150) // Y: Downwards
+      )
+      this.body.setGravity(0, 150) // Low gravity
+    }
     this.body.setBounce(0) // No bounce
     this.body.setCollideWorldBounds(false) // Fall through edges
 
@@ -155,30 +174,50 @@ export class Token extends GameObjects.Container {
       this.yoyoScaleTween.destroy()
     }
 
-    // Elastic scale-in (0 → 1.2 → 1.0)
-    this.spawnScaleTween = this.scene.tweens.add({
-      targets: this,
-      scale: targetScale * 1.2,
-      duration: 150,
-      ease: 'Back.easeOut',
-      yoyo: true,
-      onYoyo: () => {
-        // After reaching 1.2x, tween back to 1.0x
-        // Track nested tween for cleanup
-        this.yoyoScaleTween = this.scene.tweens.add({
-          targets: this,
-          scale: targetScale,
-          duration: 100,
-          ease: 'Power2',
-          onComplete: () => {
-            // Fallback: ensure scale reaches target
-            if (this.scale !== targetScale) {
-              this.setScale(targetScale)
-            }
-          },
-        })
-      },
-    })
+    // Check if this is a bottom-toss spawn (y > scene height)
+    const sceneHeight = this.scene.cameras.main.height
+    const isBottomToss = this.y > sceneHeight
+
+    if (isBottomToss) {
+      // Fruit Ninja-style throw emphasis: quick scale from 0.8 to 1.0
+      this.spawnScaleTween = this.scene.tweens.add({
+        targets: this,
+        scale: targetScale,
+        duration: 100,
+        ease: 'Back.easeOut',
+        onComplete: () => {
+          // Fallback: ensure scale reaches target
+          const tolerance = 0.01
+          if (Math.abs(this.scale - targetScale) > tolerance) {
+            this.setScale(targetScale)
+          }
+        },
+      })
+    } else {
+      // Legacy falling animation: elastic pop-in
+      this.spawnScaleTween = this.scene.tweens.add({
+        targets: this,
+        scale: targetScale * 1.2,
+        duration: 150,
+        ease: 'Back.easeOut',
+        onComplete: () => {
+          // Second tween: scale down to target (settle)
+          this.yoyoScaleTween = this.scene.tweens.add({
+            targets: this,
+            scale: targetScale,
+            duration: 100,
+            ease: 'Power2',
+            onComplete: () => {
+              // Fallback: ensure scale reaches target
+              const tolerance = 0.01
+              if (Math.abs(this.scale - targetScale) > tolerance) {
+                this.setScale(targetScale)
+              }
+            },
+          })
+        },
+      })
+    }
 
     // Initial rotation burst (±90 degrees)
     const rotationBurst = Phaser.Math.FloatBetween(-Math.PI / 2, Math.PI / 2)

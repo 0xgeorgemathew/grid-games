@@ -70,7 +70,6 @@ export class TradingScene extends Scene {
 
   // Grid background
   private gridGraphics!: GameObjects.Graphics
-  private gridScrollOffset: number = 0
 
   // Reusable geometry for collision detection (prevents GC stutter)
   private collisionLine = new Geom.Line(0, 0, 0, 0)
@@ -119,6 +118,13 @@ export class TradingScene extends Scene {
 
   // Reusable blade point to prevent GC
   private reusableBladePoint = new Geom.Point(0, 0)
+
+  // Gesture recognition state
+  private gestureState: 'idle' | 'slicing' | 'cooldown' = 'idle'
+  private readonly VELOCITY_THRESHOLD = 350 // px/s - minimum for valid slice
+  private readonly COOLDOWN_DURATION = 100 // ms - prevent accidental re-triggers
+  private gestureCooldownTimer: number | null = null
+  private lastSlicingTime: number = 0
 
   constructor() {
     super({ key: 'TradingScene' })
@@ -175,21 +181,46 @@ export class TradingScene extends Scene {
       this.reusableBladePoint.x = pointer.x
       this.reusableBladePoint.y = pointer.y
 
-      // Only update if position actually changed (prevents unnecessary updates)
-      if (
-        !this.lastBladePoint ||
-        this.lastBladePoint.x !== this.reusableBladePoint.x ||
-        this.lastBladePoint.y !== this.reusableBladePoint.y
-      ) {
-        // Create new point for the path (we need separate objects for the path)
-        const pathPoint = new Geom.Point(this.reusableBladePoint.x, this.reusableBladePoint.y)
-        this.bladePath.push(pathPoint)
-        // Limit trail length for performance (longer on mobile for smoother visuals)
-        const maxTrailLength = this.isMobile ? this.mobileTrailLength : this.desktopTrailLength
-        if (this.bladePath.length > maxTrailLength) {
-          this.bladePath.shift() // Let GC handle destroyed point
+      // Calculate velocity for gesture recognition
+      const velocity = Math.sqrt(pointer.velocity.x ** 2 + pointer.velocity.y ** 2)
+
+      // Gesture state machine
+      const now = this.time.now
+
+      // Check if we should enter slicing mode
+      if (this.gestureState === 'idle' && velocity >= this.VELOCITY_THRESHOLD) {
+        this.gestureState = 'slicing'
+        this.lastSlicingTime = now
+      }
+      // Exit slicing mode if velocity drops below threshold for too long
+      else if (this.gestureState === 'slicing' && velocity < this.VELOCITY_THRESHOLD) {
+        if (now - this.lastSlicingTime > this.COOLDOWN_DURATION) {
+          this.gestureState = 'idle'
         }
-        this.lastBladePoint = pathPoint
+      }
+      // Update last slicing time while moving fast
+      else if (this.gestureState === 'slicing' && velocity >= this.VELOCITY_THRESHOLD) {
+        this.lastSlicingTime = now
+      }
+
+      // Only update blade path if we're in slicing mode or just starting
+      if (this.gestureState === 'slicing' || velocity >= this.VELOCITY_THRESHOLD) {
+        // Only update if position actually changed (prevents unnecessary updates)
+        if (
+          !this.lastBladePoint ||
+          this.lastBladePoint.x !== this.reusableBladePoint.x ||
+          this.lastBladePoint.y !== this.reusableBladePoint.y
+        ) {
+          // Create new point for the path (we need separate objects for the path)
+          const pathPoint = new Geom.Point(this.reusableBladePoint.x, this.reusableBladePoint.y)
+          this.bladePath.push(pathPoint)
+          // Limit trail length for performance (longer on mobile for smoother visuals)
+          const maxTrailLength = this.isMobile ? this.mobileTrailLength : this.desktopTrailLength
+          if (this.bladePath.length > maxTrailLength) {
+            this.bladePath.shift() // Let GC handle destroyed point
+          }
+          this.lastBladePoint = pathPoint
+        }
       }
     })
 
@@ -312,43 +343,96 @@ export class TradingScene extends Scene {
     const height = this.cameras.main.height
     const GRID_SIZE = 60
     const GRID_COLOR = 0x00f3ff // Tron cyan
-    const delta = 1000 / 60
 
-    // Update scroll offset (slow perpetual motion)
-    this.gridScrollOffset = (this.gridScrollOffset + 5 * (delta / 1000)) % GRID_SIZE
-
-    // Clear and redraw single grid layer
+    // Clear previous frame
     this.gridGraphics.clear()
 
-    // Fill background
+    // Fill background with void color
     this.gridGraphics.setBlendMode(Phaser.BlendModes.NORMAL)
     this.gridGraphics.fillStyle(0x0a0a0a, 1)
     this.gridGraphics.fillRect(0, 0, width, height)
 
-    // Draw grid with perpetual neon glow (ADDITIVE blend mode)
+    // Calculate ambient pulse (slow oscillation, ~3 second cycle)
+    const time = this.time.now / 1000 // Convert to seconds
+    const pulseIntensity = 0.15 + Math.sin(time * 2) * 0.05 // Range: 0.10 to 0.20
+
+    // Switch to additive blend for neon glow
     this.gridGraphics.setBlendMode(Phaser.BlendModes.ADD)
 
-    // Vertical lines with perpetual shine (every 5th line gets extra glow)
-    const numVerticalLines = Math.ceil(width / GRID_SIZE)
-    for (let i = 0; i <= numVerticalLines; i++) {
-      const x = i * GRID_SIZE
-      const isShineLine = i % 5 === 0
-      const alpha = isShineLine ? 0.35 : 0.25
+    // Draw grid lines with layered glow
+    this.drawGridLines(width, height, GRID_SIZE, GRID_COLOR, pulseIntensity)
 
-      this.gridGraphics.lineStyle(1, GRID_COLOR, alpha)
+    // Draw intersection dots (energized junctions)
+    this.drawIntersections(width, height, GRID_SIZE, GRID_COLOR, pulseIntensity)
+  }
+
+  private drawGridLines(
+    width: number,
+    height: number,
+    gridSize: number,
+    color: number,
+    pulseIntensity: number
+  ): void {
+    const numVerticalLines = Math.ceil(width / gridSize)
+    const numHorizontalLines = Math.ceil(height / gridSize)
+
+    // Vertical lines (data columns)
+    for (let i = 0; i <= numVerticalLines; i++) {
+      const x = i * gridSize
+
+      // Layer 1: Bloom (widest, most diffuse) - 6px width, 15% of pulse
+      this.gridGraphics.lineStyle(6, color, pulseIntensity * 0.15)
       this.gridGraphics.lineBetween(x, 0, x, height)
 
-      // Extra glow layer for shine lines (draw twice for intensity)
-      if (isShineLine) {
-        this.gridGraphics.lineStyle(2, GRID_COLOR, 0.15)
-        this.gridGraphics.lineBetween(x, 0, x, height)
-      }
+      // Layer 2: Glow (medium diffusion) - 3px width, 40% of pulse
+      this.gridGraphics.lineStyle(3, color, pulseIntensity * 0.4)
+      this.gridGraphics.lineBetween(x, 0, x, height)
+
+      // Layer 3: Base (crisp core) - 1px width, full pulse
+      this.gridGraphics.lineStyle(1, color, pulseIntensity)
+      this.gridGraphics.lineBetween(x, 0, x, height)
     }
 
-    // Horizontal lines with scroll
-    for (let y = -GRID_SIZE + this.gridScrollOffset; y <= height; y += GRID_SIZE) {
-      this.gridGraphics.lineStyle(1, GRID_COLOR, 0.25)
+    // Horizontal lines (grounded feel)
+    for (let j = 0; j <= numHorizontalLines; j++) {
+      const y = j * gridSize
+
+      // Same three-layer approach
+      this.gridGraphics.lineStyle(6, color, pulseIntensity * 0.15)
       this.gridGraphics.lineBetween(0, y, width, y)
+
+      this.gridGraphics.lineStyle(3, color, pulseIntensity * 0.4)
+      this.gridGraphics.lineBetween(0, y, width, y)
+
+      this.gridGraphics.lineStyle(1, color, pulseIntensity)
+      this.gridGraphics.lineBetween(0, y, width, y)
+    }
+  }
+
+  private drawIntersections(
+    width: number,
+    height: number,
+    gridSize: number,
+    color: number,
+    pulseIntensity: number
+  ): void {
+    const numVerticalLines = Math.ceil(width / gridSize)
+    const numHorizontalLines = Math.ceil(height / gridSize)
+
+    // Draw glowing dot at each grid intersection
+    for (let i = 0; i <= numVerticalLines; i++) {
+      for (let j = 0; j <= numHorizontalLines; j++) {
+        const x = i * gridSize
+        const y = j * gridSize
+
+        // Outer glow layer (diffuse cyan)
+        this.gridGraphics.fillStyle(color, pulseIntensity * 1.25)
+        this.gridGraphics.fillCircle(x, y, 6)
+
+        // Inner core layer (bright white center)
+        this.gridGraphics.fillStyle(0xffffff, pulseIntensity * 2.5)
+        this.gridGraphics.fillCircle(x, y, 2.5)
+      }
     }
   }
 
@@ -789,7 +873,9 @@ export class TradingScene extends Scene {
   }
 
   private checkCollisions(): void {
-    if (this.bladePath.length < 2) return
+    // CRITICAL: Only check collisions when in active slicing mode
+    // This prevents slow mouse movements from slicing coins
+    if (this.bladePath.length < 2 || this.gestureState !== 'slicing') return
 
     const p1 = this.bladePath[this.bladePath.length - 2]
     const p2 = this.bladePath[this.bladePath.length - 1]
@@ -800,13 +886,16 @@ export class TradingScene extends Scene {
     // Get nearby coins from spatial grid
     const nearbyCoinIds = this.getCoinsNearLine(p1, p2)
 
+    // Track sliced coins this frame to prevent double-slicing
+    const slicedThisFrame = new Set<string>()
+
     // Iterate pool and check nearby coins
     for (const token of this.tokenPool.getChildren()) {
       const tokenObj = token as Token
       if (!tokenObj.active) continue
 
       const coinId = tokenObj.getData('id')
-      if (!nearbyCoinIds.has(coinId)) continue
+      if (!nearbyCoinIds.has(coinId) || slicedThisFrame.has(coinId)) continue
 
       const type = tokenObj.getData('type') as CoinType
       const config = COIN_CONFIG[type]
@@ -815,7 +904,8 @@ export class TradingScene extends Scene {
 
       if (Geom.Intersects.LineToCircle(this.collisionLine, this.collisionCircle)) {
         this.sliceCoin(coinId, tokenObj)
-        break // One slice per frame
+        slicedThisFrame.add(coinId)
+        // NOTE: No break here - allows multi-coin combos in single fast swipe
       }
     }
   }
@@ -850,7 +940,8 @@ export class TradingScene extends Scene {
       token.body.enable = true
     }
 
-    // Initialize token state
+    // Initialize token state (Fruit Ninja-style bottom toss)
+    // Server sends y > sceneHeight to trigger upward arc trajectory
     token.spawn(data.x, data.y, data.coinType, data.coinId, config, this.isMobile)
 
     // Track the actual position in the grid (after spawn, in case spawn() modified it)

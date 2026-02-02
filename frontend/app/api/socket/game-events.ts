@@ -558,11 +558,16 @@ function spawnCoin(room: GameRoom): Coin {
   const type = types[Math.floor(Math.random() * types.length)]
   const coinId = `coin-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 
+  // Fruit Ninja-style bottom toss spawning
+  const GAME_WIDTH = 500 // Standard game width
+  const MARGIN = 100 // Margin from edges to prevent off-screen spawns
+  const SPAWN_Y = 850 // Below screen bottom (scene height is ~700)
+
   const coin: Coin = {
     id: coinId,
     type,
-    x: Math.random() * 500, // Spawns across full width (0-500)
-    y: -50,
+    x: Math.random() * (GAME_WIDTH - 2 * MARGIN) + MARGIN, // Random X with margins
+    y: SPAWN_Y, // Spawn from bottom edge
   }
 
   room.addCoin(coin)
