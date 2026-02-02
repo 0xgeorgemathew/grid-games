@@ -221,10 +221,21 @@ export class TradingScene extends Scene {
     // CRITICAL: Ensure dimensions are updated when resize completes
     // This fixes the mismatch between window.innerHeight and camera height
     const updateDimensions = () => {
-      ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = {
+      const dims = {
         width: this.cameras.main.width,
         height: this.cameras.main.height,
       }
+      ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = dims
+
+      // Debug logging - track when dimensions are set
+      console.log(
+        '[TradingScene] sceneDimensions updated:',
+        dims,
+        '| window.innerHeight:',
+        window.innerHeight,
+        '| gameSize:',
+        this.scale.gameSize
+      )
     }
 
     // Handle resize events to update physics world bounds and redraw grid
@@ -238,18 +249,14 @@ export class TradingScene extends Scene {
       updateDimensions()
     })
 
-    // Also emit initial dimensions
+    // Emit initial dimensions immediately
     updateDimensions()
 
-    // ALSO update after a short delay to catch any missed resize events
-    // This ensures dimensions are correct even if resize fires late
+    // ALSO update after delays to catch any missed resize events
+    // This ensures dimensions are correct even if resize fires late (especially on iOS with dynamic address bar)
     setTimeout(updateDimensions, 100)
-
-    // Also emit initial dimensions
-    ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = {
-      width: this.cameras.main.width,
-      height: this.cameras.main.height,
-    }
+    setTimeout(updateDimensions, 300)
+    setTimeout(updateDimensions, 500)
   }
 
   update(): void {
@@ -945,6 +952,13 @@ export class TradingScene extends Scene {
   }): void {
     // Guard against events firing after scene shutdown
     if (this.isShutdown || !this.tokenPool) return
+
+    // Debug logging - track coin spawn from server
+    console.log(
+      `[CoinSpawn] Server sent coin at (${data.x.toFixed(0)}, ${data.y.toFixed(0)}) | ` +
+        `cameraHeight: ${this.cameras.main.height} | ` +
+        `coinType: ${data.coinType}`
+    )
 
     const config = COIN_CONFIG[data.coinType]
     if (!config) return

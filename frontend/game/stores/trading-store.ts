@@ -271,21 +271,46 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   findMatch: (playerName: string) => {
     const { socket } = get()
+
     // CRITICAL: Use Phaser camera dimensions, NOT window.innerHeight
     // window.innerHeight includes address bar on iOS, causing mismatch
     const dims = (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions
+
+    // Debug logging - track what dimensions are being used
+    console.log(
+      '[Matchmaking] sceneDimensions:',
+      dims,
+      '| window.innerWidth:',
+      window.innerWidth,
+      '| window.innerHeight:',
+      window.innerHeight
+    )
+
+    // Use Phaser defaults if sceneDimensions not yet set
     const sceneWidth = dims?.width || 600   // Phaser default, not window.innerWidth
     const sceneHeight = dims?.height || 800 // Phaser default, not window.innerHeight
 
-    // Add small delay to ensure sceneDimensions is set after Phaser resize
+    // Add delay to ensure sceneDimensions is set after Phaser resize completes
+    // Increased to 200ms for iOS with dynamic address bar which may resize later
     setTimeout(() => {
+      // Re-read dims in case they were updated during the delay
+      const updatedDims = (window as { sceneDimensions?: { width: number; height: number } })
+        .sceneDimensions
+      const finalWidth = updatedDims?.width || sceneWidth
+      const finalHeight = updatedDims?.height || sceneHeight
+
+      console.log(
+        '[Matchmaking] Emitting find_match with dimensions:',
+        { width: finalWidth, height: finalHeight }
+      )
+
       socket?.emit('find_match', {
         playerName,
-        sceneWidth,
-        sceneHeight,
+        sceneWidth: finalWidth,
+        sceneHeight: finalHeight,
       })
       set({ isMatching: true })
-    }, 50)
+    }, 200)
   },
 
   spawnCoin: (coin) => {
