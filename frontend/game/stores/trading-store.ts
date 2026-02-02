@@ -271,11 +271,15 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   findMatch: (playerName: string) => {
     const { socket } = get()
-    // Include scene dimensions for dynamic spawn positioning on Railway
+    // Use Phaser camera dimensions if available (iOS address bar bug fix)
+    const dims = (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions
+    const sceneWidth = dims?.width || window.innerWidth
+    const sceneHeight = dims?.height || window.innerHeight
+
     socket?.emit('find_match', {
       playerName,
-      sceneWidth: window.innerWidth,
-      sceneHeight: window.innerHeight,
+      sceneWidth,
+      sceneHeight,
     })
     set({ isMatching: true })
   },

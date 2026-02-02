@@ -119,13 +119,6 @@ export class TradingScene extends Scene {
   // Reusable blade point to prevent GC
   private reusableBladePoint = new Geom.Point(0, 0)
 
-  // Gesture recognition state
-  private gestureState: 'idle' | 'slicing' | 'cooldown' = 'idle'
-  private readonly VELOCITY_THRESHOLD = 350 // px/s - minimum for valid slice
-  private readonly COOLDOWN_DURATION = 100 // ms - prevent accidental re-triggers
-  private gestureCooldownTimer: number | null = null
-  private lastSlicingTime: number = 0
-
   constructor() {
     super({ key: 'TradingScene' })
     this.eventEmitter = new Phaser.Events.EventEmitter()
@@ -175,54 +168,28 @@ export class TradingScene extends Scene {
     this.eventEmitter.on('coin_spawn', this.handleCoinSpawn.bind(this))
     this.eventEmitter.on('opponent_slice', this.handleOpponentSlice.bind(this))
 
-    // Track mouse movement for blade trail (with change detection)
+    // Track mouse movement for blade trail (always track, no velocity gating)
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       // Reuse point object to prevent GC
       this.reusableBladePoint.x = pointer.x
       this.reusableBladePoint.y = pointer.y
 
-      // Calculate velocity for gesture recognition (handle undefined on first move)
-      const vx = pointer.velocity.x ?? 0
-      const vy = pointer.velocity.y ?? 0
-      const velocity = Math.sqrt(vx * vx + vy * vy)
-
-      // Gesture state machine
-      const now = this.time.now
-
-      // Check if we should enter slicing mode
-      if (this.gestureState === 'idle' && velocity >= this.VELOCITY_THRESHOLD) {
-        this.gestureState = 'slicing'
-        this.lastSlicingTime = now
-      }
-      // Exit slicing mode if velocity drops below threshold for too long
-      else if (this.gestureState === 'slicing' && velocity < this.VELOCITY_THRESHOLD) {
-        if (now - this.lastSlicingTime > this.COOLDOWN_DURATION) {
-          this.gestureState = 'idle'
+      // ALWAYS track blade position (removed velocity gating)
+      // Only update if position actually changed (prevents unnecessary updates)
+      if (
+        !this.lastBladePoint ||
+        this.lastBladePoint.x !== this.reusableBladePoint.x ||
+        this.lastBladePoint.y !== this.reusableBladePoint.y
+      ) {
+        // Create new point for the path (we need separate objects for the path)
+        const pathPoint = new Geom.Point(this.reusableBladePoint.x, this.reusableBladePoint.y)
+        this.bladePath.push(pathPoint)
+        // Limit trail length for performance (longer on mobile for smoother visuals)
+        const maxTrailLength = this.isMobile ? this.mobileTrailLength : this.desktopTrailLength
+        if (this.bladePath.length > maxTrailLength) {
+          this.bladePath.shift() // Let GC handle destroyed point
         }
-      }
-      // Update last slicing time while moving fast
-      else if (this.gestureState === 'slicing' && velocity >= this.VELOCITY_THRESHOLD) {
-        this.lastSlicingTime = now
-      }
-
-      // Only update blade path if we're in slicing mode or just starting
-      if (this.gestureState === 'slicing' || velocity >= this.VELOCITY_THRESHOLD) {
-        // Only update if position actually changed (prevents unnecessary updates)
-        if (
-          !this.lastBladePoint ||
-          this.lastBladePoint.x !== this.reusableBladePoint.x ||
-          this.lastBladePoint.y !== this.reusableBladePoint.y
-        ) {
-          // Create new point for the path (we need separate objects for the path)
-          const pathPoint = new Geom.Point(this.reusableBladePoint.x, this.reusableBladePoint.y)
-          this.bladePath.push(pathPoint)
-          // Limit trail length for performance (longer on mobile for smoother visuals)
-          const maxTrailLength = this.isMobile ? this.mobileTrailLength : this.desktopTrailLength
-          if (this.bladePath.length > maxTrailLength) {
-            this.bladePath.shift() // Let GC handle destroyed point
-          }
-          this.lastBladePoint = pathPoint
-        }
+        this.lastBladePoint = pathPoint
       }
     })
 
@@ -243,7 +210,19 @@ export class TradingScene extends Scene {
       this.physics.world.setBounds(0, 0, gameSize.width, gameSize.height)
       this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height)
       this.drawGridBackground()
+
+      // Emit live dimensions for matchmaking (iOS address bar bug fix)
+      ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = {
+        width: gameSize.width,
+        height: gameSize.height,
+      }
     })
+
+    // Also emit initial dimensions
+    ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = {
+      width: this.cameras.main.width,
+      height: this.cameras.main.height,
+    }
   }
 
   update(): void {
@@ -875,9 +854,8 @@ export class TradingScene extends Scene {
   }
 
   private checkCollisions(): void {
-    // CRITICAL: Only check collisions when in active slicing mode
-    // This prevents slow mouse movements from slicing coins
-    if (this.bladePath.length < 2 || this.gestureState !== 'slicing') return
+    // Check collisions whenever blade has points (no gesture state check)
+    if (this.bladePath.length < 2) return
 
     const p1 = this.bladePath[this.bladePath.length - 2]
     const p2 = this.bladePath[this.bladePath.length - 1]

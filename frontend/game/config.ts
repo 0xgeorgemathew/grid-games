@@ -60,11 +60,7 @@ const PHYSICS_CONFIG = {
   arcade: { gravity: { x: 0, y: 0 }, fps: 45 },
 } as const
 
-// Input config for better mobile/touch handling
-const INPUT_CONFIG = {
-  mouse: { target: document.getElementById('phaser-game') },
-  touch: { target: document.getElementById('phaser-game') },
-} as const
+// Input config moved to factory function (evaluated when DOM exists)
 
 interface PhaserConfigOptions {
   scene: Phaser.Types.Scenes.SceneType
@@ -75,6 +71,13 @@ interface PhaserConfigOptions {
 
 export function createPhaserConfig(options: PhaserConfigOptions): Phaser.Types.Core.GameConfig {
   const { scene, width, height, fitToScreen = false } = options
+
+  // Create input config fresh each time (DOM element exists now)
+  // Moving from module-level to factory fixes null target issue
+  const inputConfig = {
+    mouse: { target: document.getElementById('phaser-game') },
+    touch: { target: document.getElementById('phaser-game') },
+  }
 
   const config: Phaser.Types.Core.GameConfig = {
     type: AUTO,
@@ -87,7 +90,7 @@ export function createPhaserConfig(options: PhaserConfigOptions): Phaser.Types.C
       forceSetTimeOut: false,
     },
     physics: PHYSICS_CONFIG,
-    input: INPUT_CONFIG, // Add input config
+    input: inputConfig, // Add input config
     scene: [scene],
   }
 
