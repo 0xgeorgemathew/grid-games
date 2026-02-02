@@ -223,6 +223,12 @@ export class TradingScene extends Scene {
     // which breaks bottom-toss detection. Server expects fixed height.
     const GAME_HEIGHT = 800 // Fixed game height for consistent physics
     const updateDimensions = () => {
+      // Guard: cameras.main may be undefined during scene shutdown or early initialization
+      if (!this.cameras || !this.cameras.main) {
+        console.warn('[TradingScene] cameras.main unavailable, skipping dimension update')
+        return
+      }
+
       const dims = {
         width: this.cameras.main.width,
         height: GAME_HEIGHT, // ALWAYS use 800, not camera height
@@ -244,6 +250,9 @@ export class TradingScene extends Scene {
 
     // Handle resize events to update physics world bounds and redraw grid
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
+      // Guard: cameras.main may be undefined during scene shutdown
+      if (!this.cameras || !this.cameras.main) return
+
       this.physics.world.setBounds(0, 0, gameSize.width, gameSize.height)
       this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height)
       this.drawGridBackground()
