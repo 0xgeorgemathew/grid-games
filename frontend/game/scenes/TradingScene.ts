@@ -218,18 +218,32 @@ export class TradingScene extends Scene {
     }
     ;(window as unknown as { setSceneReady?: (ready: boolean) => void }).setSceneReady?.(true)
 
+    // CRITICAL: Ensure dimensions are updated when resize completes
+    // This fixes the mismatch between window.innerHeight and camera height
+    const updateDimensions = () => {
+      ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = {
+        width: this.cameras.main.width,
+        height: this.cameras.main.height,
+      }
+    }
+
     // Handle resize events to update physics world bounds and redraw grid
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
       this.physics.world.setBounds(0, 0, gameSize.width, gameSize.height)
       this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height)
       this.drawGridBackground()
 
-      // Emit live dimensions for matchmaking (iOS address bar bug fix)
-      ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = {
-        width: gameSize.width,
-        height: gameSize.height,
-      }
+      // CRITICAL FIX: Always use camera dimensions, not gameSize
+      // gameSize may differ from camera.height in Scale.RESIZE mode
+      updateDimensions()
     })
+
+    // Also emit initial dimensions
+    updateDimensions()
+
+    // ALSO update after a short delay to catch any missed resize events
+    // This ensures dimensions are correct even if resize fires late
+    setTimeout(updateDimensions, 100)
 
     // Also emit initial dimensions
     ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = {

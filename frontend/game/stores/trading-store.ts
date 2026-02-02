@@ -271,17 +271,21 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   findMatch: (playerName: string) => {
     const { socket } = get()
-    // Use Phaser camera dimensions if available (iOS address bar bug fix)
+    // CRITICAL: Use Phaser camera dimensions, NOT window.innerHeight
+    // window.innerHeight includes address bar on iOS, causing mismatch
     const dims = (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions
-    const sceneWidth = dims?.width || window.innerWidth
-    const sceneHeight = dims?.height || window.innerHeight
+    const sceneWidth = dims?.width || 600   // Phaser default, not window.innerWidth
+    const sceneHeight = dims?.height || 800 // Phaser default, not window.innerHeight
 
-    socket?.emit('find_match', {
-      playerName,
-      sceneWidth,
-      sceneHeight,
-    })
-    set({ isMatching: true })
+    // Add small delay to ensure sceneDimensions is set after Phaser resize
+    setTimeout(() => {
+      socket?.emit('find_match', {
+        playerName,
+        sceneWidth,
+        sceneHeight,
+      })
+      set({ isMatching: true })
+    }, 50)
   },
 
   spawnCoin: (coin) => {
