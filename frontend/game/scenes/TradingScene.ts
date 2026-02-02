@@ -193,6 +193,19 @@ export class TradingScene extends Scene {
       }
     })
 
+    // Clear blade trail when user stops interacting (mouse up / touch end)
+    // This fixes the "ghost blade" issue where lingering points continue colliding
+    this.input.on('pointerup', () => {
+      this.bladePath = []
+      this.lastBladePoint = null
+    })
+
+    // Also clear when pointer leaves the canvas (e.g., mouse dragged outside)
+    this.input.on('pointerout', () => {
+      this.bladePath = []
+      this.lastBladePoint = null
+    })
+
     // Expose event emitter to window for React bridge
     // Phaser.Events.EventEmitter implements our PhaserEventBridge interface
     ;(window as { phaserEvents?: PhaserEventBridge }).phaserEvents = this
@@ -539,6 +552,9 @@ export class TradingScene extends Scene {
   private updateCoinPhysics(): void {
     const sceneHeight = this.cameras.main.height
 
+    // Guard against shutdown - tokenPool may be destroyed
+    if (!this.tokenPool) return
+
     // Iterate active tokens in pool
     this.tokenPool.getChildren().forEach((token) => {
       const tokenObj = token as Token
@@ -644,6 +660,8 @@ export class TradingScene extends Scene {
 
     // Remove input event listeners to prevent memory leaks
     this.input.off('pointermove')
+    this.input.off('pointerup')
+    this.input.off('pointerout')
 
     // Clean up blade path (create new array, let old one be GC'd)
     this.bladePath = []
@@ -857,6 +875,9 @@ export class TradingScene extends Scene {
     // Check collisions whenever blade has points (no gesture state check)
     if (this.bladePath.length < 2) return
 
+    // Guard against shutdown - tokenPool may be destroyed
+    if (!this.tokenPool) return
+
     const p1 = this.bladePath[this.bladePath.length - 2]
     const p2 = this.bladePath[this.bladePath.length - 1]
 
@@ -908,6 +929,9 @@ export class TradingScene extends Scene {
     x: number
     y: number
   }): void {
+    // Guard against events firing after scene shutdown
+    if (this.isShutdown || !this.tokenPool) return
+
     const config = COIN_CONFIG[data.coinType]
     if (!config) return
 
