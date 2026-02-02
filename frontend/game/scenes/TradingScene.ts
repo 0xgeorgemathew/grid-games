@@ -246,17 +246,21 @@ export class TradingScene extends Scene {
       )
     }
 
-    // Handle resize events to update physics world bounds and redraw grid
+    // Handle resize events - with FIT mode, gameSize stays fixed but we still update display
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
       // Guard: cameras.main may be undefined during scene shutdown
       if (!this.isCameraAvailable()) return
 
+      // With FIT mode, gameSize stays at TRADING_DIMENSIONS (600x800)
+      // Just update physics bounds and redraw grid
       this.physics.world.setBounds(0, 0, gameSize.width, gameSize.height)
-      this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height)
+
+      // Camera viewport is already correct with FIT mode
+      // No need to call setViewport
+
       this.drawGridBackground()
 
-      // CRITICAL FIX: Always use camera dimensions, not gameSize
-      // gameSize may differ from camera.height in Scale.RESIZE mode
+      // Update dimensions - gameSize is now fixed (600x800)
       updateDimensions()
     })
 
