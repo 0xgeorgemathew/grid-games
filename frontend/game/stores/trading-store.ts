@@ -271,7 +271,12 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   findMatch: (playerName: string) => {
     const { socket } = get()
-    socket?.emit('find_match', { playerName })
+    // Include scene dimensions for dynamic spawn positioning on Railway
+    socket?.emit('find_match', {
+      playerName,
+      sceneWidth: window.innerWidth,
+      sceneHeight: window.innerHeight,
+    })
     set({ isMatching: true })
   },
 

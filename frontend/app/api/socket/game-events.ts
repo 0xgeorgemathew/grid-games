@@ -140,6 +140,8 @@ interface WaitingPlayer {
   name: string
   socketId: string
   joinedAt: number
+  sceneWidth?: number
+  sceneHeight?: number
 }
 
 interface Coin {
@@ -172,6 +174,8 @@ class GameRoom {
   tugOfWar = 0
   private isClosing = false
   isShutdown = false // Prevents settlement timeouts from operating on deleted rooms
+  sceneWidth: number = 500 // Default fallback
+  sceneHeight: number = 800 // Default fallback
 
   private intervals = new Set<NodeJS.Timeout>()
   private timeouts = new Set<NodeJS.Timeout>()
@@ -558,16 +562,15 @@ function spawnCoin(room: GameRoom): Coin {
   const type = types[Math.floor(Math.random() * types.length)]
   const coinId = `coin-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 
-  // Fruit Ninja-style bottom toss spawning
-  const GAME_WIDTH = 500 // Standard game width
+  // Fruit Ninja-style bottom toss spawning with dynamic scene dimensions
   const MARGIN = 100 // Margin from edges to prevent off-screen spawns
-  const SPAWN_Y = 850 // Below screen bottom (scene height is ~700)
+  const spawnY = room.sceneHeight + 100 // Spawn 100px below scene bottom
 
   const coin: Coin = {
     id: coinId,
     type,
-    x: Math.random() * (GAME_WIDTH - 2 * MARGIN) + MARGIN, // Random X with margins
-    y: SPAWN_Y, // Spawn from bottom edge
+    x: Math.random() * (room.sceneWidth - 2 * MARGIN) + MARGIN, // Random X with margins
+    y: spawnY,
   }
 
   room.addCoin(coin)
@@ -631,6 +634,11 @@ function createMatch(
 ): void {
   const roomId = `room-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
   const room = manager.createRoom(roomId)
+
+  // Capture scene dimensions from the first (waiting) player
+  const waitingPlayer = manager.getWaitingPlayer(playerId2)
+  room.sceneWidth = waitingPlayer?.sceneWidth || 500
+  room.sceneHeight = waitingPlayer?.sceneHeight || 800
 
   room.addPlayer(playerId1, name1)
   room.addPlayer(playerId2, name2)
@@ -831,30 +839,47 @@ export function setupGameEvents(io: SocketIOServer): {
   }
 
   io.on('connection', (socket: Socket) => {
-    socket.on('find_match', ({ playerName }: { playerName: string }) => {
-      try {
-        const validatedName = validatePlayerName(playerName)
+    socket.on(
+      'find_match',
+      ({
+        playerName,
+        sceneWidth,
+        sceneHeight,
+      }: {
+        playerName: string
+        sceneWidth?: number
+        sceneHeight?: number
+      }) => {
+        try {
+          const validatedName = validatePlayerName(playerName)
 
-        // Check for waiting player - double-check connection status before matching
-        for (const [waitingId, waiting] of manager.getWaitingPlayers()) {
-          if (waitingId !== socket.id) {
-            const waitingSocket = io.of('/').sockets.get(waitingId)
-            // CRITICAL: Verify socket is still connected AND is the same socket
-            if (waitingSocket?.connected && waitingSocket.id === waitingId) {
-              createMatch(io, manager, socket.id, waitingId, validatedName, waiting.name)
-              return
+          // Check for waiting player - double-check connection status before matching
+          for (const [waitingId, waiting] of manager.getWaitingPlayers()) {
+            if (waitingId !== socket.id) {
+              const waitingSocket = io.of('/').sockets.get(waitingId)
+              // CRITICAL: Verify socket is still connected AND is the same socket
+              if (waitingSocket?.connected && waitingSocket.id === waitingId) {
+                createMatch(io, manager, socket.id, waitingId, validatedName, waiting.name)
+                return
+              }
             }
           }
-        }
 
-        // No match - add to waiting
-        manager.addWaitingPlayer(socket.id, validatedName)
-        socket.emit('waiting_for_match')
-      } catch (error) {
-        console.error('Error in find_match:', error)
-        socket.emit('error', { message: 'Failed to find match' })
+          // No match - add to waiting with scene dimensions
+          manager.addWaitingPlayer(socket.id, validatedName)
+          // Store scene dimensions for later use in createMatch
+          const waitingPlayer = manager.getWaitingPlayer(socket.id)
+          if (waitingPlayer && sceneWidth && sceneHeight) {
+            waitingPlayer.sceneWidth = sceneWidth
+            waitingPlayer.sceneHeight = sceneHeight
+          }
+          socket.emit('waiting_for_match')
+        } catch (error) {
+          console.error('Error in find_match:', error)
+          socket.emit('error', { message: 'Failed to find match' })
+        }
       }
-    })
+    )
 
     socket.on('slice_coin', (data: { coinId: string; coinType: string; priceAtSlice: number }) => {
       try {

@@ -181,8 +181,10 @@ export class TradingScene extends Scene {
       this.reusableBladePoint.x = pointer.x
       this.reusableBladePoint.y = pointer.y
 
-      // Calculate velocity for gesture recognition
-      const velocity = Math.sqrt(pointer.velocity.x ** 2 + pointer.velocity.y ** 2)
+      // Calculate velocity for gesture recognition (handle undefined on first move)
+      const vx = pointer.velocity.x ?? 0
+      const vy = pointer.velocity.y ?? 0
+      const velocity = Math.sqrt(vx * vx + vy * vy)
 
       // Gesture state machine
       const now = this.time.now
