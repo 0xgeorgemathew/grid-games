@@ -2,13 +2,15 @@ export type CoinType = 'call' | 'put' | 'gas' | 'whale'
 
 /**
  * Player state in a game room
- * Tracks dollars (health) and score for win/loss tracking
+ * Tracks dollars (health), score, and scene dimensions for spawning
  */
 export type Player = {
   id: string
   name: string
   dollars: number
   score: number
+  sceneWidth: number // Player's device width for coin spawning
+  sceneHeight: number // Player's device height for coin spawning
 }
 
 /**

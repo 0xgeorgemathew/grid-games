@@ -174,8 +174,6 @@ class GameRoom {
   tugOfWar = 0
   private isClosing = false
   isShutdown = false // Prevents settlement timeouts from operating on deleted rooms
-  sceneWidth: number = 500 // Default fallback
-  sceneHeight: number = 800 // Default fallback
 
   private intervals = new Set<NodeJS.Timeout>()
   private timeouts = new Set<NodeJS.Timeout>()
@@ -187,8 +185,8 @@ class GameRoom {
     this.pendingOrders = new Map()
   }
 
-  addPlayer(id: string, name: string): void {
-    this.players.set(id, { id, name, dollars: 10, score: 0 })
+  addPlayer(id: string, name: string, sceneWidth: number, sceneHeight: number): void {
+    this.players.set(id, { id, name, dollars: 10, score: 0, sceneWidth, sceneHeight })
   }
 
   removePlayer(id: string): void {
@@ -562,15 +560,11 @@ function spawnCoin(room: GameRoom): Coin {
   const type = types[Math.floor(Math.random() * types.length)]
   const coinId = `coin-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 
-  // Fruit Ninja-style bottom toss spawning with dynamic scene dimensions
-  const MARGIN = 100 // Margin from edges to prevent off-screen spawns
-  const spawnY = room.sceneHeight + 100 // Spawn 100px below scene bottom
-
   const coin: Coin = {
     id: coinId,
     type,
-    x: Math.random() * (room.sceneWidth - 2 * MARGIN) + MARGIN, // Random X with margins
-    y: spawnY,
+    x: 0, // Will be set per-player
+    y: 0, // Will be set per-player
   }
 
   room.addCoin(coin)
@@ -589,14 +583,21 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       return
     }
 
-    // Spawn coin
+    // Spawn coin with per-player coordinates
     const coin = spawnCoin(room)
-    io.to(room.id).emit('coin_spawn', {
-      coinId: coin.id,
-      coinType: coin.type,
-      x: coin.x,
-      y: coin.y,
-    })
+
+    // Emit player-specific spawn events - each player gets coins at their own Y position
+    for (const [playerId, player] of room.players) {
+      const spawnX = Math.random() * player.sceneWidth // Full width, no margins
+      const spawnY = player.sceneHeight + 100 // 100px below player's viewport
+
+      io.to(playerId).emit('coin_spawn', {
+        coinId: coin.id,
+        coinType: coin.type,
+        x: spawnX,
+        y: spawnY,
+      })
+    }
 
     // Schedule next spawn with random interval (800-1200ms)
     const nextDelay = Math.floor(Math.random() * 401) + 800 // 800-1200ms
@@ -630,18 +631,18 @@ function createMatch(
   playerId1: string,
   playerId2: string,
   name1: string,
-  name2: string
+  name2: string,
+  sceneWidth1: number,
+  sceneHeight1: number,
+  sceneWidth2: number,
+  sceneHeight2: number
 ): void {
   const roomId = `room-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
   const room = manager.createRoom(roomId)
 
-  // Capture scene dimensions from the first (waiting) player
-  const waitingPlayer = manager.getWaitingPlayer(playerId2)
-  room.sceneWidth = waitingPlayer?.sceneWidth || 500
-  room.sceneHeight = waitingPlayer?.sceneHeight || 800
-
-  room.addPlayer(playerId1, name1)
-  room.addPlayer(playerId2, name2)
+  // Add players with their individual dimensions
+  room.addPlayer(playerId1, name1, sceneWidth1, sceneHeight1)
+  room.addPlayer(playerId2, name2, sceneWidth2, sceneHeight2)
 
   manager.setPlayerRoom(playerId1, roomId)
   manager.setPlayerRoom(playerId2, roomId)
@@ -652,15 +653,14 @@ function createMatch(
   io.to(roomId).emit('match_found', {
     roomId,
     players: [
-      { id: playerId1, name: name1, dollars: 10, score: 0 },
-      { id: playerId2, name: name2, dollars: 10, score: 0 },
+      { id: playerId1, name: name1, dollars: 10, score: 0, sceneWidth: sceneWidth1, sceneHeight: sceneHeight1 },
+      { id: playerId2, name: name2, dollars: 10, score: 0, sceneWidth: sceneWidth2, sceneHeight: sceneHeight2 },
     ],
   })
 
   manager.removeWaitingPlayer(playerId2)
-  // Delay game loop start to allow clients to initialize Phaser scenes
-  const startGameTimeout = setTimeout(() => startGameLoop(io, manager, room), 5000)
-  room.trackTimeout(startGameTimeout)
+  // Start game loop immediately - client's isSceneReady guard handles timing
+  startGameLoop(io, manager, room)
 }
 
 function handleSlice(
@@ -853,13 +853,32 @@ export function setupGameEvents(io: SocketIOServer): {
         try {
           const validatedName = validatePlayerName(playerName)
 
+          // Default dimensions if not provided
+          const p1Width = sceneWidth || 500
+          const p1Height = sceneHeight || 800
+
           // Check for waiting player - double-check connection status before matching
           for (const [waitingId, waiting] of manager.getWaitingPlayers()) {
             if (waitingId !== socket.id) {
               const waitingSocket = io.of('/').sockets.get(waitingId)
               // CRITICAL: Verify socket is still connected AND is the same socket
               if (waitingSocket?.connected && waitingSocket.id === waitingId) {
-                createMatch(io, manager, socket.id, waitingId, validatedName, waiting.name)
+                // Get waiting player's dimensions with fallback
+                const p2Width = waiting.sceneWidth || 500
+                const p2Height = waiting.sceneHeight || 800
+
+                createMatch(
+                  io,
+                  manager,
+                  socket.id,
+                  waitingId,
+                  validatedName,
+                  waiting.name,
+                  p1Width,
+                  p1Height,
+                  p2Width,
+                  p2Height
+                )
                 return
               }
             }
