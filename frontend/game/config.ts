@@ -96,8 +96,7 @@ export function createPhaserConfig(options: PhaserConfigOptions): Phaser.Types.C
 
   if (fitToScreen) {
     config.scale = {
-      mode: Phaser.Scale.FIT,
-      autoCenter: Phaser.Scale.CENTER_BOTH,
+      mode: Phaser.Scale.RESIZE,
     }
   }
 

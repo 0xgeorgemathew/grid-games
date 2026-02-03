@@ -216,10 +216,8 @@ export class TradingScene extends Scene {
     }
     ;(window as unknown as { setSceneReady?: (ready: boolean) => void }).setSceneReady?.(true)
 
-    // CRITICAL FIX: Use fixed game height (800) for consistent spawning across devices
-    // On iOS, cameras.main.height returns window.innerHeight (932px with address bar)
-    // which breaks bottom-toss detection. Server expects fixed height.
-    const GAME_HEIGHT = 800 // Fixed game height for consistent physics
+    // Report ACTUAL camera dimensions to server
+    // Server uses these to spawn coins at correct Y position for each device
     const updateDimensions = () => {
       // Guard: cameras.main may be undefined during scene shutdown or early initialization
       if (!this.isCameraAvailable()) {
@@ -229,7 +227,7 @@ export class TradingScene extends Scene {
 
       const dims = {
         width: this.cameras.main.width,
-        height: GAME_HEIGHT, // ALWAYS use 800, not camera height
+        height: this.cameras.main.height, // ACTUAL height - varies by device
       }
       ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = dims
 
@@ -237,8 +235,6 @@ export class TradingScene extends Scene {
       console.log(
         '[TradingScene] sceneDimensions updated:',
         dims,
-        '| camera.main.height:',
-        this.cameras.main.height,
         '| window.innerHeight:',
         window.innerHeight,
         '| gameSize:',
@@ -246,21 +242,16 @@ export class TradingScene extends Scene {
       )
     }
 
-    // Handle resize events - with FIT mode, gameSize stays fixed but we still update display
+    // Handle resize events to update physics world bounds and redraw grid
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
       // Guard: cameras.main may be undefined during scene shutdown
       if (!this.isCameraAvailable()) return
 
-      // With FIT mode, gameSize stays at TRADING_DIMENSIONS (600x800)
-      // Just update physics bounds and redraw grid
+      // Update physics bounds and camera viewport for RESIZE mode
       this.physics.world.setBounds(0, 0, gameSize.width, gameSize.height)
-
-      // Camera viewport is already correct with FIT mode
-      // No need to call setViewport
+      this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height)
 
       this.drawGridBackground()
-
-      // Update dimensions - gameSize is now fixed (600x800)
       updateDimensions()
     })
 
