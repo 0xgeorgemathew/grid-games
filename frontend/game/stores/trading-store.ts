@@ -307,59 +307,22 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   findMatch: (playerName: string) => {
     const { socket } = get()
 
-    // Debug logging - track what dimensions are being used
+    // Use window.innerWidth/innerHeight immediately - available before scene loads
+    // sceneDimensions is only set AFTER TradingScene creates, which is too late
+    const sceneWidth = window.innerWidth
+    const sceneHeight = window.innerHeight
+
     console.log(
-      '[Matchmaking] sceneDimensions:',
-      (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions,
-      '| window.innerWidth:',
-      window.innerWidth,
-      '| window.innerHeight:',
-      window.innerHeight
+      '[Matchmaking] Using window dimensions:',
+      { width: sceneWidth, height: sceneHeight }
     )
 
-    // CRITICAL: Wait for sceneDimensions to be set by Phaser before matchmaking
-    // On iOS, this may take longer due to dynamic address bar resize behavior
-    const MAX_WAIT_TIME = 5000 // Wait max 5 seconds
-    const CHECK_INTERVAL = 100 // Check every 100ms
-    let elapsedTime = 0
-
-    const tryMatchmaking = () => {
-      const dims = (window as { sceneDimensions?: { width: number; height: number } })
-        .sceneDimensions
-
-      if (dims) {
-        // sceneDimensions is set - proceed with matchmaking
-        console.log(
-          '[Matchmaking] sceneDimensions ready, emitting find_match with:',
-          { width: dims.width, height: dims.height }
-        )
-
-        socket?.emit('find_match', {
-          playerName,
-          sceneWidth: dims.width,
-          sceneHeight: dims.height,
-        })
-        set({ isMatching: true })
-      } else if (elapsedTime < MAX_WAIT_TIME) {
-        // sceneDimensions not ready, wait and retry
-        elapsedTime += CHECK_INTERVAL
-        setTimeout(tryMatchmaking, CHECK_INTERVAL)
-      } else {
-        // Timeout - use fallback defaults (shouldn't happen in normal operation)
-        console.warn(
-          '[Matchmaking] Timeout waiting for sceneDimensions, using defaults'
-        )
-        socket?.emit('find_match', {
-          playerName,
-          sceneWidth: 600,
-          sceneHeight: 800,
-        })
-        set({ isMatching: true })
-      }
-    }
-
-    // Start polling for sceneDimensions
-    tryMatchmaking()
+    socket?.emit('find_match', {
+      playerName,
+      sceneWidth,
+      sceneHeight,
+    })
+    set({ isMatching: true })
   },
 
   spawnCoin: (coin) => {
