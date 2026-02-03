@@ -592,8 +592,17 @@ export class TradingScene extends Scene {
       const gridY = (tokenObj.getData('gridY') as number) ?? tokenObj.y
       const coinId = tokenObj.getData('id')
 
-      // Remove coins that fall below screen
-      if (tokenObj.y > sceneHeight + 50) {
+      // DEBUG: Log coin position for debugging
+      const yPos = tokenObj.y
+      if (yPos > sceneHeight + 200) {
+        console.log(
+          `[CoinCleanup] Removing coin ${coinId.slice(0, 8)}... at Y=${yPos.toFixed(0)} (sceneHeight=${sceneHeight})`
+        )
+      }
+
+      // Remove coins that fall far below screen (200px buffer)
+      // Bottom-toss coins start below viewport, so we need a larger buffer
+      if (tokenObj.y > sceneHeight + 200) {
         // Remove from tracked grid position (not current position)
         this.removeCoinFromGrid(coinId, gridX, gridY)
 
