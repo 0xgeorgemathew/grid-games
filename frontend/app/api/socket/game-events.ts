@@ -591,6 +591,14 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       const spawnX = Math.random() * player.sceneWidth // Full width, no margins
       const spawnY = player.sceneHeight + 100 // 100px below player's viewport
 
+      // DEBUG: Log spawn coordinates per player
+      console.log(
+        `[Server] Spawning coin ${coin.id} for ${player.name} (${playerId.slice(0, 8)}...)`,
+        `| dimensions: ${player.sceneWidth}x${player.sceneHeight}`,
+        `| spawn pos: (${spawnX.toFixed(0)}, ${spawnY.toFixed(0)})`,
+        `| type: ${coin.type}`
+      )
+
       io.to(playerId).emit('coin_spawn', {
         coinId: coin.id,
         coinType: coin.type,
@@ -639,6 +647,13 @@ function createMatch(
 ): void {
   const roomId = `room-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
   const room = manager.createRoom(roomId)
+
+  // DEBUG: Log player dimensions
+  console.log(
+    `[Server] Match created | Room: ${roomId.slice(-8)}`,
+    `| ${name1}: ${sceneWidth1}x${sceneHeight1}`,
+    `| ${name2}: ${sceneWidth2}x${sceneHeight2}`
+  )
 
   // Add players with their individual dimensions
   room.addPlayer(playerId1, name1, sceneWidth1, sceneHeight1)
