@@ -285,7 +285,6 @@ const RoundHeader = React.memo(function RoundHeader({
   )
 })
 
-
 export const GameHUD = React.memo(function GameHUD() {
   const {
     players,
@@ -457,7 +456,6 @@ export const GameHUD = React.memo(function GameHUD() {
                     )}
                   </div>
                 </motion.div>
-
               </>
             )}
           </motion.div>
