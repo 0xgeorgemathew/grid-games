@@ -10,8 +10,8 @@
 - Each player: $10
 - Total economy: $20 (zero-sum, $0 floor)
 - **Game Mode**: Best-of-three rounds
-- **Round Duration**: 100 seconds per round
-- Coin spawn rate: 800-1200ms (randomized)
+- **Round Duration**: 30 seconds per round
+- Coin spawn rate: 2000-3000ms (randomized)
 
 ## Round System
 
@@ -22,17 +22,17 @@ HFT Battle uses a **best-of-three** round format instead of single continuous ga
 | Aspect | Value |
 |--------|-------|
 | Rounds per game | 3 (best-of-three) |
-| Round duration | 100 seconds (100,000ms) |
+| Round duration | 30 seconds (30,000ms) |
 | Starting cash per round | $10 each (first round only) |
 | Subsequent rounds | Carry over cash from previous round end |
-| Round end condition | Time limit (100s) OR knockout ($0) |
+| Round end condition | Time limit (30s) OR knockout ($0) |
 | Game end condition | First player to 2 round wins |
 
 ### Sudden Death
 
 If players are tied 1-1 after two rounds:
 - Third round is played as **sudden death** (⚡ FINAL ROUND)
-- Same 100-second duration
+- Same 30-second duration
 - Winner takes all (no additional mechanics)
 
 ### Round Transitions
@@ -53,6 +53,14 @@ Each round records:
 - Gained/lost amounts per player
 
 Displayed in game over modal via `GameOverEvent.rounds` array.
+
+### Deterministic Spawning
+
+All players see the **same coin types in the same sequence** regardless of device. Only screen positions differ.
+
+- **Method**: Pre-generated sequence using seeded RNG (room ID + round number as seed)
+- **Tokens per round**: ~10-12 tokens (30s round with 2-3s spawn interval)
+- **Fairness**: Identical opportunities for both players
 
 ## Coin Types
 
@@ -148,7 +156,7 @@ if (data.coinType === 'whale') {
 1. Two players queue → RoomManager creates room → Both join Socket.IO room
 2. 5-second delay for Phaser initialization → Round 1 begins
 3. `round_start` event emitted with round number and duration
-4. Coins spawn every 800-1200ms with random types and X positions
+4. Coins spawn every 2000-3000ms with deterministic types (same sequence for both players) and random X positions
 5. Player slices coin:
    - **Call/Put**: Order created with 10s countdown
    - **Gas**: Immediate penalty ($1 from slicer to opponent)
@@ -156,7 +164,7 @@ if (data.coinType === 'whale') {
 6. After 10s, price checked → Winner/loser determined → Funds transferred (×2 if 2X active)
 
 ### Round End
-1. Round time expires (100s) OR knockout ($0)
+1. Round time expires (30s) OR knockout ($0)
 2. All pending orders settled immediately
 3. `round_end` event emitted with round summary
 4. If game continues: 3-second delay → Next round starts
@@ -171,7 +179,7 @@ if (data.coinType === 'whale') {
 
 ### Per Round (determines round winner)
 1. **Knockout (Instant):** Opponent reaches $0
-2. **Time Limit:** 100 seconds expire, highest dollar amount wins
+2. **Time Limit:** 30 seconds expire, highest dollar amount wins
 3. **Tie:** Equal dollars when time expires (rare)
 
 ### Game Over (best-of-three)
