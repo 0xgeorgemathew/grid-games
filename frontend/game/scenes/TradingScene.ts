@@ -61,6 +61,7 @@ export class TradingScene extends Scene {
   // Active game objects
   private tokenPool!: Physics.Arcade.Group
   private opponentSlices: GameObjects.Text[] = []
+  private damageIndicators: GameObjects.Text[] = []
 
   // Blade rendering
   private bladePath: Geom.Point[] = []
@@ -110,6 +111,13 @@ export class TradingScene extends Scene {
   // Electrical arc tracking for cleanup (prevents memory leaks)
   private electricalArcs: GameObjects.Graphics[] = []
 
+  // Slice feedback arrows
+  private sliceArrows: GameObjects.Text[] = []
+
+  // 2X mode indicator
+  private whale2XIndicator: GameObjects.Text | null = null
+  private whale2XExpiresAt: number = 0
+
   // Change detection for blade path (prevents unnecessary updates)
   private lastBladePoint: Geom.Point | null = null
 
@@ -151,10 +159,12 @@ export class TradingScene extends Scene {
     this.generateCachedTextures()
 
     // Setup token pool for object reuse
+    // Fruit Ninja-style: ~4-7 simultaneous coins × 6s lifetime / 0.8s spawn rate
+    // Pool of 50 provides 7-12x safety margin
     this.tokenPool = this.physics.add.group({
       classType: Token,
       runChildUpdate: true,
-      maxSize: 150, // Covers ~200 coins in 3-min game with safety margin
+      maxSize: 50, // Optimized for Fruit Ninja-style spawn patterns
       active: true,
       createCallback: (token) => {
         const tokenObj = token as Token
@@ -167,6 +177,7 @@ export class TradingScene extends Scene {
     // This ensures no events are lost during initialization
     this.eventEmitter.on('coin_spawn', this.handleCoinSpawn.bind(this))
     this.eventEmitter.on('opponent_slice', this.handleOpponentSlice.bind(this))
+    this.eventEmitter.on('whale_2x_activated', this.handleWhale2XActivated.bind(this))
 
     // Track mouse movement for blade trail (always track, no velocity gating)
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
@@ -221,7 +232,7 @@ export class TradingScene extends Scene {
     const updateDimensions = () => {
       // Guard: cameras.main may be undefined during scene shutdown or early initialization
       if (!this.isCameraAvailable()) {
-        console.warn('[TradingScene] cameras.main unavailable, skipping dimension update')
+        // console.warn('[TradingScene] cameras.main unavailable, skipping dimension update')
         return
       }
 
@@ -232,14 +243,14 @@ export class TradingScene extends Scene {
       ;(window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions = dims
 
       // Debug logging - track when dimensions are set
-      console.log(
-        '[TradingScene] sceneDimensions updated:',
-        dims,
-        '| window.innerHeight:',
-        window.innerHeight,
-        '| gameSize:',
-        this.scale.gameSize
-      )
+      // console.log(
+      //   '[TradingScene] sceneDimensions updated:',
+      //   dims,
+      //   '| window.innerHeight:',
+      //   window.innerHeight,
+      //   '| gameSize:',
+      //   this.scale.gameSize
+      // )
     }
 
     // Handle resize events to update physics world bounds and redraw grid
@@ -276,6 +287,9 @@ export class TradingScene extends Scene {
     // Spatial grid now updates incrementally in updateCoinPhysics()
     this.checkCollisions()
     this.updateOpponentSlices()
+    this.updateDamageIndicators()
+    this.updateSliceArrows()
+    this.updateWhale2XIndicator()
   }
 
   // Spatial hash helpers
@@ -595,9 +609,9 @@ export class TradingScene extends Scene {
       // DEBUG: Log coin position for debugging
       const yPos = tokenObj.y
       if (yPos > sceneHeight + 200) {
-        console.log(
-          `[CoinCleanup] Removing coin ${coinId.slice(0, 8)}... at Y=${yPos.toFixed(0)} (sceneHeight=${sceneHeight})`
-        )
+        // console.log(
+        //   `[CoinCleanup] Removing coin ${coinId.slice(0, 8)}... at Y=${yPos.toFixed(0)} (sceneHeight=${sceneHeight})`
+        // )
       }
 
       // Remove coins that fall far below screen (200px buffer)
@@ -715,6 +729,18 @@ export class TradingScene extends Scene {
     // Clear particle arrays properly (use length=0 instead of reassignment)
     this.particles.length = 0
     this.sliceParticles.length = 0
+
+    // Clean up damage indicators
+    this.damageIndicators.forEach((t) => t.destroy())
+    this.damageIndicators.length = 0
+
+    // Clean up slice arrows
+    this.sliceArrows.forEach((t) => t.destroy())
+    this.sliceArrows.length = 0
+
+    // Clean up 2X indicator
+    this.whale2XIndicator?.destroy()
+    this.whale2XIndicator = null
   }
 
   private drawBlade(): void {
@@ -968,6 +994,28 @@ export class TradingScene extends Scene {
     }
   }
 
+  private updateDamageIndicators(): void {
+    for (let i = this.damageIndicators.length - 1; i >= 0; i--) {
+      const text = this.damageIndicators[i]
+      text.y -= 1.5 // Float upward
+      text.alpha -= 0.02 // Fade out
+      if (text.alpha <= 0) {
+        text.destroy()
+        this.damageIndicators.splice(i, 1)
+      }
+    }
+  }
+
+  private updateSliceArrows(): void {
+    for (let i = this.sliceArrows.length - 1; i >= 0; i--) {
+      const text = this.sliceArrows[i]
+      if (text.alpha <= 0) {
+        text.destroy()
+        this.sliceArrows.splice(i, 1)
+      }
+    }
+  }
+
   private handleCoinSpawn(data: {
     coinId: string
     coinType: CoinType
@@ -978,11 +1026,11 @@ export class TradingScene extends Scene {
     if (this.isShutdown || !this.tokenPool) return
 
     // Debug logging - track coin spawn from server
-    console.log(
-      `[CoinSpawn] Server sent coin at (${data.x.toFixed(0)}, ${data.y.toFixed(0)}) | ` +
-        `cameraHeight: ${this.cameras.main.height} | ` +
-        `coinType: ${data.coinType}`
-    )
+    // console.log(
+    //   `[CoinSpawn] Server sent coin at (${data.x.toFixed(0)}, ${data.y.toFixed(0)}) | ` +
+    //     `cameraHeight: ${this.cameras.main.height} | ` +
+    //     `coinType: ${data.coinType}`
+    // )
 
     const config = COIN_CONFIG[data.coinType]
     if (!config) return
@@ -1048,6 +1096,37 @@ export class TradingScene extends Scene {
     this.cameras.main.flash(100, 255, 255, 255, false)
   }
 
+  private showDamageIndicator(x: number, y: number, amount: number, isGain: boolean): void {
+    // Guard against events firing after scene shutdown
+    if (this.isShutdown || !this.add || !this.cameras) return
+
+    const color = isGain ? 0x4ade80 : 0xf87171 // green-400 or red-400
+    const colorHex = '#' + color.toString(16).padStart(6, '0')
+    const sign = amount > 0 ? '+' : ''
+
+    const text = this.add
+      .text(x, y, `${sign}$${amount}`, {
+        fontSize: this.isMobile ? '24px' : '18px',
+        fontStyle: 'bold',
+        fontFamily: 'Arial, sans-serif',
+        color: colorHex,
+        stroke: '#000000',
+        strokeThickness: 3,
+        shadow: {
+          offsetX: 0,
+          offsetY: 0,
+          blur: 6,
+          color: colorHex,
+          stroke: false,
+          fill: true,
+        },
+      })
+      .setOrigin(0.5)
+      .setDepth(1003) // Above electrical arcs (1002)
+
+    this.damageIndicators.push(text)
+  }
+
   private sliceCoin(coinId: string, coin: Token): void {
     const type = coin.getData('type') as CoinType
     const config = COIN_CONFIG[type]
@@ -1055,6 +1134,9 @@ export class TradingScene extends Scene {
 
     // Emit slice particle burst
     this.emitSliceParticles(coin.x, coin.y, config.color, 20)
+
+    // Create directional arrow feedback at slice location
+    this.createDirectionalArrow(coin.x, coin.y, type)
 
     // Create split effect (2 half-coins flying apart)
     this.createSplitEffect(coin.x, coin.y, config.color, config.radius, type)
@@ -1288,5 +1370,114 @@ export class TradingScene extends Scene {
         if (idx >= 0) this.electricalArcs.splice(idx, 1)
       },
     })
+  }
+
+  private createDirectionalArrow(x: number, y: number, coinType: CoinType): void {
+    if (this.isShutdown || !this.add || !this.cameras) return
+
+    const config = COIN_CONFIG[coinType]
+    let text: string
+    let color = config.color
+    let fontSize = this.isMobile ? '28px' : '22px' // Smaller for longer text
+
+    // Determine text based on coin type
+    if (coinType === 'call') {
+      text = 'LONG - BTC'
+    } else if (coinType === 'put') {
+      text = 'Short BTC'
+    } else if (coinType === 'gas') {
+      text = 'PENALTY'
+      color = 0xffd700 // Gold
+      fontSize = this.isMobile ? '32px' : '26px'
+    } else if (coinType === 'whale') {
+      text = '2X'
+      color = 0xff00ff // Magenta
+      fontSize = this.isMobile ? '48px' : '40px'
+    } else {
+      text = config.arrow
+      fontSize = this.isMobile ? '48px' : '36px'
+    }
+
+    const colorHex = '#' + color.toString(16).padStart(6, '0')
+
+    const textObj = this.add
+      .text(x, y, text, {
+        fontSize,
+        fontStyle: 'bold',
+        fontFamily: 'Arial, sans-serif',
+        color: colorHex,
+        stroke: '#000000',
+        strokeThickness: 6,
+        shadow: {
+          offsetX: 0,
+          offsetY: 0,
+          blur: 12,
+          color: colorHex,
+          stroke: false,
+          fill: true,
+        },
+      })
+      .setOrigin(0.5)
+      .setDepth(1004)
+
+    this.sliceArrows.push(textObj)
+
+    // Slower fade - 2000ms instead of 800ms
+    this.tweens.add({
+      targets: textObj,
+      y: y - 80,
+      alpha: 0,
+      duration: 2000, // Changed from 800
+      ease: 'Power2',
+      onComplete: () => {
+        if (!this.isShutdown) {
+          textObj.destroy()
+          const idx = this.sliceArrows.indexOf(textObj)
+          if (idx >= 0) this.sliceArrows.splice(idx, 1)
+        }
+      },
+    })
+  }
+
+  private handleWhale2XActivated(data: {
+    playerId: string
+    playerName: string
+    durationMs: number
+    isLocalPlayer: boolean
+  }): void {
+    if (!data.isLocalPlayer) return // Only show for local player
+
+    this.whale2XExpiresAt = Date.now() + data.durationMs
+
+    // Create or update indicator
+    if (!this.whale2XIndicator) {
+      this.whale2XIndicator = this.add
+        .text(this.cameras.main.width / 2, 100, '2X ACTIVE!', {
+          fontSize: '48px',
+          fontStyle: 'bold',
+          color: '#ff00ff',
+          stroke: '#000000',
+          strokeThickness: 8,
+        })
+        .setOrigin(0.5)
+        .setDepth(1005)
+    }
+
+    // Pulse animation
+    this.tweens.add({
+      targets: this.whale2XIndicator,
+      scale: { from: 1, to: 1.2 },
+      alpha: { from: 1, to: 0.7 },
+      duration: 500,
+      yoyo: true,
+      repeat: -1,
+    })
+  }
+
+  private updateWhale2XIndicator(): void {
+    if (this.whale2XIndicator && Date.now() > this.whale2XExpiresAt) {
+      this.whale2XIndicator.destroy()
+      this.whale2XIndicator = null
+    }
   }
 }

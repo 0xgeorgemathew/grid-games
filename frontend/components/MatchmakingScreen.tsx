@@ -19,6 +19,8 @@ const TRADER_NAMES = [
 ]
 
 export function MatchmakingScreen() {
+  // Use full store (not selectors) to avoid infinite loop
+  // Selectors with object literals cause React hydration issues
   const { isConnected, isMatching, findMatch } = useTradingStore()
   const [playerName] = useState(() => {
     const name = TRADER_NAMES[Math.floor(Math.random() * TRADER_NAMES.length)]

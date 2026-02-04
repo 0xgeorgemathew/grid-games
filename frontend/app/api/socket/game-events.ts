@@ -82,7 +82,7 @@ class PriceFeedManager {
 
     this.ws.onerror = (error) => {
       if (this.isShutdown) return
-      console.error('[PriceFeed] Server WebSocket error:', error)
+      // console.error('[PriceFeed] Server WebSocket error:', error)
     }
 
     this.ws.onclose = () => {
@@ -178,11 +178,42 @@ class GameRoom {
   private intervals = new Set<NodeJS.Timeout>()
   private timeouts = new Set<NodeJS.Timeout>()
 
+  // Fruit Ninja-style spawn mechanics
+  readonly gameStartTime: number
+  readonly GAME_DURATION = 180000 // 3 minutes
+
+  // Per-player 2X mode tracking (whale power-up)
+  private whale2XActive = new Map<string, number>() // playerId -> expiration timestamp
+  readonly WHALE_2X_DURATION = 10000 // 10 seconds
+
   constructor(roomId: string) {
     this.id = roomId
     this.players = new Map()
     this.coins = new Map()
     this.pendingOrders = new Map()
+    this.gameStartTime = Date.now()
+  }
+
+  // Check if player has active 2X mode
+  hasWhale2X(playerId: string): boolean {
+    const expiresAt = this.whale2XActive.get(playerId)
+    if (!expiresAt) return false
+    if (Date.now() > expiresAt) {
+      this.whale2XActive.delete(playerId)
+      return false
+    }
+    return true
+  }
+
+  // Activate 2X mode for a player
+  activateWhale2X(playerId: string): void {
+    const expiresAt = Date.now() + this.WHALE_2X_DURATION
+    this.whale2XActive.set(playerId, expiresAt)
+  }
+
+  // Get 2X multiplier for a player (2 if active, 1 if not)
+  get2XMultiplier(playerId: string): number {
+    return this.hasWhale2X(playerId) ? 2 : 1
   }
 
   addPlayer(id: string, name: string, sceneWidth: number, sceneHeight: number): void {
@@ -259,6 +290,11 @@ class GameRoom {
 
   setClosing(): void {
     this.isClosing = true
+  }
+
+  // Flat spawn rate matching design doc
+  getSpawnInterval(): { minMs: number; maxMs: number } {
+    return { minMs: 800, maxMs: 1200 }
   }
 }
 
@@ -359,7 +395,7 @@ class RoomManager {
 
   // Emergency shutdown - settles all pending orders and clears all state
   emergencyShutdown(io: SocketIOServer): void {
-    console.log('[RoomManager] Emergency shutdown - settling all pending orders...')
+    // console.log('[RoomManager] Emergency shutdown - settling all pending orders...')
 
     // Settle all pending orders in all rooms
     for (const [roomId, room] of this.rooms) {
@@ -389,7 +425,7 @@ class RoomManager {
     this.waitingPlayers.clear()
     this.playerToRoom.clear()
 
-    console.log('[RoomManager] Emergency shutdown complete - all orders settled')
+    // console.log('[RoomManager] Emergency shutdown complete - all orders settled')
   }
 }
 
@@ -415,13 +451,13 @@ function validateCoinType(coinType: string): coinType is 'call' | 'put' | 'whale
 function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): void {
   // Atomic guard: prevent double settlement
   if (settlementsInProgress.has(order.id)) {
-    console.log(`[Settlement] Skipping ${order.id} - already in progress`)
+    // console.log(`[Settlement] Skipping ${order.id} - already in progress`)
     return
   }
 
   // Verify order still exists
   if (!room.pendingOrders.has(order.id)) {
-    console.log(`[Settlement] Order ${order.id} already settled`)
+    // console.log(`[Settlement] Order ${order.id} already settled`)
     return
   }
 
@@ -430,31 +466,33 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
   try {
     // Validate room state
     if (room.players.size === 0) {
-      console.error(`[Settlement] ERROR: Room ${room.id} has no players`)
+      // console.error(`[Settlement] ERROR: Room ${room.id} has no players`)
       return
     }
 
     const playerIds = room.getPlayerIds()
     if (playerIds.length < 2) {
-      console.error(`[Settlement] ERROR: Room ${room.id} has only ${playerIds.length} player(s)`)
+      // console.error(`[Settlement] ERROR: Room ${room.id} has only ${playerIds.length} player(s)`)
       return
     }
 
     const finalPrice = priceFeed.getLatestPrice()
 
     // Settlement always uses latest price for simplicity and reliability
-    console.log(
-      `[Settlement] Order ${order.id} - ${order.coinType.toUpperCase()}: $${order.priceAtOrder.toFixed(2)} → $${finalPrice.toFixed(2)}`
-    )
+    // console.log(
+    //   `[Settlement] Order ${order.id} - ${order.coinType.toUpperCase()}: $${order.priceAtOrder.toFixed(2)} → $${finalPrice.toFixed(2)}`
+    // )
 
     const priceChange = (finalPrice - order.priceAtOrder) / order.priceAtOrder
 
     let isCorrect = false
     if (order.coinType === 'call') isCorrect = priceChange > 0
     else if (order.coinType === 'put') isCorrect = priceChange < 0
-    else if (order.coinType === 'whale') isCorrect = Math.random() < 0.8
 
-    const impact = order.coinType === 'whale' ? 2 : 1
+    // === APPLY 2X MULTIPLIER if player has active whale power-up ===
+    const baseImpact = 1
+    const multiplier = room.get2XMultiplier(order.playerId)
+    const impact = baseImpact * multiplier // 2 if whale active, 1 otherwise
     // Use stored isPlayer1 from order creation time (not current playerIds lookup)
     const isPlayer1 = order.isPlayer1
 
@@ -508,26 +546,26 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
     if (totalAfter !== totalBefore) {
       const cappedLoss = totalBefore - totalAfter
       if (cappedLoss > 0) {
-        console.warn(
-          `[FUND CAP] Room ${room.id.slice(-6)}: ${cappedLoss} lost to zero-cap (loser went below 0)`
-        )
+        // console.warn(
+        //   `[FUND CAP] Room ${room.id.slice(-6)}: ${cappedLoss} lost to zero-cap (loser went below 0)`
+        // )
       }
     }
 
     room.removePendingOrder(order.id)
 
     // Log settlement result for debugging (controlled by DEBUG_FUNDS env var)
-    if (DEBUG_FUNDS) {
-      console.log(
-        `[Settlement] ${order.coinType.toUpperCase()} order ${order.id.slice(-8)}:`,
-        `${order.playerName} ${isCorrect ? 'WON' : 'LOST'}`,
-        `$${order.priceAtOrder.toFixed(2)} → $${finalPrice.toFixed(2)}`,
-        `(${(priceChange * 100).toFixed(2)}%)`,
-        `\n  BEFORE: ${playersBefore.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalBefore})`,
-        `\n  TRANSFER: $${impact} from ${loserName || 'Unknown'} → ${winnerName || 'Unknown'}`,
-        `\n  AFTER:  ${playersAfter.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalAfter})`
-      )
-    }
+    // if (DEBUG_FUNDS) {
+    //   console.log(
+    //     `[Settlement] ${order.coinType.toUpperCase()} order ${order.id.slice(-8)}:`,
+    //     `${order.playerName} ${isCorrect ? 'WON' : 'LOST'}`,
+    //     `$${order.priceAtOrder.toFixed(2)} → $${finalPrice.toFixed(2)}`,
+    //     `(${(priceChange * 100).toFixed(2)}%)`,
+    //     `\n  BEFORE: ${playersBefore.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalBefore})`,
+    //     `\n  TRANSFER: $${impact} from ${loserName || 'Unknown'} → ${winnerName || 'Unknown'}`,
+    //     `\n  AFTER:  ${playersAfter.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalAfter})`
+    //   )
+    // }
 
     io.to(room.id).emit('order_settled', {
       orderId: order.id,
@@ -576,28 +614,20 @@ function spawnCoin(room: GameRoom): Coin {
 // =============================================================================
 
 function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
-  // Helper function to spawn coin with randomized delay
-  const scheduleNextSpawn = () => {
-    // Stop if room no longer exists or has fewer than 2 players
-    if (!manager.hasRoom(room.id) || room.players.size < 2) {
-      return
-    }
-
-    // Spawn coin with per-player coordinates
-    const coin = spawnCoin(room)
-
+  // Helper function to emit coin spawn event to all players
+  const emitCoinSpawn = (coin: Coin) => {
     // Emit player-specific spawn events - each player gets coins at their own Y position
     for (const [playerId, player] of room.players) {
       const spawnX = Math.random() * player.sceneWidth // Full width, no margins
       const spawnY = player.sceneHeight + 100 // 100px below player's viewport
 
       // DEBUG: Log spawn coordinates per player
-      console.log(
-        `[Server] Spawning coin ${coin.id} for ${player.name} (${playerId.slice(0, 8)}...)`,
-        `| dimensions: ${player.sceneWidth}x${player.sceneHeight}`,
-        `| spawn pos: (${spawnX.toFixed(0)}, ${spawnY.toFixed(0)})`,
-        `| type: ${coin.type}`
-      )
+      // console.log(
+      //   `[Server] Spawning coin ${coin.id} for ${player.name} (${playerId.slice(0, 8)}...)`,
+      //   `| dimensions: ${player.sceneWidth}x${player.sceneHeight}`,
+      //   `| spawn pos: (${spawnX.toFixed(0)}, ${spawnY.toFixed(0)})`,
+      //   `| type: ${coin.type}`
+      // )
 
       io.to(playerId).emit('coin_spawn', {
         coinId: coin.id,
@@ -606,9 +636,24 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
         y: spawnY,
       })
     }
+  }
 
-    // Schedule next spawn with random interval (800-1200ms)
-    const nextDelay = Math.floor(Math.random() * 401) + 800 // 800-1200ms
+  // Helper function to spawn coin with randomized delay
+  const scheduleNextSpawn = () => {
+    // Stop if room no longer exists or has fewer than 2 players
+    if (!manager.hasRoom(room.id) || room.players.size < 2) {
+      return
+    }
+
+    const spawnConfig = room.getSpawnInterval()
+
+    // Single coin spawn (no burst)
+    const coin = spawnCoin(room)
+    emitCoinSpawn(coin)
+
+    // Schedule next spawn
+    const nextDelay =
+      Math.floor(Math.random() * (spawnConfig.maxMs - spawnConfig.minMs + 1)) + spawnConfig.minMs
     const timeoutId = setTimeout(scheduleNextSpawn, nextDelay)
     room.trackTimeout(timeoutId)
   }
@@ -624,7 +669,7 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       winnerName: winner?.name,
       reason: 'time_limit',
     })
-  }, 180000)
+  }, room.GAME_DURATION)
 
   room.trackTimeout(endGameTimeout)
 }
@@ -649,11 +694,11 @@ function createMatch(
   const room = manager.createRoom(roomId)
 
   // DEBUG: Log player dimensions
-  console.log(
-    `[Server] Match created | Room: ${roomId.slice(-8)}`,
-    `| ${name1}: ${sceneWidth1}x${sceneHeight1}`,
-    `| ${name2}: ${sceneWidth2}x${sceneHeight2}`
-  )
+  // console.log(
+  //   `[Server] Match created | Room: ${roomId.slice(-8)}`,
+  //   `| ${name1}: ${sceneWidth1}x${sceneHeight1}`,
+  //   `| ${name2}: ${sceneWidth2}x${sceneHeight2}`
+  // )
 
   // Add players with their individual dimensions
   room.addPlayer(playerId1, name1, sceneWidth1, sceneHeight1)
@@ -668,8 +713,22 @@ function createMatch(
   io.to(roomId).emit('match_found', {
     roomId,
     players: [
-      { id: playerId1, name: name1, dollars: 10, score: 0, sceneWidth: sceneWidth1, sceneHeight: sceneHeight1 },
-      { id: playerId2, name: name2, dollars: 10, score: 0, sceneWidth: sceneWidth2, sceneHeight: sceneHeight2 },
+      {
+        id: playerId1,
+        name: name1,
+        dollars: 10,
+        score: 0,
+        sceneWidth: sceneWidth1,
+        sceneHeight: sceneHeight1,
+      },
+      {
+        id: playerId2,
+        name: name2,
+        dollars: 10,
+        score: 0,
+        sceneWidth: sceneWidth2,
+        sceneHeight: sceneHeight2,
+      },
     ],
   })
 
@@ -723,20 +782,40 @@ function handleSlice(
     if (totalAfter !== totalBefore) {
       const cappedLoss = totalBefore - totalAfter
       if (cappedLoss > 0) {
-        console.warn(`[FUND CAP] GAS: Room ${room.id.slice(-6)}: ${cappedLoss} lost to zero-cap`)
+        // console.warn(`[FUND CAP] GAS: Room ${room.id.slice(-6)}: ${cappedLoss} lost to zero-cap`)
       }
     }
 
-    if (DEBUG_FUNDS) {
-      console.log(
-        `[GAS] ${player?.name || 'Unknown'} sliced gas: $1 penalty`,
-        `\n  BEFORE: ${playersBefore.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalBefore})`,
-        `\n  TRANSFER: $1 from ${player?.name || 'Unknown'} → ${opponent?.name || 'Unknown'}`,
-        `\n  AFTER:  ${playersAfter.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalAfter})`
-      )
-    }
+    // if (DEBUG_FUNDS) {
+    //   console.log(
+    //     `[GAS] ${player?.name || 'Unknown'} sliced gas: $1 penalty`,
+    //     `\n  BEFORE: ${playersBefore.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalBefore})`,
+    //     `\n  TRANSFER: $1 from ${player?.name || 'Unknown'} → ${opponent?.name || 'Unknown'}`,
+    //     `\n  AFTER:  ${playersAfter.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalAfter})`
+    //   )
+    // }
 
     io.to(room.id).emit('player_hit', { playerId, damage: 1, reason: 'gas' })
+    return
+  }
+
+  // === WHALE COIN: Activate 2X mode for slicing player ===
+  if (data.coinType === 'whale') {
+    room.activateWhale2X(playerId)
+
+    // Notify all players that 2X mode was activated
+    io.to(room.id).emit('whale_2x_activated', {
+      playerId,
+      playerName: room.players.get(playerId)?.name || 'Unknown',
+      durationMs: room.WHALE_2X_DURATION,
+    })
+
+    // Whale doesn't create an order - it's a power-up, not a trade
+    io.to(room.id).emit('coin_sliced', {
+      playerId,
+      playerName: room.players.get(playerId)?.name,
+      coinType: data.coinType,
+    })
     return
   }
 
@@ -780,11 +859,11 @@ function handleSlice(
   const timeoutId = setTimeout(() => {
     // Skip if room is shutdown or closing
     if (room.isShutdown) {
-      console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} is shutdown`)
+      // console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} is shutdown`)
       return
     }
     if (room.getIsClosing()) {
-      console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} is closing`)
+      // console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} is closing`)
       return
     }
     // Double-check: room exists AND order still pending (not already settled)
@@ -792,7 +871,7 @@ function handleSlice(
       settleOrder(io, room, order)
       checkGameOver(io, manager, room)
     } else if (!manager.hasRoom(room.id)) {
-      console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} no longer exists`)
+      // console.log(`[Settlement] Skipped order ${order.id} - room ${room.id} no longer exists`)
     }
   }, 10000) // 10 seconds
 
@@ -909,7 +988,7 @@ export function setupGameEvents(io: SocketIOServer): {
           }
           socket.emit('waiting_for_match')
         } catch (error) {
-          console.error('Error in find_match:', error)
+          // console.error('Error in find_match:', error)
           socket.emit('error', { message: 'Failed to find match' })
         }
       }
@@ -930,7 +1009,7 @@ export function setupGameEvents(io: SocketIOServer): {
 
         handleSlice(io, manager, room, socket.id, data)
       } catch (error) {
-        console.error('Error in slice_coin:', error)
+        // console.error('Error in slice_coin:', error)
         socket.emit('error', { message: 'Failed to slice coin' })
       }
     })
@@ -952,7 +1031,7 @@ export function setupGameEvents(io: SocketIOServer): {
           } else {
             // If there are pending orders, let them settle naturally
             // Room will be cleaned up by checkGameOver when a player dies
-            console.log(`[Disconnect] Room ${roomId} has pending orders, delaying deletion`)
+            // console.log(`[Disconnect] Room ${roomId} has pending orders, delaying deletion`)
           }
         }
       }

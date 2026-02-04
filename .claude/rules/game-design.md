@@ -14,28 +14,29 @@
 
 ## Coin Types
 
-| Type | Spawn Rate | Symbol | Win Condition | Transfer |
-|------|------------|--------|---------------|----------|
-| Call | 33% (2/6) | ▲ | BTC price goes UP | $1 |
-| Put | 33% (2/6) | ▼ | BTC price goes DOWN | $1 |
+| Type | Spawn Rate | Symbol | Effect | Transfer |
+|------|------------|--------|--------|----------|
+| Call | 33% (2/6) | ▲ | BTC price goes UP | $1 (×2 with whale) |
+| Put | 33% (2/6) | ▼ | BTC price goes DOWN | $1 (×2 with whale) |
 | Gas | 17% (1/6) | ⚡ | Immediate penalty | $1 (slicer to opponent) |
-| Whale | 17% (1/6) | ★ | 80% win rate | $2 |
+| Whale | 17% (1/6) | ★ | 2X power-up for 10s | No transfer |
 
 ## Mechanics
 
 ### Settlement
 
-Orders settle 10 seconds after slicing using the latest BTC price from Binance WebSocket feed. Gas coins settle immediately.
+Orders settle 10 seconds after slicing using the latest BTC price from Binance WebSocket feed. Gas and Whale coins settle immediately (Gas applies penalty, Whale activates 2X mode).
 
 ```typescript
 const priceChange = (finalPrice - order.priceAtOrder) / order.priceAtOrder
 
 const isCorrect = order.coinType === 'call' ? priceChange > 0
   : order.coinType === 'put' ? priceChange < 0
-  : order.coinType === 'whale' ? Math.random() < 0.8
   : false
 
-const transfer = order.coinType === 'whale' ? 2 : 1
+const baseImpact = 1
+const multiplier = room.get2XMultiplier(order.playerId) // 2 if whale active, 1 otherwise
+const impact = baseImpact * multiplier
 ```
 
 ### Zero-Sum Transfer
@@ -83,13 +84,32 @@ if (data.coinType === 'gas') {
 }
 ```
 
+**Whale (★):** Activates 2X mode for slicing player. Lasts 10 seconds. All call/put orders settled during this time have 2x transfer amount. Does not create a pending order (activates immediately).
+
+```typescript
+if (data.coinType === 'whale') {
+  room.activateWhale2X(playerId)
+
+  io.to(room.id).emit('whale_2x_activated', {
+    playerId,
+    playerName: room.players.get(playerId)?.name || 'Unknown',
+    durationMs: room.WHALE_2X_DURATION,
+  })
+
+  return // Whale doesn't create an order
+}
+```
+
 ## Game Flow
 
 1. Two players queue → RoomManager creates room → Both join Socket.IO room
 2. 5-second delay for Phaser initialization → Game loop begins
 3. Coins spawn every 800-1200ms with random types and X positions
-4. Player slices coin → Order created with 10s countdown (Gas settles immediately)
-5. After 10s, price checked → Winner/loser determined → Funds transferred
+4. Player slices coin:
+   - **Call/Put**: Order created with 10s countdown
+   - **Gas**: Immediate penalty ($1 from slicer to opponent)
+   - **Whale**: 2X mode activated for slicing player (10 seconds)
+5. After 10s, price checked → Winner/loser determined → Funds transferred (×2 if 2X active)
 6. Knockout ($0) or time limit → All pending orders settled → Room deleted
 
 ## Win Conditions

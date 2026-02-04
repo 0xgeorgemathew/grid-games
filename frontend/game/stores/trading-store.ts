@@ -163,16 +163,16 @@ function logFundTransfer(
   if (totalAfter !== totalBefore) {
     const cappedLoss = totalBefore - totalAfter
     if (cappedLoss > 0) {
-      console.warn(`[CLIENT FUND CAP] ${description}: ${cappedLoss} lost to zero-cap`)
+      // console.warn(`[CLIENT FUND CAP] ${description}: ${cappedLoss} lost to zero-cap`)
     }
   }
 
-  console.log(
-    `[CLIENT ${description}]${details ? ` ${details}` : ''}`,
-    `\n  BEFORE: ${playersBeforeStr} (total: ${totalBefore})`,
-    `\n  TRANSFER: $${amount} from ${loser?.name || 'Unknown'} → ${winner?.name || 'Unknown'}`,
-    `\n  AFTER:  ${playersAfterStr} (total: ${totalAfter})`
-  )
+  // console.log(
+  //   `[CLIENT ${description}]${details ? ` ${details}` : ''}`,
+  //   `\n  BEFORE: ${playersBeforeStr} (total: ${totalBefore})`,
+  //   `\n  TRANSFER: $${amount} from ${loser?.name || 'Unknown'} → ${winner?.name || 'Unknown'}`,
+  //   `\n  AFTER:  ${playersAfterStr} (total: ${totalAfter})`
+  // )
 }
 
 export const useTradingStore = create<TradingState>((set, get) => ({
@@ -239,14 +239,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     socket.on('match_found', (data: MatchFoundEvent) => {
       const isPlayer1 = data.players[0]?.id === socket.id || false
-      if (DEBUG_FUNDS) {
-        const totalDollars = data.players.reduce((sum, p) => sum + p.dollars, 0)
-        console.log(
-          `[CLIENT MatchFound] Room ${data.roomId.slice(-6)}:`,
-          `You are ${isPlayer1 ? 'Player 1' : 'Player 2'}`,
-          `\n  Players: ${data.players.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalDollars})`
-        )
-      }
+      // if (DEBUG_FUNDS) {
+      //   const totalDollars = data.players.reduce((sum, p) => sum + p.dollars, 0)
+      //   console.log(
+      //     `[CLIENT MatchFound] Room ${data.roomId.slice(-6)}:`,
+      //     `You are ${isPlayer1 ? 'Player 1' : 'Player 2'}`,
+      //     `\n  Players: ${data.players.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalDollars})`
+      //   )
+      // }
       set({
         isMatching: false,
         isPlaying: true,
@@ -285,6 +285,19 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       get().resetGame()
     })
 
+    socket.on('whale_2x_activated', (data: { playerId: string; playerName: string; durationMs: number }) => {
+      const { localPlayerId } = get()
+      const isLocalPlayer = data.playerId === localPlayerId
+
+      // Forward to Phaser for visual feedback
+      if (window.phaserEvents) {
+        window.phaserEvents.emit('whale_2x_activated', {
+          ...data,
+          isLocalPlayer,
+        })
+      }
+    })
+
     set({ socket, socketCleanupFunctions: newCleanupFunctions })
   },
 
@@ -312,10 +325,10 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     const sceneWidth = window.innerWidth
     const sceneHeight = window.innerHeight
 
-    console.log(
-      '[Matchmaking] Using window dimensions:',
-      { width: sceneWidth, height: sceneHeight }
-    )
+    // console.log('[Matchmaking] Using window dimensions:', {
+    //   width: sceneWidth,
+    //   height: sceneHeight,
+    // })
 
     socket?.emit('find_match', {
       playerName,
@@ -468,7 +481,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     for (const [orderId, order] of newActiveOrders) {
       // If order is 15+ seconds past settlement time, consider it orphaned
       if (now - order.settlesAt > 15000) {
-        console.warn(`[Store] Cleaning up orphaned order ${orderId}`)
+        // console.warn(`[Store] Cleaning up orphaned order ${orderId}`)
         newActiveOrders.delete(orderId)
         cleaned++
       }

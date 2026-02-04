@@ -27,8 +27,12 @@ export function CountUp({ value, className, style }: CountUpProps) {
   })
 
   // Update the motion value when the price changes
+  // Only set if value actually changed - prevents expensive spring recalculations
   useEffect(() => {
-    motionValue.set(value)
+    const currentValue = motionValue.get()
+    if (currentValue !== value) {
+      motionValue.set(value)
+    }
   }, [value, motionValue])
 
   // Update the DOM with formatted numbers as the spring animates
