@@ -176,6 +176,17 @@ interface PendingOrder {
   isPlayer1: boolean // Stored at order creation to avoid lookup issues at settlement
 }
 
+// Round summary for game over display
+interface RoundSummary {
+  roundNumber: number
+  winnerId: string | null
+  isTie: boolean
+  player1Dollars: number
+  player2Dollars: number
+  player1Gained: number
+  player2Gained: number
+}
+
 // =============================================================================
 // GameRoom Class - Encapsulates room state and lifecycle
 // =============================================================================
@@ -194,7 +205,19 @@ class GameRoom {
 
   // Fruit Ninja-style spawn mechanics
   readonly gameStartTime: number
-  readonly GAME_DURATION = 180000 // 3 minutes
+  readonly GAME_DURATION = 180000 // 3 minutes (legacy, not used in round-based play)
+
+  // Round-based game state
+  currentRound: number = 1
+  player1Wins: number = 0
+  player2Wins: number = 0
+  player1CashAtRoundStart: number = 10
+  player2CashAtRoundStart: number = 10
+  isSuddenDeath: boolean = false
+  readonly ROUND_DURATION = 100000 // 100 seconds
+
+  // Round history for game over summary
+  roundHistory: RoundSummary[] = []
 
   // Per-player 2X mode tracking (whale power-up)
   private whale2XActive = new Map<string, number>() // playerId -> expiration timestamp
@@ -295,6 +318,54 @@ class GameRoom {
   // Check if any player is dead
   hasDeadPlayer(): boolean {
     return Array.from(this.players.values()).some((p) => p.dollars <= 0)
+  }
+
+  // =============================================================================
+  // Round Management Methods
+  // =============================================================================
+
+  // Track cash at round start for determining round winner by dollars gained
+  startNewRound(): void {
+    const playerIds = this.getPlayerIds()
+    this.player1CashAtRoundStart = this.players.get(playerIds[0])?.dollars || 10
+    this.player2CashAtRoundStart = this.players.get(playerIds[1])?.dollars || 10
+  }
+
+  // Determine round winner by cash gained (not absolute dollars)
+  getRoundWinner(): { winnerId: string | null; isTie: boolean } {
+    const playerIds = this.getPlayerIds()
+    const p1 = this.players.get(playerIds[0])
+    const p2 = this.players.get(playerIds[1])
+
+    if (!p1 || !p2) return { winnerId: null, isTie: false }
+
+    const p1Gained = p1.dollars - this.player1CashAtRoundStart
+    const p2Gained = p2.dollars - this.player2CashAtRoundStart
+
+    if (p1Gained > p2Gained) return { winnerId: playerIds[0], isTie: false }
+    if (p2Gained > p1Gained) return { winnerId: playerIds[1], isTie: false }
+    return { winnerId: null, isTie: true }
+  }
+
+  // Check if game should end (2 wins or sudden-death winner)
+  checkGameEndCondition(): boolean {
+    if (this.isSuddenDeath) {
+      // Game ends if there's a winner (not a tie)
+      return this.player1Wins !== this.player2Wins
+    }
+    // Best-of-three: 2 wins ends game
+    return this.player1Wins === 2 || this.player2Wins === 2
+  }
+
+  // Determine overall game winner
+  getGameWinner(): Player | undefined {
+    if (this.player1Wins > this.player2Wins) {
+      return this.players.get(this.getPlayerIds()[0])
+    }
+    if (this.player2Wins > this.player1Wins) {
+      return this.players.get(this.getPlayerIds()[1])
+    }
+    return undefined
   }
 
   // Closing state management
@@ -428,6 +499,7 @@ class RoomManager {
         winnerName: winner?.name,
         roomId,
         reason: 'server_shutdown',
+        rounds: room.roundHistory,
       })
 
       // Cleanup room timers
@@ -536,6 +608,14 @@ function spawnCoin(room: GameRoom): Coin {
 // =============================================================================
 
 function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
+  // Initialize round state and emit round_start event
+  room.startNewRound()
+  io.to(room.id).emit('round_start', {
+    roundNumber: room.currentRound,
+    isSuddenDeath: room.isSuddenDeath,
+    durationMs: room.ROUND_DURATION,
+  })
+
   const emitCoinSpawn = (coin: Coin) => {
     for (const [playerId, player] of room.players) {
       const spawnX = Math.random() * player.sceneWidth
@@ -573,17 +653,12 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
   // Start first spawn immediately
   scheduleNextSpawn()
 
-  // End game after 3 minutes
-  const endGameTimeout = setTimeout(() => {
-    const winner = room.getWinner()
-    io.to(room.id).emit('game_over', {
-      winnerId: winner?.id,
-      winnerName: winner?.name,
-      reason: 'time_limit',
-    })
-  }, room.GAME_DURATION)
+  // End ROUND after ROUND_DURATION (not full game)
+  const roundTimeout = setTimeout(() => {
+    endRound(io, manager, room)
+  }, room.ROUND_DURATION)
 
-  room.trackTimeout(endGameTimeout)
+  room.trackTimeout(roundTimeout)
 }
 
 // =============================================================================
@@ -730,25 +805,124 @@ function handleSlice(
 }
 
 function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
+  // Knockout ends the game immediately (instant game over, not just round end)
   if (room.hasDeadPlayer()) {
-    // Prevent new operations
     room.setClosing()
 
-    const winner = room.getWinner()
-
-    // CRITICAL: Settle all pending orders before deleting room
+    // CRITICAL: Settle all pending orders first
     for (const [orderId, order] of room.pendingOrders) {
       settleOrder(io, room, order)
     }
 
+    // Determine round winner and increment win count
+    const { winnerId } = room.getRoundWinner()
+    const playerIds = room.getPlayerIds()
+    if (winnerId === playerIds[0]) room.player1Wins++
+    else if (winnerId === playerIds[1]) room.player2Wins++
+
+    // Emit round_end so clients see the updated win count
+    const p1 = room.players.get(playerIds[0])
+    const p2 = room.players.get(playerIds[1])
+    io.to(room.id).emit('round_end', {
+      roundNumber: room.currentRound,
+      winnerId,
+      isTie: false,
+      player1Wins: room.player1Wins,
+      player2Wins: room.player2Wins,
+      player1Dollars: p1?.dollars,
+      player2Dollars: p2?.dollars,
+      player1Gained: (p1?.dollars || 10) - room.player1CashAtRoundStart,
+      player2Gained: (p2?.dollars || 10) - room.player2CashAtRoundStart,
+    })
+
+    // Emit game_over with knockout reason
+    const winner = room.players.get(winnerId || '')
     io.to(room.id).emit('game_over', {
       winnerId: winner?.id,
       winnerName: winner?.name,
-      roomId: room.id,
+      reason: 'knockout' as const,
+      player1Wins: room.player1Wins,
+      player2Wins: room.player2Wins,
+      rounds: room.roundHistory,
     })
 
-    // Delete room immediately (all orders settled above)
-    manager.deleteRoom(room.id)
+    setTimeout(() => manager.deleteRoom(room.id), 1000)
+  }
+}
+
+// =============================================================================
+// Round Management - End round and transition or end game
+// =============================================================================
+
+function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
+  // CRITICAL: Settle all pending orders before round ends
+  for (const [orderId, order] of room.pendingOrders) {
+    settleOrder(io, room, order)
+  }
+
+  const { winnerId, isTie } = room.getRoundWinner()
+  const playerIds = room.getPlayerIds()
+  const p1 = room.players.get(playerIds[0])
+  const p2 = room.players.get(playerIds[1])
+
+  const p1Gained = (p1?.dollars || 10) - room.player1CashAtRoundStart
+  const p2Gained = (p2?.dollars || 10) - room.player2CashAtRoundStart
+
+  // Track round wins (except during sudden death ties)
+  if (!room.isSuddenDeath || !isTie) {
+    if (winnerId === playerIds[0]) room.player1Wins++
+    else if (winnerId === playerIds[1]) room.player2Wins++
+  }
+
+  // Emit round_end event
+  io.to(room.id).emit('round_end', {
+    roundNumber: room.currentRound,
+    winnerId,
+    isTie,
+    player1Wins: room.player1Wins,
+    player2Wins: room.player2Wins,
+    player1Dollars: p1?.dollars,
+    player2Dollars: p2?.dollars,
+    player1Gained: p1Gained,
+    player2Gained: p2Gained,
+  })
+
+  // Record round summary for game over display
+  room.roundHistory.push({
+    roundNumber: room.currentRound,
+    winnerId,
+    isTie,
+    player1Dollars: p1?.dollars || 10,
+    player2Dollars: p2?.dollars || 10,
+    player1Gained: p1Gained,
+    player2Gained: p2Gained,
+  })
+
+  // Check if game should end
+  if (room.checkGameEndCondition()) {
+    // Game over - emit final results
+    const winner = room.getGameWinner()
+    io.to(room.id).emit('game_over', {
+      winnerId: winner?.id,
+      winnerName: winner?.name,
+      reason: 'best_of_three_complete' as const,
+      player1Wins: room.player1Wins,
+      player2Wins: room.player2Wins,
+      rounds: room.roundHistory,
+    })
+    setTimeout(() => manager.deleteRoom(room.id), 1000)
+  } else {
+    // Start next round after brief delay
+    room.currentRound++
+    // Enable sudden death if tied 1-1 entering round 3
+    if (room.currentRound === 3 && room.player1Wins === 1 && room.player2Wins === 1) {
+      room.isSuddenDeath = true
+    }
+    room.startNewRound()
+
+    setTimeout(() => {
+      startGameLoop(io, manager, room)
+    }, 3000) // 3 second intermission
   }
 }
 

@@ -569,6 +569,67 @@
   background: rgba(0, 243, 255, 0.5);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Position Bar - Glassmorphic tron-style bottom bar for active positions
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Position Bar Container - Glassmorphic tron-style */
+.position-bar-container {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 243, 255, 0.15) 0%,
+    rgba(255, 0, 255, 0.08) 50%,
+    rgba(15, 15, 15, 0.96) 100%
+  );
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(0, 243, 255, 0.5);
+  box-shadow:
+    0 -4px 24px rgba(0, 243, 255, 0.3),
+    inset 0 1px 0 rgba(0, 243, 255, 0.2),
+    0 8px 40px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Call circle border (green/cyan glow) */
+.position-circle-call {
+  border-color: rgba(0, 255, 136, 0.7);
+  box-shadow:
+    0 0 20px rgba(0, 255, 136, 0.4),
+    0 0 40px rgba(0, 255, 136, 0.2),
+    inset 0 0 15px rgba(0, 255, 136, 0.15);
+}
+
+/* Put circle border (red/orange glow) */
+.position-circle-put {
+  border-color: rgba(255, 51, 102, 0.7);
+  box-shadow:
+    0 0 20px rgba(255, 51, 102, 0.4),
+    0 0 40px rgba(255, 51, 102, 0.2),
+    inset 0 0 15px rgba(255, 51, 102, 0.15);
+}
+
+/* Urgent pulse animation */
+.position-circle-urgent {
+  animation: position-urgent-pulse 1s ease-in-out infinite;
+}
+
+@keyframes position-urgent-pulse {
+  0%,
+  100% {
+    border-color: rgba(255, 51, 102, 0.7);
+    box-shadow:
+      0 0 20px rgba(255, 51, 102, 0.4),
+      0 0 40px rgba(255, 51, 102, 0.2);
+  }
+  50% {
+    border-color: rgba(255, 51, 102, 1);
+    box-shadow:
+      0 0 35px rgba(255, 51, 102, 0.6),
+      0 0 70px rgba(255, 51, 102, 0.4),
+      inset 0 0 20px rgba(255, 51, 102, 0.3);
+  }
+}
+
 /* ShadCN animation utilities */
 @keyframes accordion-down {
   from {

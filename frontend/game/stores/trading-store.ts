@@ -8,9 +8,12 @@ import type {
   SettlementEvent,
   MatchFoundEvent,
   GameOverEvent,
+  RoundStartEvent,
+  RoundEndEvent,
   CoinType,
   PriceData,
 } from '../types/trading'
+import type { Toast } from '@/components/ToastNotifications'
 
 // Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
 const DEBUG_FUNDS = typeof process !== 'undefined' && process.env?.DEBUG_FUNDS === 'true'
@@ -23,6 +26,7 @@ export type CryptoSymbol = 'btcusdt' // BTC only - like test-stream.ts
 export interface PhaserEventBridge {
   emit(event: string, ...args: unknown[]): void
   on(event: string, listener: (...args: unknown[]) => void): void
+  off(event: string, listener: (...args: unknown[]) => void): void
   destroy?(): void
 }
 
@@ -50,6 +54,8 @@ interface TradingState {
   isConnected: boolean
   isMatching: boolean
   isPlaying: boolean
+  isGameOver: boolean
+  gameOverData: GameOverEvent | null
   isSceneReady: boolean // Phaser scene is ready to receive events
   socketCleanupFunctions: Array<() => void>
 
@@ -59,11 +65,20 @@ interface TradingState {
   isPlayer1: boolean
   players: Player[]
 
+  // Round state
+  currentRound: number
+  player1Wins: number
+  player2Wins: number
+  isSuddenDeath: boolean // Final round mode (tied 1-1 entering round 3)
+  roundTimeRemaining: number
+  roundTimerInterval: number | null
+
   // Game state
   tugOfWar: number
   activeOrders: Map<string, OrderPlacedEvent> // Active orders (10s countdown)
   pendingOrders: Map<string, SettlementEvent> // Settlement history
   latestSettlement: SettlementEvent | null // Latest settlement for flash notification
+  toasts: Toast[] // Toast notifications
 
   // Price feed
   priceSocket: WebSocket | null
@@ -87,6 +102,8 @@ interface TradingState {
   handleSlice: (slice: SliceEvent) => void
   handleOrderPlaced: (order: OrderPlacedEvent) => void
   handleSettlement: (settlement: SettlementEvent) => void
+  handleRoundStart: (data: RoundStartEvent) => void
+  handleRoundEnd: (data: RoundEndEvent) => void
   handleGameOver: (data: GameOverEvent) => void
   handlePlayerHit: (data: { playerId: string; damage: number; reason: string }) => void
   removeActiveOrder: (orderId: string) => void
@@ -96,6 +113,10 @@ interface TradingState {
   manualReconnect: () => void
   resetGame: () => void
   clearLatestSettlement: () => void
+  addToast: (toast: Omit<Toast, 'id'>) => void
+  removeToast: (id: string) => void
+  clearToasts: () => void
+  playAgain: () => void
 }
 
 function getDamageForCoinType(coinType: CoinType): number {
@@ -180,16 +201,28 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   isConnected: false,
   isMatching: false,
   isPlaying: false,
+  isGameOver: false,
+  gameOverData: null,
   isSceneReady: false,
   socketCleanupFunctions: [],
   roomId: null,
   localPlayerId: null,
   isPlayer1: false,
   players: [],
+
+  // Round state
+  currentRound: 1,
+  player1Wins: 0,
+  player2Wins: 0,
+  isSuddenDeath: false,
+  roundTimeRemaining: 100000,
+  roundTimerInterval: null,
+
   tugOfWar: 0,
   activeOrders: new Map(),
   pendingOrders: new Map(),
   latestSettlement: null,
+  toasts: [],
 
   // Price feed state
   priceSocket: null,
@@ -264,6 +297,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       get().handleSettlement(settlement)
     })
 
+    socket.on('round_start', (data: RoundStartEvent) => {
+      get().handleRoundStart(data)
+    })
+
+    socket.on('round_end', (data: RoundEndEvent) => {
+      get().handleRoundEnd(data)
+    })
+
     socket.on('game_over', (data: GameOverEvent) => {
       get().handleGameOver(data)
     })
@@ -273,7 +314,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     })
 
     socket.on('opponent_disconnected', () => {
-      alert('Opponent disconnected. Returning to lobby...')
+      get().addToast({ message: 'Opponent disconnected.', type: 'warning', duration: 5000 })
       get().resetGame()
     })
 
@@ -431,11 +472,95 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     })
   },
 
+  handleRoundStart: (data) => {
+    const { roundTimerInterval } = get()
+
+    // Clear previous round timer
+    if (roundTimerInterval) {
+      clearInterval(roundTimerInterval)
+    }
+
+    set({
+      currentRound: data.roundNumber,
+      isSuddenDeath: data.isSuddenDeath,
+      roundTimeRemaining: data.durationMs,
+    })
+
+    // Start countdown timer (updates every 100ms)
+    const interval = setInterval(() => {
+      const { roundTimeRemaining: remaining } = get()
+      const newRemaining = Math.max(0, remaining - 100)
+      if (newRemaining === 0) {
+        clearInterval(get().roundTimerInterval as unknown as number)
+        set({ roundTimerInterval: null })
+      }
+      set({ roundTimeRemaining: newRemaining })
+    }, 100) as unknown as number
+
+    set({ roundTimerInterval: interval })
+  },
+
+  handleRoundEnd: (data) => {
+    const { roundTimerInterval } = get()
+
+    // Clear round timer
+    if (roundTimerInterval) {
+      clearInterval(roundTimerInterval)
+      set({ roundTimerInterval: null })
+    }
+
+    set({
+      player1Wins: data.player1Wins,
+      player2Wins: data.player2Wins,
+      // CRITICAL: Clear order maps to prevent stale state
+      activeOrders: new Map(),
+      pendingOrders: new Map(),
+    })
+
+    // Show round end notification
+    const { localPlayerId, players } = get()
+    const localPlayer = players.find((p) => p.id === localPlayerId)
+    const opponent = players.find((p) => p.id !== localPlayerId)
+    const playerIds = players.map((p) => p.id)
+
+    // Determine if local player won the round
+    let roundResult = ''
+    if (data.isTie) {
+      roundResult = `Round ${data.roundNumber} TIED!`
+    } else {
+      const winnerId = data.winnerId
+      const winnerName = winnerId === localPlayerId ? 'You' : opponent?.name || 'Opponent'
+      roundResult = `Round ${data.roundNumber}: ${winnerName} WIN!`
+    }
+
+    const winsDisplay = `Score: ${data.player1Wins}-${data.player2Wins}`
+    get().addToast({
+      message: `${roundResult} ${winsDisplay}`,
+      type: data.isTie ? 'info' : 'success',
+      duration: 4000,
+    })
+
+    // Update player dollars from server
+    const newPlayers = players.map((p) => {
+      if (p.id === playerIds[0]) return { ...p, dollars: data.player1Dollars }
+      if (p.id === playerIds[1]) return { ...p, dollars: data.player2Dollars }
+      return p
+    })
+
+    set({ players: newPlayers })
+  },
+
   handleGameOver: (data) => {
     const { localPlayerId } = get()
     const isWinner = data.winnerId === localPlayerId
-    alert(isWinner ? '🎉 You WIN!' : `😢 ${data.winnerName} wins! Better luck next time.`)
-    get().resetGame()
+    get().addToast({
+      message: isWinner ? '🎉 You WIN!' : `😢 ${data.winnerName} wins!`,
+      type: isWinner ? 'success' : 'error',
+      duration: 0, // No auto-dismiss - stays until user clicks Play Again
+    })
+
+    // Set game over state but DON'T reset yet - wait for user to click Play Again
+    set({ isGameOver: true, gameOverData: data })
   },
 
   removeActiveOrder: (orderId) => {
@@ -451,7 +576,8 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     const newActiveOrders = new Map(activeOrders)
     for (const [orderId, order] of newActiveOrders) {
-      if (now - order.settlesAt > 15000) {
+      if (now - order.settlesAt > 3000) {
+        // Reduced from 15000 to 3000
         newActiveOrders.delete(orderId)
       }
     }
@@ -579,6 +705,10 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   resetGame: () => {
+    const { roundTimerInterval } = get()
+    if (roundTimerInterval) {
+      clearInterval(roundTimerInterval)
+    }
     set({
       roomId: null,
       players: [],
@@ -588,6 +718,13 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       isPlaying: false,
       isMatching: false,
       latestSettlement: null,
+      // Round state reset
+      currentRound: 1,
+      player1Wins: 0,
+      player2Wins: 0,
+      isSuddenDeath: false,
+      roundTimeRemaining: 100000,
+      roundTimerInterval: null,
     })
   },
 
@@ -599,5 +736,32 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     const { selectedCrypto } = get()
     set({ reconnectAttempts: 0, priceError: null })
     get().connectPriceFeed(selectedCrypto)
+  },
+
+  addToast: (toast) => {
+    const id = Math.random().toString(36).substring(7)
+    const newToast = { ...toast, id }
+    set({ toasts: [...get().toasts, newToast] })
+
+    // Auto-remove after duration (default 3s)
+    const duration = toast.duration ?? 3000
+    setTimeout(() => {
+      get().removeToast(id)
+    }, duration)
+  },
+
+  removeToast: (id) => {
+    const { toasts } = get()
+    set({ toasts: toasts.filter((t) => t.id !== id) })
+  },
+
+  clearToasts: () => set({ toasts: [] }),
+
+  playAgain: () => {
+    const { toasts } = get()
+    // Clear the game-over toast specifically (or all toasts)
+    set({ toasts: [] })
+    get().resetGame()
+    set({ isGameOver: false, gameOverData: null })
   },
 }))

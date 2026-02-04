@@ -201,7 +201,8 @@ export const COIN_CONFIG = {
 
 export class TradingScene extends Scene {
   // Game objects
-  private tokenPool!: Physics.Arcade.Group
+  // Note: Use GameObjects.Group since Token manages its own physics in spawn()
+  private tokenPool!: GameObjects.Group
   private opponentSlices: GameObjects.Text[] = []
   private damageIndicators: GameObjects.Text[] = []
   private sliceArrows: GameObjects.Text[] = []
@@ -269,8 +270,8 @@ export class TradingScene extends Scene {
 
     this.generateCachedTextures()
 
-    // Token pool
-    this.tokenPool = this.physics.add.group({
+    // Token pool (use regular group since Token manages its own physics in spawn())
+    this.tokenPool = this.add.group({
       classType: Token,
       runChildUpdate: true,
       maxSize: 50,

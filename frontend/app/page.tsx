@@ -5,11 +5,14 @@ import { MatchmakingScreen } from '@/components/MatchmakingScreen'
 import { GameHUD } from '@/components/GameHUD'
 import { PositionIndicator } from '@/components/PositionIndicator'
 import { GameCanvasBackground } from '@/components/GameCanvasBackground'
+import { ToastNotifications } from '@/components/ToastNotifications'
+import { GameOverModal } from '@/components/GameOverModal'
 import GameCanvas from '@/components/GameCanvas'
 import { useEffect } from 'react'
 
 export default function Home() {
-  const { isPlaying, connect, resetGame, disconnectPriceFeed } = useTradingStore()
+  const { isPlaying, connect, resetGame, disconnectPriceFeed, toasts, removeToast } =
+    useTradingStore()
 
   useEffect(() => {
     // Connect to socket on mount
@@ -22,23 +25,31 @@ export default function Home() {
     }
   }, [connect, resetGame, disconnectPriceFeed])
 
-  if (!isPlaying) {
-    return <MatchmakingScreen />
-  }
-
   return (
     <div className="h-dvh w-screen bg-tron-black relative overflow-hidden">
-      {/* Background */}
-      <GameCanvasBackground />
+      {/* ToastNotifications - ALWAYS visible, regardless of game state */}
+      <ToastNotifications toasts={toasts} onRemove={removeToast} />
 
-      {/* Top UI Layer */}
-      <GameHUD />
+      {/* Game Over Modal - shows when game ends */}
+      <GameOverModal />
 
-      {/* Game Canvas - Phaser Scene */}
-      <GameCanvas scene="TradingScene" />
+      {!isPlaying ? (
+        <MatchmakingScreen />
+      ) : (
+        <>
+          {/* Background */}
+          <GameCanvasBackground />
 
-      {/* Bottom UI Layer */}
-      <PositionIndicator />
+          {/* Top UI Layer */}
+          <GameHUD />
+
+          {/* Game Canvas - Phaser Scene */}
+          <GameCanvas scene="TradingScene" />
+
+          {/* Bottom UI Layer */}
+          <PositionIndicator />
+        </>
+      )}
     </div>
   )
 }

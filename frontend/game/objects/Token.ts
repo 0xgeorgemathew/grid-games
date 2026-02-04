@@ -131,10 +131,10 @@ export class Token extends GameObjects.Container {
     const sceneHeight = this.scene.cameras?.main?.height ?? 800
     const isBottomToss = y > sceneHeight // Spawned from bottom edge
 
-    // Debug logging - track spawn position relative to camera
-    console.log(
-      `[Token] Spawning at (${x.toFixed(0)}, ${y.toFixed(0)}) | sceneHeight: ${sceneHeight} | isBottomToss: ${isBottomToss} | type: ${type}`
-    )
+    // Debug logging disabled
+    // console.log(
+    //   `[Token] Spawning at (${x.toFixed(0)}, ${y.toFixed(0)}) | sceneHeight: ${sceneHeight} | isBottomToss: ${isBottomToss} | type: ${type}`
+    // )
 
     if (isBottomToss) {
       // Bottom-toss physics: upward velocity with horizontal drift

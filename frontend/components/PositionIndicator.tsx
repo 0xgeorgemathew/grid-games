@@ -25,10 +25,10 @@ export function PositionIndicator() {
   const localOrders = Array.from(activeOrders.values())
     .filter((order) => order.playerId === localPlayerId)
     .sort((a, b) => a.settlesAt - b.settlesAt)
-    .slice(0, 3) // Max 3 visible
+    .slice(0, 5) // Increased to 5 visible (was 3)
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-10 p-3 pointer-events-none">
+    <div className="absolute bottom-0 left-0 right-0 z-10 p-2 pointer-events-none">
       <div className="max-w-2xl mx-auto">
         <AnimatePresence>
           {localOrders.map((order, index) => {
@@ -48,22 +48,22 @@ export function PositionIndicator() {
 
             // Border and glow styles based on state
             const borderStyle = isTimedOut
-              ? 'border-2 border-yellow-500/60 shadow-[0_0_20px_rgba(234,179,8,0.3)]'
+              ? 'border-2 border-yellow-500/60 shadow-[0_0_15px_rgba(234,179,8,0.25)]'
               : settled
                 ? isWin
-                  ? 'border-2 border-green-500/60 shadow-[0_0_25px_rgba(74,222,128,0.4)]'
-                  : 'border-2 border-red-500/60 shadow-[0_0_25px_rgba(248,113,113,0.4)]'
+                  ? 'border-2 border-green-500/60 shadow-[0_0_18px_rgba(74,222,128,0.35)]'
+                  : 'border-2 border-red-500/60 shadow-[0_0_18px_rgba(248,113,113,0.35)]'
                 : 'border border-tron-cyan/30'
 
             return (
               <motion.div
                 key={order.orderId}
-                initial={{ y: 100, opacity: 0 }}
+                initial={{ y: 80, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 50, opacity: 0, scale: 0.9 }}
-                transition={{ delay: index * 0.1 }}
+                exit={{ y: 40, opacity: 0, scale: 0.9 }}
+                transition={{ delay: index * 0.08 }}
                 className={cn(
-                  'glass-panel-vibrant rounded-xl p-3 mb-2 relative overflow-hidden',
+                  'glass-panel-vibrant rounded-xl p-2 mb-1.5 relative overflow-hidden',
                   borderStyle
                 )}
               >
@@ -72,7 +72,7 @@ export function PositionIndicator() {
                   <motion.div
                     className="absolute inset-0 pointer-events-none"
                     animate={{
-                      opacity: [0.1, 0.2, 0.1],
+                      opacity: [0.08, 0.16, 0.08],
                     }}
                     transition={{
                       duration: 1,
@@ -80,31 +80,31 @@ export function PositionIndicator() {
                     }}
                     style={{
                       background: isWin
-                        ? 'radial-gradient(circle at center, rgba(74,222,128,0.2) 0%, transparent 70%)'
-                        : 'radial-gradient(circle at center, rgba(248,113,113,0.2) 0%, transparent 70%)',
+                        ? 'radial-gradient(circle at center, rgba(74,222,128,0.15) 0%, transparent 70%)'
+                        : 'radial-gradient(circle at center, rgba(248,113,113,0.15) 0%, transparent 70%)',
                     }}
                   />
                 )}
 
-                <div className="relative flex items-center justify-between gap-3">
+                <div className="relative flex items-center justify-between gap-2">
                   {/* Left: Entry Point & Direction */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     {/* Direction indicator - more prominent */}
                     <motion.div
                       className={cn(
-                        'w-10 h-10 rounded-lg flex items-center justify-center relative',
+                        'w-8 h-8 rounded-lg flex items-center justify-center relative',
                         isCall ? 'bg-green-500/20' : 'bg-red-500/20',
                         settled && (isWin ? 'bg-green-500/30' : 'bg-red-500/30')
                       )}
-                      animate={!settled && !isTimedOut ? { y: [0, -4, 0, 4, 0] } : {}}
+                      animate={!settled && !isTimedOut ? { y: [0, -3, 0, 3, 0] } : {}}
                       transition={
                         !settled && !isTimedOut ? { duration: 1.5, repeat: Infinity } : {}
                       }
                     >
                       {isCall ? (
-                        <span className="text-green-400 text-xl">▲</span>
+                        <span className="text-green-400 text-lg">▲</span>
                       ) : (
-                        <span className="text-red-400 text-xl">▼</span>
+                        <span className="text-red-400 text-lg">▼</span>
                       )}
 
                       {/* Pulse ring for pending orders */}
@@ -115,7 +115,7 @@ export function PositionIndicator() {
                             isCall ? 'border border-green-400' : 'border border-red-400'
                           )}
                           animate={{
-                            scale: [1, 1.3, 1],
+                            scale: [1, 1.25, 1],
                             opacity: [0.5, 0, 0.5],
                           }}
                           transition={{
@@ -128,10 +128,10 @@ export function PositionIndicator() {
 
                     {/* Entry price */}
                     <div className="flex flex-col">
-                      <span className="text-[10px] text-tron-white-dim uppercase tracking-wider">
+                      <span className="text-[9px] text-tron-white-dim uppercase tracking-wider">
                         Entry
                       </span>
-                      <span className="text-base font-mono font-bold text-tron-cyan drop-shadow-[0_0_8px_rgba(0,243,255,0.5)]">
+                      <span className="text-sm font-mono font-bold text-tron-cyan drop-shadow-[0_0_6px_rgba(0,243,255,0.5)]">
                         ${formatPrice(order.priceAtOrder)}
                       </span>
                     </div>
@@ -143,17 +143,17 @@ export function PositionIndicator() {
                       // Countdown with progress bar
                       <div className="w-full flex flex-col items-center gap-1">
                         <div className="flex items-center justify-between w-full">
-                          <span className="text-[10px] text-tron-white-dim">Expires</span>
+                          <span className="text-[9px] text-tron-white-dim">Expires</span>
                           <motion.span
                             className={cn(
-                              'text-lg font-mono font-bold',
+                              'text-base font-mono font-bold',
                               timeLeft < 3000 ? 'text-yellow-400' : 'text-tron-cyan'
                             )}
                             animate={
                               timeLeft < 3000
                                 ? {
-                                    scale: [1, 1.1, 1],
-                                    opacity: [1, 0.7, 1],
+                                    scale: [1, 1.08, 1],
+                                    opacity: [1, 0.75, 1],
                                   }
                                 : {}
                             }
@@ -162,7 +162,7 @@ export function PositionIndicator() {
                             {(timeLeft / 1000).toFixed(1)}s
                           </motion.span>
                         </div>
-                        <div className="h-2 bg-black/50 rounded-full overflow-hidden w-full">
+                        <div className="h-1.5 bg-black/50 rounded-full overflow-hidden w-full">
                           <motion.div
                             className={cn(
                               'h-full',
@@ -179,8 +179,8 @@ export function PositionIndicator() {
                     ) : isTimedOut ? (
                       // Timed out state
                       <div className="flex flex-col items-center">
-                        <span className="text-xs text-yellow-400 font-bold">Timed Out</span>
-                        <span className="text-lg text-yellow-400">?</span>
+                        <span className="text-[10px] text-yellow-400 font-bold">Timed Out</span>
+                        <span className="text-base text-yellow-400">?</span>
                       </div>
                     ) : (
                       // SETTLED STATE - Prominent result display
@@ -189,7 +189,7 @@ export function PositionIndicator() {
                         animate={{ scale: 1, opacity: 1 }}
                         transition={{ type: 'spring', stiffness: 400, damping: 15 }}
                         className={cn(
-                          'flex items-center gap-2 px-3 py-1.5 rounded-lg',
+                          'flex items-center gap-1.5 px-2 py-1 rounded-lg',
                           isWin
                             ? 'bg-green-500/20 border border-green-500/40'
                             : 'bg-red-500/20 border border-red-500/40'
@@ -200,12 +200,12 @@ export function PositionIndicator() {
                           animate={
                             isWin
                               ? {
-                                  scale: [1, 1.2, 1],
-                                  rotate: [0, 10, -10, 0],
+                                  scale: [1, 1.15, 1],
+                                  rotate: [0, 8, -8, 0],
                                 }
                               : {
-                                  scale: [1, 1.1, 1],
-                                  x: [0, -3, 3, 0],
+                                  scale: [1, 1.08, 1],
+                                  x: [0, -2, 2, 0],
                                 }
                           }
                           transition={{
@@ -214,19 +214,19 @@ export function PositionIndicator() {
                           }}
                         >
                           {isWin ? (
-                            <Check className="w-6 h-6 text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]" />
+                            <Check className="w-5 h-5 text-green-400 drop-shadow-[0_0_6px_rgba(74,222,128,0.7)]" />
                           ) : (
-                            <X className="w-6 h-6 text-red-400 drop-shadow-[0_0_8px_rgba(248,113,113,0.8)]" />
+                            <X className="w-5 h-5 text-red-400 drop-shadow-[0_0_6px_rgba(248,113,113,0.7)]" />
                           )}
                         </motion.div>
 
                         {/* Amount with sign */}
                         <span
                           className={cn(
-                            'text-xl font-black font-mono',
+                            'text-lg font-black font-mono',
                             isWin
-                              ? 'text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.8)]'
-                              : 'text-red-400 drop-shadow-[0_0_10px_rgba(248,113,113,0.8)]'
+                              ? 'text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.7)]'
+                              : 'text-red-400 drop-shadow-[0_0_8px_rgba(248,113,113,0.7)]'
                           )}
                         >
                           {isWin ? `+$${amount}` : `-$${amount}`}
@@ -238,7 +238,7 @@ export function PositionIndicator() {
                   {/* Right: Coin type badge */}
                   <div
                     className={cn(
-                      'px-2 py-1.5 rounded-lg text-xs font-bold font-mono shrink-0',
+                      'px-1.5 py-1 rounded-lg text-[10px] font-bold font-mono shrink-0',
                       order.coinType === 'call' &&
                         'bg-green-500/20 text-green-400 border border-green-500/30',
                       order.coinType === 'put' &&

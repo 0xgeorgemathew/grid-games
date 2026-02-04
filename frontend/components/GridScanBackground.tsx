@@ -564,5 +564,5 @@ export function GridScanBackground({
   // Mobile portrait: no mouse interaction, centered focus
   // Camera is rotated via shader for optimal portrait grid view
 
-  return <div ref={containerRef} className="absolute inset-0 -z-10" />
+  return <div ref={containerRef} className="absolute inset-0 z-0" />
 }

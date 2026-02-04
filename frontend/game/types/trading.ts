@@ -1,6 +1,20 @@
 export type CoinType = 'call' | 'put' | 'gas' | 'whale'
 
 /**
+ * Round summary for game over display
+ * Shows results for each completed round
+ */
+export type RoundSummary = {
+  roundNumber: number
+  winnerId: string | null
+  isTie: boolean
+  player1Dollars: number
+  player2Dollars: number
+  player1Gained: number
+  player2Gained: number
+}
+
+/**
  * Player state in a game room
  * Tracks dollars (health), score, and scene dimensions for spawning
  */
@@ -71,13 +85,42 @@ export type MatchFoundEvent = {
 }
 
 /**
+ * Round start event from server
+ * Emitted at the start of each round
+ */
+export type RoundStartEvent = {
+  roundNumber: number
+  isSuddenDeath: boolean
+  durationMs: number
+}
+
+/**
+ * Round end event from server
+ * Emitted when a round ends (time limit or knockout)
+ */
+export type RoundEndEvent = {
+  roundNumber: number
+  winnerId: string | null
+  isTie: boolean
+  player1Wins: number
+  player2Wins: number
+  player1Dollars: number
+  player2Dollars: number
+  player1Gained: number
+  player2Gained: number
+}
+
+/**
  * Game over event from server
  * Emitted when game ends (time limit or knockout)
  */
 export type GameOverEvent = {
   winnerId: string
   winnerName: string
-  reason?: 'time_limit' | 'knockout'
+  reason?: 'time_limit' | 'knockout' | 'best_of_three_complete'
+  player1Wins?: number
+  player2Wins?: number
+  rounds: RoundSummary[]
 }
 
 /**

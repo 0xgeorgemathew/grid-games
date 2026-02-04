@@ -20,6 +20,11 @@ const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
 const TUG_OF_WAR_MIN = -100
 const TUG_OF_WAR_MAX = 100
 
+// Format time as seconds only
+function formatTime(seconds: number): string {
+  return seconds.toString()
+}
+
 const PULSE_ANIMATION = {
   opacity: [0.3, 0.6, 0.3] as number[],
   transition: { duration: 2, repeat: Infinity },
@@ -69,10 +74,7 @@ interface PlayerSlot {
   label: PlayerLabel
 }
 
-function getPlayerSlots(
-  localPlayer: Player | null,
-  opponent: Player | null
-): PlayerSlot[] {
+function getPlayerSlots(localPlayer: Player | null, opponent: Player | null): PlayerSlot[] {
   // Fixed layout: OPP always left, YOU always right
   return [
     {
@@ -122,13 +124,7 @@ const ConnectionStatusDot = React.memo(function ConnectionStatusDot({
 })
 
 const PlayerHealthBar = React.memo(
-  function PlayerHealthBar({
-    name,
-    dollars,
-    color,
-    index,
-    label,
-  }: PlayerHealthBarProps) {
+  function PlayerHealthBar({ name, dollars, color, index, label }: PlayerHealthBarProps) {
     const healthPercent = dollars / 10
     const healthColor = healthPercent > 0.6 ? 'green' : healthPercent > 0.3 ? 'yellow' : 'red'
 
@@ -220,6 +216,89 @@ function getMeterGradient(isPlayer1Advantage: boolean, isPlayer2Advantage: boole
   if (isPlayer2Advantage) return METER_GRADIENTS.player2Advantage
   return METER_GRADIENTS.balanced
 }
+
+const RoundHeader = React.memo(function RoundHeader({
+  currentRound,
+  player1Wins,
+  player2Wins,
+  isSuddenDeath,
+  roundTimeRemaining,
+  isPlayer1,
+}: {
+  currentRound: number
+  player1Wins: number
+  player2Wins: number
+  isSuddenDeath: boolean
+  roundTimeRemaining: number
+  isPlayer1: boolean
+}) {
+  const roundSeconds = Math.ceil(roundTimeRemaining / 1000)
+  const timeClass = roundSeconds <= 10 ? 'text-red-400 animate-pulse' : 'text-white'
+
+  const roundDisplay = isSuddenDeath ? '⚡ FINAL ROUND' : `ROUND ${currentRound}`
+
+  // Perspective-aware win display: if isPlayer1, your wins = player1Wins; else your wins = player2Wins
+  const yourWins = isPlayer1 ? player1Wins : player2Wins
+  const oppWins = isPlayer1 ? player2Wins : player1Wins
+
+  return (
+    <motion.div
+      variants={itemVariants}
+      className="flex items-center justify-between px-2 py-1.5 bg-black/20 rounded-lg border border-white/10"
+      initial="hidden"
+      animate="visible"
+    >
+      {/* Round Badge */}
+      <div
+        className={cn(
+          'px-3 py-1 rounded font-black text-xs tracking-wider',
+          isSuddenDeath
+            ? 'bg-red-500/20 text-red-400 border border-red-500/50'
+            : 'bg-tron-cyan/20 text-tron-cyan border border-tron-cyan/50'
+        )}
+        style={{
+          textShadow: isSuddenDeath
+            ? '0 0 10px rgba(239,68,68,0.8)'
+            : '0 0 10px rgba(0,243,255,0.5)',
+        }}
+      >
+        {roundDisplay}
+      </div>
+
+      {/* Timer - Large digital display */}
+      <div className="flex items-center gap-2">
+        <span className="text-white/40 text-sm">⏱️</span>
+        <span
+          className={cn('text-2xl sm:text-3xl font-mono font-black tracking-wider', timeClass)}
+          style={{ textShadow: '0 0 15px rgba(255,255,255,0.3)' }}
+        >
+          {formatTime(roundSeconds)}
+        </span>
+      </div>
+
+      {/* Win Counter */}
+      <div className="flex items-center gap-3">
+        <span
+          className={cn(
+            'text-xs font-bold px-2 py-1 rounded',
+            oppWins > yourWins ? 'bg-tron-cyan/20 text-tron-cyan' : 'bg-white/10 text-white/60'
+          )}
+        >
+          OPP: {oppWins}
+        </span>
+        <span className="text-white/30">:</span>
+        <span
+          className={cn(
+            'text-xs font-bold px-2 py-1 rounded',
+            yourWins > oppWins ? 'bg-tron-orange/20 text-tron-orange' : 'bg-white/10 text-white/60'
+          )}
+        >
+          YOU: {yourWins}
+        </span>
+      </div>
+    </motion.div>
+  )
+})
 
 const TugOfWarMeter = React.memo(
   function TugOfWarMeter({ value }: { value: number }) {
@@ -315,10 +394,7 @@ const TugOfWarMeter = React.memo(
             OPP
           </motion.span>
           <motion.span
-            className={cn(
-              'text-[10px] sm:text-xs font-bold tracking-wider',
-              rightAdvantageColor
-            )}
+            className={cn('text-[10px] sm:text-xs font-bold tracking-wider', rightAdvantageColor)}
             animate={{ scale: isPlayer2Advantage ? [1, 1.05, 1] : 1 }}
             transition={{ duration: 1.5, repeat: isPlayer2Advantage ? Infinity : 0 }}
           >
@@ -345,7 +421,13 @@ export const GameHUD = React.memo(function GameHUD() {
     connectPriceFeed,
     isPlaying,
     priceError,
+    currentRound,
+    player1Wins,
+    player2Wins,
+    isSuddenDeath,
+    roundTimeRemaining,
   } = useTradingStore()
+
   const [showHowToPlay, setShowHowToPlay] = useState(false)
 
   useEffect(() => {
@@ -371,7 +453,7 @@ export const GameHUD = React.memo(function GameHUD() {
       >
         <div className="max-w-3xl sm:max-w-4xl mx-auto space-y-2 sm:space-y-3">
           <motion.div
-            className="glass-panel-vibrant rounded-xl p-2 sm:p-3"
+            className="glass-panel-vibrant rounded-xl overflow-hidden"
             animate={{
               boxShadow: [
                 '0 0 20px rgba(0,243,255,0.1), inset 0 0 20px rgba(0,243,255,0.03)',
@@ -381,62 +463,73 @@ export const GameHUD = React.memo(function GameHUD() {
             }}
             transition={{ duration: 3, repeat: Infinity }}
           >
+            {/* Price Bar - Top Section */}
             <motion.div
               variants={itemVariants}
-              className="flex items-center justify-center gap-4 mb-2"
+              className="p-2 sm:p-3"
               initial="hidden"
               animate="visible"
             >
-              <div className="w-6 flex justify-center shrink-0">
-                <ConnectionStatusDot isPriceConnected={isPriceConnected} priceError={priceError} />
-              </div>
-
-              {priceData ? (
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span className="text-sm sm:text-base text-tron-white-dim uppercase tracking-[0.2em] font-bold shrink-0">
-                    {CRYPTO_SYMBOLS[selectedCrypto]}
-                  </span>
-
-                  <CountUp
-                    value={priceData.price}
-                    className={cn(
-                      'text-2xl sm:text-4xl font-black font-mono tracking-tight',
-                      priceColor
-                    )}
-                    style={{ textShadow: priceGlow }}
-                  />
-
-                  <motion.span
-                    className={cn(
-                      'text-sm sm:text-lg font-bold font-mono shrink-0 px-2 py-0.5 rounded',
-                      priceData.changePercent >= 0
-                        ? 'bg-green-500/20 text-green-400'
-                        : 'bg-red-500/20 text-red-400'
-                    )}
-                    style={{ textShadow: priceGlow }}
-                    animate={{ opacity: [1, 0.8, 1] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                  >
-                    {priceData.changePercent >= 0 ? '+' : ''}
-                    {priceData.changePercent.toFixed(2)}%
-                  </motion.span>
-                </div>
-              ) : (
-                <motion.span
-                  animate={{ opacity: [0.3, 0.7, 0.3] }}
-                  transition={{ duration: 1, repeat: Infinity }}
-                  className="text-sm text-tron-white-dim animate-pulse"
-                >
-                  Connecting...
-                </motion.span>
-              )}
-
-              <button
-                onClick={() => setShowHowToPlay(true)}
-                className="w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center hover:bg-tron-cyan/10 rounded transition-colors pointer-events-auto shrink-0"
+              <motion.div
+                variants={itemVariants}
+                className="flex items-center justify-center gap-4"
+                initial="hidden"
+                animate="visible"
               >
-                <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-tron-cyan" />
-              </button>
+                <div className="w-6 flex justify-center shrink-0">
+                  <ConnectionStatusDot
+                    isPriceConnected={isPriceConnected}
+                    priceError={priceError}
+                  />
+                </div>
+
+                {priceData ? (
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <span className="text-sm sm:text-base text-tron-white-dim uppercase tracking-[0.2em] font-bold shrink-0">
+                      {CRYPTO_SYMBOLS[selectedCrypto]}
+                    </span>
+
+                    <CountUp
+                      value={priceData.price}
+                      className={cn(
+                        'text-2xl sm:text-4xl font-black font-mono tracking-tight',
+                        priceColor
+                      )}
+                      style={{ textShadow: priceGlow }}
+                    />
+
+                    <motion.span
+                      className={cn(
+                        'text-sm sm:text-lg font-bold font-mono shrink-0 px-2 py-0.5 rounded',
+                        priceData.changePercent >= 0
+                          ? 'bg-green-500/20 text-green-400'
+                          : 'bg-red-500/20 text-red-400'
+                      )}
+                      style={{ textShadow: priceGlow }}
+                      animate={{ opacity: [1, 0.8, 1] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    >
+                      {priceData.changePercent >= 0 ? '+' : ''}
+                      {priceData.changePercent.toFixed(2)}%
+                    </motion.span>
+                  </div>
+                ) : (
+                  <motion.span
+                    animate={{ opacity: [0.3, 0.7, 0.3] }}
+                    transition={{ duration: 1, repeat: Infinity }}
+                    className="text-sm text-tron-white-dim animate-pulse"
+                  >
+                    Connecting...
+                  </motion.span>
+                )}
+
+                <button
+                  onClick={() => setShowHowToPlay(true)}
+                  className="w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center hover:bg-tron-cyan/10 rounded transition-colors pointer-events-auto shrink-0"
+                >
+                  <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-tron-cyan" />
+                </button>
+              </motion.div>
             </motion.div>
 
             <motion.div
@@ -445,29 +538,80 @@ export const GameHUD = React.memo(function GameHUD() {
               transition={{ duration: 2, repeat: Infinity }}
             />
 
-            <div className="grid grid-cols-2 gap-2 sm:gap-3">
-              {getPlayerSlots(localPlayer, opponent).map(
-                (slot, index) =>
-                  slot.player && (
-                    <PlayerHealthBar
-                      key={slot.player.id}
-                      name={slot.player.name}
-                      dollars={slot.player.dollars}
-                      color={slot.label === 'YOU' ? 'green' : 'red'}
-                      index={index}
-                      label={slot.label}
-                    />
-                  )
-              )}
-            </div>
+            {/* Main Game Area - When playing */}
+            {isPlaying && (
+              <>
+                {/* Round Header - NEW */}
+                <RoundHeader
+                  currentRound={currentRound}
+                  player1Wins={player1Wins}
+                  player2Wins={player2Wins}
+                  isSuddenDeath={isSuddenDeath}
+                  roundTimeRemaining={roundTimeRemaining}
+                  isPlayer1={isPlayer1}
+                />
 
-            <motion.div
-              className="h-px bg-gradient-to-r from-transparent via-tron-cyan/50 to-transparent"
-              animate={{ opacity: [0.3, 0.6, 0.3] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
+                {/* Divider */}
+                <motion.div
+                  className="h-px bg-gradient-to-r from-transparent via-tron-cyan/30 to-transparent mx-2"
+                  animate={{ opacity: [0.2, 0.5, 0.2] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
 
-            <TugOfWarMeter value={tugOfWar} />
+                {/* Health Bars Section */}
+                <motion.div
+                  variants={itemVariants}
+                  className="p-2 sm:p-3"
+                  initial="hidden"
+                  animate="visible"
+                >
+                  <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                    {getPlayerSlots(localPlayer, opponent).map(
+                      (slot, index) =>
+                        slot.player && (
+                          <PlayerHealthBar
+                            key={slot.player.id}
+                            name={slot.player.name}
+                            dollars={slot.player.dollars}
+                            color={slot.label === 'YOU' ? 'green' : 'red'}
+                            index={index}
+                            label={slot.label}
+                          />
+                        )
+                    )}
+                  </div>
+                </motion.div>
+
+                {/* Divider */}
+                <motion.div
+                  className="h-px bg-gradient-to-r from-transparent via-tron-cyan/30 to-transparent mx-2"
+                  animate={{ opacity: [0.2, 0.5, 0.2] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
+
+                {/* Tug-of-War Meter */}
+                <motion.div
+                  variants={itemVariants}
+                  className="p-2 sm:p-3 pb-3"
+                  initial="hidden"
+                  animate="visible"
+                >
+                  <TugOfWarMeter value={tugOfWar} />
+                </motion.div>
+              </>
+            )}
+
+            {/* Non-playing state: just show tug-of-war or empty */}
+            {!isPlaying && (
+              <motion.div
+                variants={itemVariants}
+                className="p-2 sm:p-3"
+                initial="hidden"
+                animate="visible"
+              >
+                <TugOfWarMeter value={tugOfWar} />
+              </motion.div>
+            )}
           </motion.div>
         </div>
       </motion.div>
