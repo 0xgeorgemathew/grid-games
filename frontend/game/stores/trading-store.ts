@@ -239,14 +239,6 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     socket.on('match_found', (data: MatchFoundEvent) => {
       const isPlayer1 = data.players[0]?.id === socket.id || false
-      // if (DEBUG_FUNDS) {
-      //   const totalDollars = data.players.reduce((sum, p) => sum + p.dollars, 0)
-      //   console.log(
-      //     `[CLIENT MatchFound] Room ${data.roomId.slice(-6)}:`,
-      //     `You are ${isPlayer1 ? 'Player 1' : 'Player 2'}`,
-      //     `\n  Players: ${data.players.map((p) => `${p.name}:${p.dollars}`).join(' | ')} (total: ${totalDollars})`
-      //   )
-      // }
       set({
         isMatching: false,
         isPlaying: true,
@@ -285,18 +277,21 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       get().resetGame()
     })
 
-    socket.on('whale_2x_activated', (data: { playerId: string; playerName: string; durationMs: number }) => {
-      const { localPlayerId } = get()
-      const isLocalPlayer = data.playerId === localPlayerId
+    socket.on(
+      'whale_2x_activated',
+      (data: { playerId: string; playerName: string; durationMs: number }) => {
+        const { localPlayerId } = get()
+        const isLocalPlayer = data.playerId === localPlayerId
 
-      // Forward to Phaser for visual feedback
-      if (window.phaserEvents) {
-        window.phaserEvents.emit('whale_2x_activated', {
-          ...data,
-          isLocalPlayer,
-        })
+        // Forward to Phaser for visual feedback
+        if (window.phaserEvents) {
+          window.phaserEvents.emit('whale_2x_activated', {
+            ...data,
+            isLocalPlayer,
+          })
+        }
       }
-    })
+    )
 
     set({ socket, socketCleanupFunctions: newCleanupFunctions })
   },
@@ -320,21 +315,10 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   findMatch: (playerName: string) => {
     const { socket } = get()
 
-    // Use window.innerWidth/innerHeight immediately - available before scene loads
-    // sceneDimensions is only set AFTER TradingScene creates, which is too late
     const sceneWidth = window.innerWidth
     const sceneHeight = window.innerHeight
 
-    // console.log('[Matchmaking] Using window dimensions:', {
-    //   width: sceneWidth,
-    //   height: sceneHeight,
-    // })
-
-    socket?.emit('find_match', {
-      playerName,
-      sceneWidth,
-      sceneHeight,
-    })
+    socket?.emit('find_match', { playerName, sceneWidth, sceneHeight })
     set({ isMatching: true })
   },
 
@@ -374,7 +358,6 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     const { isPlayer1, players, pendingOrders, tugOfWar, activeOrders } = get()
     const amount = getDamageForCoinType(settlement.coinType)
 
-    // ZERO-SUM: Determine winner and loser
     const winnerId = settlement.isCorrect
       ? settlement.playerId
       : players.find((p) => p.id !== settlement.playerId)?.id
@@ -382,11 +365,9 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       ? players.find((p) => p.id !== settlement.playerId)?.id
       : settlement.playerId
 
-    // Apply transfer: winner gains, loser loses (capped at 0)
     const newPlayers =
       winnerId && loserId ? transferFunds(players, winnerId, loserId, amount) : players
 
-    // Debug logging (controlled by DEBUG_FUNDS env var)
     if (winnerId && loserId) {
       logFundTransfer(
         players,
@@ -401,20 +382,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     const tugOfWarDelta = calculateTugOfWarDelta(isPlayer1, settlement.isCorrect, amount)
 
-    // Remove from active orders and add to settlement history (create new Maps to trigger re-render)
     const newActiveOrders = new Map(activeOrders)
     const newPendingOrders = new Map(pendingOrders)
     newActiveOrders.delete(settlement.orderId)
     newPendingOrders.set(settlement.orderId, settlement)
 
-    // Limit settlement history to prevent unbounded growth (keep last 50)
-    // Use iterator to get oldest key (O(1) instead of Array.from which is O(n))
     const MAX_SETTLEMENT_HISTORY = 50
     if (newPendingOrders.size > MAX_SETTLEMENT_HISTORY) {
-      const oldestKey = newPendingOrders.keys().next().value
-      if (oldestKey) {
-        newPendingOrders.delete(oldestKey)
-      }
+      newPendingOrders.delete(newPendingOrders.keys().next().value)
     }
 
     set({
@@ -429,14 +404,12 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   handlePlayerHit: (data) => {
     const { isPlayer1, players, tugOfWar } = get()
 
-    // ZERO-SUM: For gas, the slicer loses and opponent gains
-    const loserId = data.playerId // The player who sliced gas
-    const winnerId = players.find((p) => p.id !== data.playerId)?.id // Opponent gains
+    const loserId = data.playerId
+    const winnerId = players.find((p) => p.id !== data.playerId)?.id
 
     const newPlayers =
       winnerId && loserId ? transferFunds(players, winnerId, loserId, data.damage) : players
 
-    // Debug logging (controlled by DEBUG_FUNDS env var)
     if (winnerId && loserId) {
       const loser = newPlayers.find((p) => p.id === loserId)
       logFundTransfer(
@@ -475,19 +448,15 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   cleanupOrphanedOrders: () => {
     const { activeOrders } = get()
     const now = Date.now()
-    let cleaned = 0
 
     const newActiveOrders = new Map(activeOrders)
     for (const [orderId, order] of newActiveOrders) {
-      // If order is 15+ seconds past settlement time, consider it orphaned
       if (now - order.settlesAt > 15000) {
-        // console.warn(`[Store] Cleaning up orphaned order ${orderId}`)
         newActiveOrders.delete(orderId)
-        cleaned++
       }
     }
 
-    if (cleaned > 0) {
+    if (newActiveOrders.size !== activeOrders.size) {
       set({ activeOrders: newActiveOrders })
     }
   },
@@ -495,33 +464,22 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   connectPriceFeed: (symbol: CryptoSymbol) => {
     const { priceSocket, priceReconnectTimer, reconnectAttempts, maxReconnectAttempts } = get()
 
-    // Clear any pending reconnection timer
     if (priceReconnectTimer) {
       clearTimeout(priceReconnectTimer)
       set({ priceReconnectTimer: null })
     }
 
-    // Close existing connection if any
     if (priceSocket) {
-      // Clear onclose handler to prevent reconnection trigger
       priceSocket.onclose = null
       priceSocket.close()
     }
 
-    set({
-      selectedCrypto: symbol,
-      isPriceConnected: false,
-      priceData: null,
-      priceError: null,
-      // DON'T reset firstPrice here - preserve across reconnects
-    })
+    set({ selectedCrypto: symbol, isPriceConnected: false, priceData: null, priceError: null })
 
     try {
-      // Connect to Binance WebSocket with aggTrade stream
       const ws = new WebSocket(`${BINANCE_WS_URL}/${symbol}@aggTrade`)
-
       let lastPriceUpdate = 0
-      const PRICE_THROTTLE_MS = 500 // Update UI max 2x per second
+      const PRICE_THROTTLE_MS = 500
 
       ws.onopen = () => {
         set({ isPriceConnected: true, priceSocket: ws, reconnectAttempts: 0, priceError: null })
@@ -529,8 +487,6 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
       ws.onmessage = (event) => {
         const raw = JSON.parse(event.data)
-
-        // Parse aggregate trade format
         const trade = {
           price: parseFloat(raw.p),
           size: parseFloat(raw.q),
@@ -538,30 +494,21 @@ export const useTradingStore = create<TradingState>((set, get) => ({
           timestamp: raw.T,
         }
 
-        // Get fresh firstPrice from state
         const { firstPrice: currentFirstPrice } = get()
 
-        // Initialize firstPrice on first trade (with validation)
         if (!currentFirstPrice && trade.price > 0) {
           set({ firstPrice: trade.price })
           return
         }
 
-        // Only update if firstPrice was set successfully
-        if (!currentFirstPrice) {
-          return
-        }
+        if (!currentFirstPrice) return
 
-        // Calculate change from first price of session
         const change = trade.price - currentFirstPrice
         const changePercent = (change / currentFirstPrice) * 100
 
         const now = Date.now()
+        if (now - lastPriceUpdate < PRICE_THROTTLE_MS) return
 
-        // THROTTLE: Only update UI every 500ms (2x/second)
-        if (now - lastPriceUpdate < PRICE_THROTTLE_MS) {
-          return
-        }
         lastPriceUpdate = now
 
         set({
@@ -578,15 +525,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
         })
       }
 
-      ws.onerror = (error) => {
-        const errorContext = {
-          type: 'WebSocket error',
-          url: `${BINANCE_WS_URL}/${symbol}@aggTrade`,
-          timestamp: new Date().toISOString(),
-          readyState: ws.readyState,
-        }
-        console.error('[PriceFeed] WebSocket error:', errorContext)
-
+      ws.onerror = () => {
         set({
           isPriceConnected: false,
           priceError: `Connection failed (${reconnectAttempts + 1}/${maxReconnectAttempts})`,
@@ -596,30 +535,25 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       ws.onclose = () => {
         set({ isPriceConnected: false, priceSocket: null })
 
-        // Small delay to avoid synchronous reconnection during close event
         const timerId = setTimeout(() => {
-          // Read fresh state from store (avoid stale closure)
-          const state = get()
           const {
             selectedCrypto: currentSymbol,
             isPlaying,
             reconnectAttempts: currentAttempts,
             maxReconnectAttempts: maxAttempts,
-          } = state
+          } = get()
 
           if (isPlaying && currentAttempts < maxAttempts) {
-            // Increment attempts first, then reconnect
             set({ reconnectAttempts: currentAttempts + 1 })
             get().connectPriceFeed(currentSymbol)
           } else if (currentAttempts >= maxAttempts) {
             set({ priceError: 'Max retries reached. Manual reconnect required.' })
           }
-        }, 1) // 1ms delay - defers to next tick without awkward type casting
+        }, 1)
 
         set({ priceReconnectTimer: timerId as unknown as NodeJS.Timeout })
       }
     } catch (error) {
-      console.error('[PriceFeed] Failed to connect:', error)
       set({ isPriceConnected: false, priceError: 'Connection failed' })
     }
   },

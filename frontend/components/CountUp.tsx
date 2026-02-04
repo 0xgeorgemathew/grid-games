@@ -19,15 +19,8 @@ export function CountUp({ value, className, style }: CountUpProps) {
   const motionValue = useMotionValue(value)
   const ref = useRef<HTMLSpanElement>(null)
 
-  // Spring configuration for smooth, mechanical feel
-  // Higher damping = smoother/slower, higher stiffness = faster/springier
-  const spring = useSpring(motionValue, {
-    damping: 30,
-    stiffness: 100,
-  })
+  const spring = useSpring(motionValue, { damping: 30, stiffness: 100 })
 
-  // Update the motion value when the price changes
-  // Only set if value actually changed - prevents expensive spring recalculations
   useEffect(() => {
     const currentValue = motionValue.get()
     if (currentValue !== value) {
@@ -35,7 +28,6 @@ export function CountUp({ value, className, style }: CountUpProps) {
     }
   }, [value, motionValue])
 
-  // Update the DOM with formatted numbers as the spring animates
   useEffect(() => {
     const unsubscribe = spring.on('change', (latest) => {
       if (ref.current) {

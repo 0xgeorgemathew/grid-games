@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatPrice } from '@/lib/formatPrice'
 import type { CryptoSymbol } from '@/game/stores/trading-store'
+import type { Player } from '@/game/types/trading'
 
 const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
   btcusdt: 'BTC',
@@ -18,8 +19,11 @@ const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
 
 const TUG_OF_WAR_MIN = -100
 const TUG_OF_WAR_MAX = 100
-const PROGRESS_HEIGHT = 'h-2'
-const PROGRESS_BG = 'bg-black/50'
+
+const PULSE_ANIMATION = {
+  opacity: [0.3, 0.6, 0.3] as number[],
+  transition: { duration: 2, repeat: Infinity },
+} as const
 
 type PlayerColor = 'green' | 'red'
 
@@ -28,19 +32,14 @@ interface PlayerHealthBarProps {
   dollars: number
   color: PlayerColor
   index: number
-  isLocal: boolean // Identifies if this is the local player
-  playerNum: 1 | 2 // P1 or P2
+  label: PlayerLabel
 }
 
-// Animation variants for staggered entrance
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: {
-      staggerChildren: 0.15,
-      delayChildren: 0.2,
-    },
+    transition: { staggerChildren: 0.15, delayChildren: 0.2 },
   },
 }
 
@@ -49,13 +48,78 @@ const itemVariants = {
   visible: {
     y: 0,
     opacity: 1,
-    transition: {
-      type: 'spring' as const,
-      stiffness: 300,
-      damping: 24,
-    },
+    transition: { type: 'spring' as const, stiffness: 300, damping: 24 },
   },
 }
+
+function getPriceColor(changePercent: number): { color: string; glow: string } {
+  const isPositive = changePercent >= 0
+  return {
+    color: isPositive ? 'text-tron-cyan' : 'text-tron-orange',
+    glow: isPositive
+      ? '0 0 10px rgba(0, 243, 255, 0.8), 0 0 20px rgba(0, 243, 255, 0.4)'
+      : '0 0 10px rgba(255, 107, 0, 0.8), 0 0 20px rgba(255, 107, 0, 0.4)',
+  }
+}
+
+type PlayerLabel = 'YOU' | 'OPP'
+
+interface PlayerSlot {
+  player: Player | undefined
+  label: PlayerLabel
+}
+
+function getPlayerSlots(
+  localPlayer: Player | null,
+  opponent: Player | null
+): PlayerSlot[] {
+  // Fixed layout: OPP always left, YOU always right
+  return [
+    {
+      player: opponent ?? undefined,
+      label: 'OPP',
+    },
+    {
+      player: localPlayer ?? undefined,
+      label: 'YOU',
+    },
+  ]
+}
+
+const ConnectionStatusDot = React.memo(function ConnectionStatusDot({
+  isPriceConnected,
+  priceError,
+}: {
+  isPriceConnected: boolean
+  priceError: string | null
+}) {
+  const colorClass = isPriceConnected
+    ? 'bg-tron-cyan'
+    : priceError
+      ? 'bg-red-400'
+      : 'bg-tron-orange'
+
+  return (
+    <motion.div
+      className={cn('w-2 h-2 rounded-full', colorClass)}
+      animate={{
+        scale: isPriceConnected ? [1, 1.4, 1] : priceError ? [1, 1.2, 1] : [0.8, 1, 0.8],
+        opacity: isPriceConnected ? [1, 0.7, 1] : 1,
+      }}
+      transition={{
+        duration: isPriceConnected ? 1.5 : 0.5,
+        repeat: isPriceConnected ? Infinity : 3,
+      }}
+      style={{
+        boxShadow: isPriceConnected
+          ? '0 0 8px rgba(0, 243, 255, 0.8)'
+          : priceError
+            ? '0 0 8px rgba(248, 113, 113, 0.8)'
+            : '0 0 8px rgba(255, 107, 0, 0.8)',
+      }}
+    />
+  )
+})
 
 const PlayerHealthBar = React.memo(
   function PlayerHealthBar({
@@ -63,20 +127,13 @@ const PlayerHealthBar = React.memo(
     dollars,
     color,
     index,
-    isLocal,
-    playerNum,
+    label,
   }: PlayerHealthBarProps) {
-    // Health-based color gradient (Street Fighter: healthy=green, critical=red)
     const healthPercent = dollars / 10
     const healthColor = healthPercent > 0.6 ? 'green' : healthPercent > 0.3 ? 'yellow' : 'red'
 
-    // Local player gets cyan glow indicator (Street Fighter: "YOU" badge)
-    const localPlayerGlow = isLocal
-      ? 'ring-1 ring-tron-cyan/30 shadow-[0_0_12px_rgba(0,243,255,0.2)]'
-      : ''
-    const localBadge = 'P' + playerNum
+    const isYou = label === 'YOU'
 
-    // Health bar gradient classes
     const healthGradientClasses = {
       green: 'bg-gradient-to-r from-emerald-500 to-green-400',
       yellow: 'bg-gradient-to-r from-yellow-500 to-amber-400',
@@ -86,11 +143,13 @@ const PlayerHealthBar = React.memo(
     return (
       <motion.div
         variants={itemVariants}
-        className={cn('space-y-1.5 relative rounded-lg', localPlayerGlow)}
+        className={cn(
+          'space-y-1.5 relative rounded-lg',
+          isYou ? 'border-r-2 border-tron-cyan/50' : ''
+        )}
         initial="hidden"
         animate="visible"
       >
-        {/* Player badge (Street Fighter P1/P2 style) */}
         <div className="flex items-center justify-between gap-1">
           <motion.span
             className="font-bold tracking-wide truncate text-[10px] sm:text-xs md:text-sm text-white"
@@ -104,17 +163,17 @@ const PlayerHealthBar = React.memo(
           >
             {name}
           </motion.span>
-          <span
-            className={cn(
-              'text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded',
-              isLocal ? 'bg-tron-cyan text-black' : 'bg-white/10 text-white/60'
-            )}
-          >
-            {localBadge}
-          </span>
+          {isYou ? (
+            <span className="text-[10px] sm:text-xs font-black px-2 py-0.5 rounded bg-tron-cyan text-black shadow-[0_0_10px_rgba(0,243,255,0.5)]">
+              YOU
+            </span>
+          ) : (
+            <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded bg-white/10 text-white/50">
+              OPP
+            </span>
+          )}
         </div>
 
-        {/* Health bar with gradient fill */}
         <div className="relative h-3 sm:h-4 bg-black/80 rounded-full overflow-hidden border border-white/20">
           <motion.div
             className={cn('h-full rounded-full', healthGradientClasses[healthColor])}
@@ -124,7 +183,6 @@ const PlayerHealthBar = React.memo(
           />
         </div>
 
-        {/* Dollar counter with damage feedback */}
         <motion.span
           className={cn(
             'text-[10px] sm:text-xs font-mono font-bold text-center block',
@@ -141,18 +199,16 @@ const PlayerHealthBar = React.memo(
     )
   },
   (prevProps, nextProps) => {
-    // Only re-render if relevant props changed
     return (
       prevProps.dollars === nextProps.dollars &&
       prevProps.color === nextProps.color &&
       prevProps.index === nextProps.index &&
-      prevProps.isLocal === nextProps.isLocal &&
-      prevProps.playerNum === nextProps.playerNum
+      prevProps.label === nextProps.label &&
+      prevProps.name === nextProps.name
     )
   }
 )
 
-// Define at module level (outside component) - prevents recreation on every render
 const METER_GRADIENTS = {
   player1Advantage: 'linear-gradient(90deg, #00f3ff 0%, #00a8b3 100%)',
   player2Advantage: 'linear-gradient(90deg, #ff6b00 0%, #ff00ff 100%)',
@@ -166,7 +222,7 @@ function getMeterGradient(isPlayer1Advantage: boolean, isPlayer2Advantage: boole
 }
 
 const TugOfWarMeter = React.memo(
-  function TugOfWarMeter({ value, isPlayer1 }: { value: number; isPlayer1: boolean }) {
+  function TugOfWarMeter({ value }: { value: number }) {
     const clampedValue = Math.max(TUG_OF_WAR_MIN, Math.min(TUG_OF_WAR_MAX, value))
     const absoluteValue = Math.abs(clampedValue)
 
@@ -175,19 +231,16 @@ const TugOfWarMeter = React.memo(
 
     const gradient = getMeterGradient(isPlayer1Advantage, isPlayer2Advantage)
     const meterPosition = isPlayer1Advantage ? 'left-0 right-1/2' : 'left-1/2 right-0'
-    const yourAdvantageColor = isPlayer1Advantage
+    // Fixed labels: OPP on left, YOU on right
+    const leftAdvantageColor = isPlayer1Advantage
       ? 'text-tron-cyan text-glow'
       : 'text-tron-white-dim'
-    const opponentAdvantageColor = isPlayer2Advantage
+    const rightAdvantageColor = isPlayer2Advantage
       ? 'text-tron-orange text-glow-orange'
       : 'text-tron-white-dim'
 
-    const yourLabel = isPlayer1 ? 'P1' : 'P2'
-    const opponentLabel = isPlayer1 ? 'P2' : 'P1'
-
     return (
       <motion.div variants={itemVariants} className="relative" initial="hidden" animate="visible">
-        {/* Market Momentum label - hidden on mobile */}
         <div className="flex items-center justify-center gap-2 mb-1 hidden sm:flex">
           <motion.span
             className="text-[10px] text-tron-cyan/60 uppercase tracking-[0.2em] font-semibold"
@@ -204,9 +257,7 @@ const TugOfWarMeter = React.memo(
           </motion.span>
         </div>
 
-        {/* Meter container */}
         <div className="relative h-2 bg-black/60 rounded-full overflow-hidden border border-tron-cyan/30 shadow-[0_0_20px_rgba(0,243,255,0.15)]">
-          {/* Grid pattern overlay */}
           <div
             className="absolute inset-0 opacity-20"
             style={{
@@ -215,7 +266,6 @@ const TugOfWarMeter = React.memo(
             }}
           />
 
-          {/* Center indicator - animated */}
           <motion.div
             className="absolute left-1/2 top-0 bottom-0 w-0.5 z-10"
             style={{ backgroundColor: '#00f3ff' }}
@@ -229,7 +279,6 @@ const TugOfWarMeter = React.memo(
             transition={{ duration: 2, repeat: Infinity }}
           />
 
-          {/* Fill based on tug of war - animated with spring */}
           <motion.div
             className={cn('absolute top-0 bottom-0', meterPosition)}
             style={{
@@ -245,17 +294,10 @@ const TugOfWarMeter = React.memo(
               ease: 'easeInOut',
             }}
           >
-            {/* Shimmer effect */}
             <motion.div
               className="absolute inset-0"
-              animate={{
-                x: ['-100%', '200%'],
-              }}
-              transition={{
-                duration: 1.5,
-                repeat: Infinity,
-                ease: 'linear',
-              }}
+              animate={{ x: ['-100%', '200%'] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
               style={{
                 background:
                   'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
@@ -264,35 +306,30 @@ const TugOfWarMeter = React.memo(
           </motion.div>
         </div>
 
-        {/* Labels with animated highlighting */}
         <div className="flex justify-between mt-1.5 px-1">
           <motion.span
-            className={cn('text-[10px] sm:text-xs font-bold tracking-wider', yourAdvantageColor)}
-            animate={{
-              scale: isPlayer1Advantage ? [1, 1.05, 1] : 1,
-            }}
+            className={cn('text-[10px] sm:text-xs font-bold tracking-wider', leftAdvantageColor)}
+            animate={{ scale: isPlayer1Advantage ? [1, 1.05, 1] : 1 }}
             transition={{ duration: 1.5, repeat: isPlayer1Advantage ? Infinity : 0 }}
           >
-            {yourLabel}
+            OPP
           </motion.span>
           <motion.span
             className={cn(
               'text-[10px] sm:text-xs font-bold tracking-wider',
-              opponentAdvantageColor
+              rightAdvantageColor
             )}
-            animate={{
-              scale: isPlayer2Advantage ? [1, 1.05, 1] : 1,
-            }}
+            animate={{ scale: isPlayer2Advantage ? [1, 1.05, 1] : 1 }}
             transition={{ duration: 1.5, repeat: isPlayer2Advantage ? Infinity : 0 }}
           >
-            {opponentLabel}
+            YOU
           </motion.span>
         </div>
       </motion.div>
     )
   },
   (prevProps, nextProps) => {
-    return prevProps.value === nextProps.value && prevProps.isPlayer1 === nextProps.isPlayer1
+    return prevProps.value === nextProps.value
   }
 )
 
@@ -311,18 +348,13 @@ export const GameHUD = React.memo(function GameHUD() {
   } = useTradingStore()
   const [showHowToPlay, setShowHowToPlay] = useState(false)
 
-  // Connect to price feed when game starts
   useEffect(() => {
     if (isPlaying && !isPriceConnected) {
       connectPriceFeed(selectedCrypto)
     }
   }, [isPlaying, isPriceConnected, selectedCrypto, connectPriceFeed])
 
-  const isPositive = priceData?.changePercent !== undefined && priceData.changePercent >= 0
-  const priceColor = isPositive ? 'text-tron-cyan' : 'text-tron-orange'
-  const priceGlow = isPositive
-    ? '0 0 10px rgba(0, 243, 255, 0.8), 0 0 20px rgba(0, 243, 255, 0.4)'
-    : '0 0 10px rgba(255, 107, 0, 0.8), 0 0 20px rgba(255, 107, 0, 0.4)'
+  const { color: priceColor, glow: priceGlow } = getPriceColor(priceData?.changePercent ?? 0)
 
   const localPlayer = players.find((p) => p.id === localPlayerId)
   const opponent = players.find((p) => p.id !== localPlayerId)
@@ -338,7 +370,6 @@ export const GameHUD = React.memo(function GameHUD() {
         animate="visible"
       >
         <div className="max-w-3xl sm:max-w-4xl mx-auto space-y-2 sm:space-y-3">
-          {/* Glassmorphic panel container */}
           <motion.div
             className="glass-panel-vibrant rounded-xl p-2 sm:p-3"
             animate={{
@@ -350,43 +381,16 @@ export const GameHUD = React.memo(function GameHUD() {
             }}
             transition={{ duration: 3, repeat: Infinity }}
           >
-            {/* Price Bar - Centered with minimal indicators */}
             <motion.div
               variants={itemVariants}
               className="flex items-center justify-center gap-4 mb-2"
               initial="hidden"
               animate="visible"
             >
-              {/* Left: Connection dot only */}
               <div className="w-6 flex justify-center shrink-0">
-                <motion.div
-                  className={cn(
-                    'w-2 h-2 rounded-full',
-                    isPriceConnected ? 'bg-tron-cyan' : priceError ? 'bg-red-400' : 'bg-tron-orange'
-                  )}
-                  animate={{
-                    scale: isPriceConnected
-                      ? [1, 1.4, 1]
-                      : priceError
-                        ? [1, 1.2, 1]
-                        : [0.8, 1, 0.8],
-                    opacity: isPriceConnected ? [1, 0.7, 1] : 1,
-                  }}
-                  transition={{
-                    duration: isPriceConnected ? 1.5 : 0.5,
-                    repeat: isPriceConnected ? Infinity : 3,
-                  }}
-                  style={{
-                    boxShadow: isPriceConnected
-                      ? '0 0 8px rgba(0, 243, 255, 0.8)'
-                      : priceError
-                        ? '0 0 8px rgba(248, 113, 113, 0.8)'
-                        : '0 0 8px rgba(255, 107, 0, 0.8)',
-                  }}
-                />
+                <ConnectionStatusDot isPriceConnected={isPriceConnected} priceError={priceError} />
               </div>
 
-              {/* Center: BTC price - no AnimatePresence, no blinking */}
               {priceData ? (
                 <div className="flex items-center gap-2 sm:gap-3">
                   <span className="text-sm sm:text-base text-tron-white-dim uppercase tracking-[0.2em] font-bold shrink-0">
@@ -399,24 +403,18 @@ export const GameHUD = React.memo(function GameHUD() {
                       'text-2xl sm:text-4xl font-black font-mono tracking-tight',
                       priceColor
                     )}
-                    style={{
-                      textShadow: isPositive
-                        ? '0 0 20px rgba(0, 243, 255, 0.8), 0 0 40px rgba(0, 243, 255, 0.4)'
-                        : '0 0 20px rgba(255, 107, 0, 0.8), 0 0 40px rgba(255, 107, 0, 0.4)',
-                    }}
+                    style={{ textShadow: priceGlow }}
                   />
 
                   <motion.span
                     className={cn(
                       'text-sm sm:text-lg font-bold font-mono shrink-0 px-2 py-0.5 rounded',
-                      isPositive ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                      priceData.changePercent >= 0
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-red-500/20 text-red-400'
                     )}
-                    style={{
-                      textShadow: priceGlow,
-                    }}
-                    animate={{
-                      opacity: [1, 0.8, 1],
-                    }}
+                    style={{ textShadow: priceGlow }}
+                    animate={{ opacity: [1, 0.8, 1] }}
                     transition={{ duration: 1.5, repeat: Infinity }}
                   >
                     {priceData.changePercent >= 0 ? '+' : ''}
@@ -433,7 +431,6 @@ export const GameHUD = React.memo(function GameHUD() {
                 </motion.span>
               )}
 
-              {/* Right: Help button - larger touch target */}
               <button
                 onClick={() => setShowHowToPlay(true)}
                 className="w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center hover:bg-tron-cyan/10 rounded transition-colors pointer-events-auto shrink-0"
@@ -442,58 +439,35 @@ export const GameHUD = React.memo(function GameHUD() {
               </button>
             </motion.div>
 
-            {/* Divider */}
             <motion.div
               className="h-px bg-gradient-to-r from-transparent via-tron-cyan/50 to-transparent"
               animate={{ opacity: [0.3, 0.6, 0.3] }}
               transition={{ duration: 2, repeat: Infinity }}
             />
 
-            {/* Player Health Bars - Position-aware slots (P1 left, P2 right) */}
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
-              {(() => {
-                // Define slots based on actual player positions (P1 left, P2 right)
-                const playerSlots = [
-                  {
-                    player: isPlayer1 ? localPlayer : opponent,
-                    color: 'green' as const,
-                    isLocal: isPlayer1,
-                  },
-                  {
-                    player: isPlayer1 ? opponent : localPlayer,
-                    color: 'red' as const,
-                    isLocal: !isPlayer1,
-                  },
-                ]
-
-                return playerSlots.map(
-                  (slot, index) =>
-                    slot.player && (
-                      <PlayerHealthBar
-                        key={slot.player.id}
-                        name={slot.player.name}
-                        dollars={slot.player.dollars}
-                        color={slot.color}
-                        index={index}
-                        isLocal={slot.isLocal}
-                        playerNum={slot.isLocal ? (isPlayer1 ? 1 : 2) : isPlayer1 ? 2 : 1}
-                      />
-                    )
-                )
-              })()}
+              {getPlayerSlots(localPlayer, opponent).map(
+                (slot, index) =>
+                  slot.player && (
+                    <PlayerHealthBar
+                      key={slot.player.id}
+                      name={slot.player.name}
+                      dollars={slot.player.dollars}
+                      color={slot.label === 'YOU' ? 'green' : 'red'}
+                      index={index}
+                      label={slot.label}
+                    />
+                  )
+              )}
             </div>
 
-            {/* Divider */}
             <motion.div
               className="h-px bg-gradient-to-r from-transparent via-tron-cyan/50 to-transparent"
-              animate={{
-                opacity: [0.3, 0.6, 0.3],
-              }}
+              animate={{ opacity: [0.3, 0.6, 0.3] }}
               transition={{ duration: 2, repeat: Infinity }}
             />
 
-            {/* Tug of War Meter - Compact */}
-            <TugOfWarMeter value={tugOfWar} isPlayer1={isPlayer1} />
+            <TugOfWarMeter value={tugOfWar} />
           </motion.div>
         </div>
       </motion.div>
