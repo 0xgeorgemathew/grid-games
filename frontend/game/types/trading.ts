@@ -1,6 +1,21 @@
 export type CoinType = 'call' | 'put' | 'gas' | 'whale'
 
 /**
+ * Coin visual and physics configuration
+ * Used for rendering and hitbox calculation
+ */
+export type CoinConfig = {
+  color: number // Main coin color
+  edgeColor: number // Darker shade for milled edge/rim
+  radius: number // Visual radius in pixels
+  hitboxMultiplier?: number // Hitbox size multiplier (default 1.0)
+  innerColor?: number // Optional gradient center (gas coins only)
+  rotationSpeed?: number // Radians per second (unused in config, set dynamically)
+  jitterAmount?: number // For gas coins (unused in config, set dynamically)
+  hasTrail?: boolean // For whale coins (unused in config, set dynamically)
+}
+
+/**
  * Round summary for game over display
  * Shows results for each completed round
  */
