@@ -17,9 +17,6 @@ const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
   btcusdt: 'BTC',
 } as const
 
-const TUG_OF_WAR_MIN = -100
-const TUG_OF_WAR_MAX = 100
-
 // Format time as seconds only
 function formatTime(seconds: number): string {
   return seconds.toString()
@@ -205,18 +202,6 @@ const PlayerHealthBar = React.memo(
   }
 )
 
-const METER_GRADIENTS = {
-  player1Advantage: 'linear-gradient(90deg, #00f3ff 0%, #00a8b3 100%)',
-  player2Advantage: 'linear-gradient(90deg, #ff6b00 0%, #ff00ff 100%)',
-  balanced: 'linear-gradient(90deg, #00f3ff 0%, #ff6b00 100%)',
-} as const
-
-function getMeterGradient(isPlayer1Advantage: boolean, isPlayer2Advantage: boolean): string {
-  if (isPlayer1Advantage) return METER_GRADIENTS.player1Advantage
-  if (isPlayer2Advantage) return METER_GRADIENTS.player2Advantage
-  return METER_GRADIENTS.balanced
-}
-
 const RoundHeader = React.memo(function RoundHeader({
   currentRound,
   player1Wins,
@@ -300,121 +285,12 @@ const RoundHeader = React.memo(function RoundHeader({
   )
 })
 
-const TugOfWarMeter = React.memo(
-  function TugOfWarMeter({ value }: { value: number }) {
-    const clampedValue = Math.max(TUG_OF_WAR_MIN, Math.min(TUG_OF_WAR_MAX, value))
-    const absoluteValue = Math.abs(clampedValue)
-
-    const isPlayer1Advantage = clampedValue < 0
-    const isPlayer2Advantage = clampedValue > 0
-
-    const gradient = getMeterGradient(isPlayer1Advantage, isPlayer2Advantage)
-    const meterPosition = isPlayer1Advantage ? 'left-0 right-1/2' : 'left-1/2 right-0'
-    // Fixed labels: OPP on left, YOU on right
-    const leftAdvantageColor = isPlayer1Advantage
-      ? 'text-tron-cyan text-glow'
-      : 'text-tron-white-dim'
-    const rightAdvantageColor = isPlayer2Advantage
-      ? 'text-tron-orange text-glow-orange'
-      : 'text-tron-white-dim'
-
-    return (
-      <motion.div variants={itemVariants} className="relative" initial="hidden" animate="visible">
-        <div className="flex items-center justify-center gap-2 mb-1 hidden sm:flex">
-          <motion.span
-            className="text-[10px] text-tron-cyan/60 uppercase tracking-[0.2em] font-semibold"
-            animate={{
-              textShadow: [
-                '0 0 5px rgba(0,243,255,0.3)',
-                '0 0 15px rgba(0,243,255,0.6)',
-                '0 0 5px rgba(0,243,255,0.3)',
-              ],
-            }}
-            transition={{ duration: 2, repeat: Infinity }}
-          >
-            Market Momentum
-          </motion.span>
-        </div>
-
-        <div className="relative h-2 bg-black/60 rounded-full overflow-hidden border border-tron-cyan/30 shadow-[0_0_20px_rgba(0,243,255,0.15)]">
-          <div
-            className="absolute inset-0 opacity-20"
-            style={{
-              backgroundImage: `linear-gradient(transparent 95%, rgba(0,243,255,0.3) 95%), linear-gradient(90deg, transparent 95%, rgba(0,243,255,0.3) 95%)`,
-              backgroundSize: '10px 10px',
-            }}
-          />
-
-          <motion.div
-            className="absolute left-1/2 top-0 bottom-0 w-0.5 z-10"
-            style={{ backgroundColor: '#00f3ff' }}
-            animate={{
-              boxShadow: [
-                '0 0 5px #00f3ff',
-                '0 0 15px #00f3ff, 0 0 30px rgba(0,243,255,0.5)',
-                '0 0 5px #00f3ff',
-              ],
-            }}
-            transition={{ duration: 2, repeat: Infinity }}
-          />
-
-          <motion.div
-            className={cn('absolute top-0 bottom-0', meterPosition)}
-            style={{
-              width: `${absoluteValue}%`,
-              background: gradient,
-            }}
-            animate={{
-              width: [`${absoluteValue * 0.95}%`, `${absoluteValue}%`, `${absoluteValue * 0.95}%`],
-            }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              ease: 'easeInOut',
-            }}
-          >
-            <motion.div
-              className="absolute inset-0"
-              animate={{ x: ['-100%', '200%'] }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-              style={{
-                background:
-                  'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
-              }}
-            />
-          </motion.div>
-        </div>
-
-        <div className="flex justify-between mt-1.5 px-1">
-          <motion.span
-            className={cn('text-[10px] sm:text-xs font-bold tracking-wider', leftAdvantageColor)}
-            animate={{ scale: isPlayer1Advantage ? [1, 1.05, 1] : 1 }}
-            transition={{ duration: 1.5, repeat: isPlayer1Advantage ? Infinity : 0 }}
-          >
-            OPP
-          </motion.span>
-          <motion.span
-            className={cn('text-[10px] sm:text-xs font-bold tracking-wider', rightAdvantageColor)}
-            animate={{ scale: isPlayer2Advantage ? [1, 1.05, 1] : 1 }}
-            transition={{ duration: 1.5, repeat: isPlayer2Advantage ? Infinity : 0 }}
-          >
-            YOU
-          </motion.span>
-        </div>
-      </motion.div>
-    )
-  },
-  (prevProps, nextProps) => {
-    return prevProps.value === nextProps.value
-  }
-)
 
 export const GameHUD = React.memo(function GameHUD() {
   const {
     players,
     localPlayerId,
     isPlayer1,
-    tugOfWar,
     priceData,
     isPriceConnected,
     selectedCrypto,
@@ -582,35 +458,7 @@ export const GameHUD = React.memo(function GameHUD() {
                   </div>
                 </motion.div>
 
-                {/* Divider */}
-                <motion.div
-                  className="h-px bg-gradient-to-r from-transparent via-tron-cyan/30 to-transparent mx-2"
-                  animate={{ opacity: [0.2, 0.5, 0.2] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                />
-
-                {/* Tug-of-War Meter */}
-                <motion.div
-                  variants={itemVariants}
-                  className="p-2 sm:p-3 pb-3"
-                  initial="hidden"
-                  animate="visible"
-                >
-                  <TugOfWarMeter value={tugOfWar} />
-                </motion.div>
               </>
-            )}
-
-            {/* Non-playing state: just show tug-of-war or empty */}
-            {!isPlaying && (
-              <motion.div
-                variants={itemVariants}
-                className="p-2 sm:p-3"
-                initial="hidden"
-                animate="visible"
-              >
-                <TugOfWarMeter value={tugOfWar} />
-              </motion.div>
             )}
           </motion.div>
         </div>
