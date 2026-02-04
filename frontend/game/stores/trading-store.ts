@@ -356,8 +356,11 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   findMatch: (playerName: string) => {
     const { socket } = get()
 
-    const sceneWidth = window.innerWidth
-    const sceneHeight = window.innerHeight
+    // Use actual Phaser scene dimensions if available, otherwise window dimensions
+    const sceneWidth = (window as { sceneDimensions?: { width: number; height: number } })
+      .sceneDimensions?.width || window.innerWidth
+    const sceneHeight = (window as { sceneDimensions?: { width: number; height: number } })
+      .sceneDimensions?.height || window.innerHeight
 
     socket?.emit('find_match', { playerName, sceneWidth, sceneHeight })
     set({ isMatching: true })
