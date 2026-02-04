@@ -54,6 +54,60 @@ class SettlementGuard {
 const settlementGuard = new SettlementGuard()
 
 // =============================================================================
+// Seeded RNG - Deterministic coin sequences for fair play
+// =============================================================================
+
+// Seeded random number generator for deterministic sequences
+class SeededRandom {
+  private seed: number
+
+  constructor(seed: number) {
+    this.seed = seed
+  }
+
+  next(): number {
+    this.seed = (this.seed * 1664525 + 1013904223) % 4294967296
+    return this.seed / 4294967296
+  }
+
+  nextInt(min: number, max: number): number {
+    return Math.floor(this.next() * (max - min + 1)) + min
+  }
+}
+
+// Pre-generated coin sequence per round
+class CoinSequence {
+  private sequence: Array<'call' | 'put' | 'gas' | 'whale'> = []
+  private index = 0
+
+  constructor(durationMs: number, minIntervalMs: number, maxIntervalMs: number, seed: number) {
+    const rng = new SeededRandom(seed)
+    const types: Array<'call' | 'put' | 'gas' | 'whale'> = [
+      'call',
+      'call',
+      'put',
+      'put',
+      'gas',
+      'whale',
+    ]
+
+    const estimatedSpawns = Math.ceil(durationMs / minIntervalMs) + 5
+    for (let i = 0; i < estimatedSpawns; i++) {
+      this.sequence.push(types[rng.nextInt(0, types.length - 1)])
+    }
+  }
+
+  next(): 'call' | 'put' | 'gas' | 'whale' | null {
+    if (this.index >= this.sequence.length) return null
+    return this.sequence[this.index++]
+  }
+
+  hasNext(): boolean {
+    return this.index < this.sequence.length
+  }
+}
+
+// =============================================================================
 // Price Feed Manager - Real-time Binance WebSocket
 // =============================================================================
 
@@ -214,7 +268,10 @@ class GameRoom {
   player1CashAtRoundStart: number = 10
   player2CashAtRoundStart: number = 10
   isSuddenDeath: boolean = false
-  readonly ROUND_DURATION = 100000 // 100 seconds
+  readonly ROUND_DURATION = 30000 // 30 seconds
+
+  // Deterministic coin sequence
+  private coinSequence: CoinSequence | null = null
 
   // Round history for game over summary
   roundHistory: RoundSummary[] = []
@@ -377,9 +434,37 @@ class GameRoom {
     this.isClosing = true
   }
 
-  // Flat spawn rate matching design doc
+  // Fruit Ninja-style spawn rate
   getSpawnInterval(): { minMs: number; maxMs: number } {
-    return { minMs: 800, maxMs: 1200 }
+    return { minMs: 2000, maxMs: 3000 }
+  }
+
+  // Initialize deterministic coin sequence for this round
+  initCoinSequence(): void {
+    const seed = this.hashString(`${this.id}-round${this.currentRound}`)
+    const spawnConfig = this.getSpawnInterval()
+    this.coinSequence = new CoinSequence(
+      this.ROUND_DURATION,
+      spawnConfig.minMs,
+      spawnConfig.maxMs,
+      seed
+    )
+  }
+
+  // Hash string to number for seeding
+  private hashString(str: string): number {
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i)
+      hash = (hash << 5) - hash + char
+      hash = hash & hash
+    }
+    return Math.abs(hash)
+  }
+
+  // Get next coin type from deterministic sequence
+  getNextCoinType(): 'call' | 'put' | 'gas' | 'whale' | null {
+    return this.coinSequence?.next() ?? null
   }
 }
 
@@ -580,23 +665,17 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
 // Game Logic - Coin Spawning
 // =============================================================================
 
-function spawnCoin(room: GameRoom): Coin {
-  const types: Array<'call' | 'put' | 'gas' | 'whale'> = [
-    'call',
-    'call',
-    'put',
-    'put',
-    'gas',
-    'whale',
-  ]
-  const type = types[Math.floor(Math.random() * types.length)]
+function spawnCoin(room: GameRoom): Coin | null {
+  const coinType = room.getNextCoinType()
+  if (!coinType) return null
+
   const coinId = `coin-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 
   const coin: Coin = {
     id: coinId,
-    type,
-    x: 0, // Will be set per-player
-    y: 0, // Will be set per-player
+    type: coinType,
+    x: 0,
+    y: 0,
   }
 
   room.addCoin(coin)
@@ -608,6 +687,9 @@ function spawnCoin(room: GameRoom): Coin {
 // =============================================================================
 
 function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
+  // Initialize deterministic coin sequence
+  room.initCoinSequence()
+
   // Initialize round state and emit round_start event
   room.startNewRound()
   io.to(room.id).emit('round_start', {
@@ -641,6 +723,8 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
 
     // Single coin spawn (no burst)
     const coin = spawnCoin(room)
+    if (!coin) return // Sequence exhausted
+
     emitCoinSpawn(coin)
 
     // Schedule next spawn
