@@ -5,4 +5,12 @@ libs = ["lib"]
 optimizer = true
 optimizer_runs = 200
 
+# Base Sepolia RPC
+[rpc_endpoints]
+baseSepolia = "${BASE_SEPOLIA_RPC_URL}"
+
+# Etherscan API for contract verification
+[etherscan]
+base_sepolia = { key = "${ETHERSCAN_API_KEY}" }
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
