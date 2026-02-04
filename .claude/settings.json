@@ -1,5 +1,19 @@
 {
   "description": "Grid Games - HFT Battle with Phaser + Foundry + Ethers.js",
+  "spinnerVerbs": {
+    "mode": "replace",
+    "verbs": [
+      "Fucking your mother",
+      "Shitting in your codebase",
+      "Dropping your tables",
+      "Exploiting your contracts",
+      "Rugging your liquidity",
+      "Forking your repos",
+      "Bricking your nodes",
+      "Stealing your private keys",
+      "Dumping your tokens"
+    ]
+  },
   "actors": {
     "game-logic-reviewer": {
       "type": "subagent",

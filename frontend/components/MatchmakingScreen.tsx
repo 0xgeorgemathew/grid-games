@@ -5,6 +5,17 @@ import { useTradingStore } from '@/game/stores/trading-store'
 import { motion, AnimatePresence } from 'framer-motion'
 import { GridScanBackground } from '@/components/GridScanBackground'
 
+const GLOW_ANIMATION = {
+  textShadow: [
+    '0 0 20px rgba(0,217,255,0.4)',
+    '0 0 40px rgba(0,217,255,0.8)',
+    '0 0 20px rgba(0,217,255,0.4)',
+  ] as string[],
+  transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' },
+} as const
+
+const BOTTOM_DOTS_COUNT = 7
+
 const TRADER_NAMES = [
   'Alfa',
   'Bravo',
@@ -19,6 +30,8 @@ const TRADER_NAMES = [
 ]
 
 export function MatchmakingScreen() {
+  // Use full store (not selectors) to avoid infinite loop
+  // Selectors with object literals cause React hydration issues
   const { isConnected, isMatching, findMatch } = useTradingStore()
   const [playerName] = useState(() => {
     const name = TRADER_NAMES[Math.floor(Math.random() * TRADER_NAMES.length)]
@@ -76,11 +89,7 @@ export function MatchmakingScreen() {
                   '0 0 20px rgba(0,217,255,0.4)',
                 ],
               }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
             >
               GRID
             </motion.h3>
@@ -98,7 +107,6 @@ export function MatchmakingScreen() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.3, duration: 0.6 }}
         >
-          {/* Outer glow pulse */}
           <motion.div
             className="absolute inset-0 rounded-lg"
             animate={{
@@ -111,11 +119,7 @@ export function MatchmakingScreen() {
                     ]
                   : '0 0 10px rgba(255,255,255,0.1)',
             }}
-            transition={{
-              duration: 2,
-              repeat: Infinity,
-              ease: 'easeInOut',
-            }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
           />
 
           {/* Button body - 10% smaller */}
@@ -133,11 +137,7 @@ export function MatchmakingScreen() {
                     }
                   : {}
               }
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
             >
               <span className={isConnected && !isMatching ? 'text-cyan-300' : 'text-white/20'}>
                 {isMatching ? 'ENTERING...' : 'ENTER'}
@@ -160,9 +160,8 @@ export function MatchmakingScreen() {
         </motion.button>
       </div>
 
-      {/* Subtle bottom dots - data stream */}
       <div className="fixed bottom-12 left-0 right-0 z-20 flex justify-center gap-2">
-        {[...Array(7)].map((_, i) => (
+        {[...Array(BOTTOM_DOTS_COUNT)].map((_, i) => (
           <motion.div
             key={i}
             className="w-0.5 h-0.5 bg-cyan-400/40"

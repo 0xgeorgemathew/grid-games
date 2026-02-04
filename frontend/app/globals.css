@@ -407,6 +407,61 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   Health Bar Animations - Street Fighter inspired
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Critical health pulse */
+@keyframes health-critical {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.health-critical {
+  animation: health-critical 0.8s ease-in-out infinite;
+}
+
+/* Damage flash effect */
+@keyframes health-damage-flash {
+  0% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(2) saturate(0);
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+
+.health-damage {
+  animation: health-damage-flash 0.15s ease-out;
+}
+
+/* Local player glow - Street Fighter P1/P2 badge style */
+@keyframes local-player-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 5px rgba(0, 243, 255, 0.3),
+      inset 0 0 5px rgba(0, 243, 255, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 10px rgba(0, 243, 255, 0.5),
+      inset 0 0 10px rgba(0, 243, 255, 0.2);
+  }
+}
+
+.local-player-indicator {
+  animation: local-player-pulse 2s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    Game Effects - Screen Shake, Gas Fog, Order Cards
    ═══════════════════════════════════════════════════════════════════════════ */
 
