@@ -17,6 +17,8 @@ bun run dev    # Start dev server at http://localhost:3000
 
 Socket.IO server runs at `/api/socket`.
 
+**Performance Note:** GridScanBackground (Three.js) runs at 60fps continuously. May impact mobile battery life.
+
 ## Commands
 
 ### Frontend
@@ -65,7 +67,7 @@ grid-games/
 
 ### Add Game Feature
 
-1. Read `.claude/rules/game-design.md`
+1. Read `.claude/rules/game-design.md` (best-of-three rounds, 100s each)
 2. Read `.claude/rules/multiplayer-patterns.md`
 3. Implement in `frontend/game/scenes/` or `frontend/app/api/socket/`
 4. Type check: `bun run types`
@@ -111,7 +113,8 @@ bun install
 
 - Check browser console for Phaser errors
 - Verify game canvas is mounted
-- Check `window.phaserEvents` bridge
+- Check `window.phaserEvents` bridge (React ↔ Phaser communication)
+- Ensure GameCanvasClient is dynamically imported with `ssr: false`
 
 ### Forge build failures
 
@@ -123,6 +126,7 @@ forge update # Reinstall dependencies
 
 ## References
 
-- `CLAUDE.md` - Detailed project info
-- `.claude/rules/game-design.md` - Game mechanics
-- `.claude/rules/multiplayer-patterns.md` - Reliability patterns
+- `CLAUDE.md` - Detailed project info (CRITICAL ISSUES at top)
+- `.claude/rules/game-design.md` - Game mechanics (best-of-three rounds)
+- `.claude/rules/multiplayer-patterns.md` - Reliability patterns (SettlementGuard, RAII)
+- `.claude/rules/types.md` - Type system documentation and conventions

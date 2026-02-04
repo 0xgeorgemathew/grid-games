@@ -85,6 +85,8 @@ export function createPhaserConfig(options: PhaserConfigOptions): Phaser.Types.C
     width,
     height,
     backgroundColor: COLORS.background,
+    pixelArt: false, // Smooth scaling (not pixelated)
+    antialias: true, // Anti-aliased rendering
     fps: {
       target: 60, // Increase from 45 to 60 for smoother gameplay
       forceSetTimeOut: false,
@@ -94,9 +96,18 @@ export function createPhaserConfig(options: PhaserConfigOptions): Phaser.Types.C
     scene: [scene],
   }
 
+  // Set scale mode for high-DPI support (device pixel ratio)
   if (fitToScreen) {
     config.scale = {
       mode: Phaser.Scale.RESIZE,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+      // Phaser automatically handles devicePixelRatio for WebGL
+    }
+  } else {
+    config.scale = {
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+      // Phaser automatically handles devicePixelRatio for WebGL
     }
   }
 

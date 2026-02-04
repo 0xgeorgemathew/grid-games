@@ -3,10 +3,9 @@ import type { CoinType } from '../types/trading'
 
 export interface CoinConfig {
   color: number
-  symbol: string
-  arrow: string
+  edgeColor: number // Darker shade for milled edge/rim
   radius: number
-  innerColor: number
+  innerColor?: number // Optional (only gas uses gradient inner)
   rotationSpeed?: number // Radians per second
   jitterAmount?: number // For gas coins
   hasTrail?: boolean // For whale coins
@@ -31,8 +30,7 @@ export class Token extends GameObjects.Container {
     // Default config (will be overridden in spawn())
     this.config = {
       color: 0xf7931a,
-      symbol: '₿',
-      arrow: '▲',
+      edgeColor: 0xc47000,
       radius: 28,
       innerColor: 0xffd700,
     }
@@ -74,7 +72,8 @@ export class Token extends GameObjects.Container {
     }
 
     // Apply mobile scale (1.3x larger on mobile for better visibility)
-    const scale = isMobile ? 1.3 : 1
+    const targetScale = isMobile ? 1.3 : 1
+    const scale = targetScale
 
     // Store metadata
     this.setData('id', id)
@@ -94,7 +93,7 @@ export class Token extends GameObjects.Container {
         break
       case 'gas':
         rotationSpeed = 0
-        jitterAmount = 2 // Jittery rotation
+        jitterAmount = 0.8 // Reduced jitter for smoother motion (was 2, too aggressive)
         break
       case 'whale':
         rotationSpeed = 1.2 // Double speed
@@ -232,14 +231,16 @@ export class Token extends GameObjects.Container {
       })
     }
 
-    // Initial rotation burst (±90 degrees)
-    const rotationBurst = Phaser.Math.FloatBetween(-Math.PI / 2, Math.PI / 2)
-    this.spawnRotationTween = this.scene.tweens.add({
-      targets: this,
-      angle: rotationBurst * (180 / Math.PI), // Convert to degrees
-      duration: 200,
-      ease: 'Power2.easeOut',
-    })
+    // Initial rotation burst (±90 degrees) - SKIP for gas coins (they use jitter instead)
+    if (type !== 'gas') {
+      const rotationBurst = Phaser.Math.FloatBetween(-Math.PI / 2, Math.PI / 2)
+      this.spawnRotationTween = this.scene.tweens.add({
+        targets: this,
+        angle: rotationBurst * (180 / Math.PI), // Convert to degrees
+        duration: 200,
+        ease: 'Power2.easeOut',
+      })
+    }
   }
 
   /**
@@ -283,15 +284,20 @@ export class Token extends GameObjects.Container {
 
   /**
    * Update rotation (not handled by physics).
+   * Gas coins have smooth jitter for visual effect.
    */
   preUpdate(time: number, delta: number): void {
     const type = this.getData('type') as CoinType
     const jitterAmount = this.getData('jitterAmount') as number
 
-    // Apply jitter for gas coins
+    // Apply smooth jitter for gas coins using sine wave for organic feel
     if (type === 'gas' && jitterAmount > 0) {
-      const jitter = Phaser.Math.FloatBetween(-jitterAmount, jitterAmount)
-      this.rotation += jitter * (delta / 1000)
+      // Use time-based sine wave instead of pure random for smoother motion
+      const wobbleSpeed = 0.003 // Speed of wobble
+      const wobble = Math.sin(time * wobbleSpeed) * jitterAmount * 0.5
+      // Add tiny random micro-jitter for "glitchy" feel
+      const microJitter = Phaser.Math.FloatBetween(-0.1, 0.1)
+      this.rotation += (wobble + microJitter) * (delta / 1000)
     }
   }
 }

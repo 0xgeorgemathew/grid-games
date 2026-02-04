@@ -167,35 +167,29 @@ const GRID_CONFIG = {
   size: 60,
 } as const
 
-// Coin configuration for visual rendering (NEON ARCADE TERMINAL theme)
+// Coin configuration for visual rendering (Classic Casino Token theme)
+// Colors: Muted, metallic tones with thick dark edges for milled rim effect
 export const COIN_CONFIG = {
   call: {
-    color: 0x39ff14, // Electric Lime (bullish)
-    symbol: '₿',
-    arrow: '▲',
-    radius: 28,
-    innerColor: 0x2ecc00, // Darker lime inner
+    color: 0x4a7c59, // Muted Forest Green
+    edgeColor: 0x2d4a35, // Dark Green (milled edge)
+    radius: 12,
   },
   put: {
-    color: 0xff1744, // Neon Red (bearish)
-    symbol: '₿',
-    arrow: '▼',
-    radius: 28,
-    innerColor: 0xcc0033, // Darker red inner
+    color: 0x8b3a3a, // Muted Burgundy
+    edgeColor: 0x4a1f1f, // Dark Burgundy (milled edge)
+    radius: 12,
   },
   gas: {
-    color: 0xffd700, // Hazard gold
-    symbol: '⚡',
-    arrow: '',
-    radius: 28,
-    innerColor: 0xff8c00, // Orange inner
+    color: 0xc9a227, // Antique Gold
+    edgeColor: 0x8b6914, // Bronze (milled edge)
+    radius: 12,
+    innerColor: 0xff8c00, // Orange inner (keep gradient for gas)
   },
   whale: {
-    color: 0xff00ff, // Legendary Magenta
-    symbol: '★',
-    arrow: '',
-    radius: 40,
-    innerColor: 0xcc00cc, // Deep magenta inner
+    color: 0x6b4c8a, // Royal Purple
+    edgeColor: 0x3d2a4f, // Dark Purple (milled edge)
+    radius: 15, // Slightly larger than regular
   },
 } as const
 
@@ -496,118 +490,190 @@ export class TradingScene extends Scene {
     }
   }
 
+  /**
+   * Draw skull symbol for penalty coins
+   * Cranium (circle) + jaw (rounded rect) + eye sockets + nose
+   */
+  private drawSkull(
+    graphics: Phaser.GameObjects.Graphics,
+    x: number,
+    y: number,
+    size: number,
+    color: number
+  ): void {
+    // Cranium (circle)
+    graphics.fillStyle(color, 1)
+    graphics.fillCircle(x, y - size * 0.1, size * 0.35)
+
+    // Jaw (rounded rect)
+    graphics.fillRoundedRect(x - size * 0.25, y + size * 0.15, size * 0.5, size * 0.25, size * 0.1)
+
+    // Eye sockets (black)
+    graphics.fillStyle(0x000000, 1)
+    graphics.fillCircle(x - size * 0.12, y - size * 0.15, size * 0.1)
+    graphics.fillCircle(x + size * 0.12, y - size * 0.15, size * 0.1)
+
+    // Nose triangle
+    graphics.fillTriangle(
+      x,
+      y - size * 0.05,
+      x - size * 0.08,
+      y + size * 0.05,
+      x + size * 0.08,
+      y + size * 0.05
+    )
+  }
+
+  /**
+   * Helper function to adjust color brightness
+   * Used for creating metallic gradient effects on casino tokens
+   */
+  private adjustBrightness(hexColor: number, factor: number): number {
+    const color = Phaser.Display.Color.ValueToColor(hexColor)
+    color.red = Math.floor(Math.min(255, color.red * factor))
+    color.green = Math.floor(Math.min(255, color.green * factor))
+    color.blue = Math.floor(Math.min(255, color.blue * factor))
+    return Phaser.Display.Color.GetColor(color.red, color.green, color.blue)
+  }
+
   private generateCachedTextures(): void {
     const textureKeys: Array<CoinType> = ['call', 'put', 'gas', 'whale']
 
     textureKeys.forEach((type) => {
       const config = COIN_CONFIG[type]
-      const diameter = config.radius * 2 + 8 // Extra padding for glow
+
+      // Quadruple the texture size for smooth gradients
+      const scale = 4
+      const diameter = (config.radius * 2 + 4) * scale
 
       // Create a container to hold all elements
       const container = this.add.container(0, 0)
 
-      // 1. Create graphics for coin body
+      // Create graphics for coin body
       const graphics = this.add.graphics()
+      const scaledRadius = config.radius * scale
 
-      // Draw outer bloom glow (larger, softer glow)
-      const glowColor = Phaser.Display.Color.IntegerToColor(config.color)
-      for (let r = config.radius + 4; r >= config.radius; r--) {
-        const alpha = ((config.radius + 4 - r) / 4) * 0.3
-        graphics.fillStyle(config.color, alpha)
+      // =========================================================================
+      // CLASSIC CASINO TOKEN LAYERED STRUCTURE (from bottom to top)
+      // =========================================================================
+
+      // 1. OUTER RIM / MILLED EDGE (thick dark border)
+      // Represents the milled edge of a real token
+      graphics.fillStyle(config.edgeColor, 1)
+      graphics.fillCircle(0, 0, scaledRadius)
+
+      // 2. MAIN BODY with radial gradient (metallic 3D effect)
+      // Draw concentric circles from center to edge, darkening as we go out
+      // This creates the metallic depth appearance
+      for (let r = scaledRadius * 0.95; r >= scaledRadius * 0.2; r -= 0.5) {
+        const t = r / scaledRadius
+        const brightness = 1 - t * 0.4 // Center is 100%, edge is 60%
+        const shadeColor = this.adjustBrightness(config.color, brightness)
+        graphics.fillStyle(shadeColor, 1)
         graphics.fillCircle(0, 0, r)
       }
 
-      // Draw coin body (radial gradient)
-      const centerColor = config.color
-      const edgeColor = Phaser.Display.Color.IntegerToColor(config.color).darken(30).color
-
-      for (let r = config.radius; r >= 0; r -= 2) {
-        const t = r / config.radius
-        const color = Phaser.Display.Color.Interpolate.ColorWithColor(
-          Phaser.Display.Color.ValueToColor(centerColor),
-          Phaser.Display.Color.ValueToColor(edgeColor),
-          config.radius,
-          t
-        )
-        graphics.fillStyle(color.color, 1 - t * 0.2)
-        graphics.fillCircle(0, 0, r)
-      }
-
-      // Draw metallic shine (top-left highlight)
-      graphics.fillStyle(0xffffff, 0.25)
-      graphics.fillCircle(-config.radius * 0.3, -config.radius * 0.3, config.radius * 0.4)
-
-      // Draw inner ring (concentric at 60% radius, white stroke)
-      const innerRingRadius = config.radius * 0.6
-      graphics.lineStyle(2, 0xffffff, 0.5)
+      // 3. INNER RING (bright border at ~70% radius)
+      // Creates separation between rim and raised center
+      const innerRingRadius = scaledRadius * 0.7
+      graphics.lineStyle(2 * scale, 0xffffff, 0.6)
       graphics.strokeCircle(0, 0, innerRingRadius)
 
-      // Draw inner circle with gradient
-      const innerRadius = config.radius * 0.75
-      const innerCenter = config.innerColor
-      const innerEdge = Phaser.Display.Color.IntegerToColor(config.innerColor).darken(15).color
-
-      for (let r = innerRadius; r >= 0; r -= 1.5) {
-        const t = r / innerRadius
-        const color = Phaser.Display.Color.Interpolate.ColorWithColor(
-          Phaser.Display.Color.ValueToColor(innerCenter),
-          Phaser.Display.Color.ValueToColor(innerEdge),
-          innerRadius,
-          t
-        )
-        graphics.fillStyle(color.color, 0.98)
-        graphics.fillCircle(0, 0, r)
+      // 4. RIDGE DETAILS (decorative tick marks around inner ring)
+      // Adds to the casino token aesthetic
+      graphics.lineStyle(1 * scale, config.edgeColor, 0.4)
+      const numRidges = 24
+      for (let i = 0; i < numRidges; i++) {
+        const angle = (i / numRidges) * Math.PI * 2
+        const innerR = innerRingRadius - 3 * scale
+        const outerR = innerRingRadius + 3 * scale
+        graphics.beginPath()
+        graphics.moveTo(Math.cos(angle) * innerR, Math.sin(angle) * innerR)
+        graphics.lineTo(Math.cos(angle) * outerR, Math.sin(angle) * outerR)
+        graphics.strokePath()
       }
+
+      // 5. CENTER AREA (slightly raised platform)
+      // Slightly different shade than body for depth
+      const centerShade = this.adjustBrightness(config.color, 1.1) // 10% brighter
+      graphics.fillStyle(centerShade, 1)
+      graphics.fillCircle(0, 0, scaledRadius * 0.65)
 
       container.add(graphics)
 
-      // 2. Draw symbol (₿, ⚡, or ★) - white with glow for contrast
-      const symbol = this.add
-        .text(0, 2, config.symbol, {
-          fontSize: `${config.radius * 1.0}px`,
-          color: '#FFFFFF',
-          fontStyle: 'bold',
-          fontFamily: 'Arial, sans-serif',
-          shadow: {
-            offsetX: 0,
-            offsetY: 0,
-            blur: 10,
-            color: '#FFFFFF',
-            stroke: false,
-            fill: true,
-          },
-        })
-        .setOrigin(0.5)
-      container.add(symbol)
+      // =========================================================================
+      // SYMBOL RENDERING (with raised appearance - drop shadow)
+      // =========================================================================
 
-      // 3. Draw arrow (if applicable)
-      if (config.arrow) {
-        const arrowY = config.arrow === '▲' ? -config.radius * 0.5 : config.radius * 0.5
-        const arrowColor = config.arrow === '▲' ? '#39ff14' : '#ff1744'
+      // Determine symbol and size
+      let symbol: string
+      let symbolScale: number
 
-        const arrow = this.add
-          .text(0, arrowY, config.arrow, {
-            fontSize: `${config.radius * 0.5}px`,
-            color: arrowColor,
-            fontStyle: 'bold',
-            shadow: {
-              offsetX: 0,
-              offsetY: 0,
-              blur: 6,
-              color: arrowColor,
-              stroke: false,
-              fill: true,
-            },
-          })
-          .setOrigin(0.5)
-        container.add(arrow)
+      if (type === 'whale') {
+        // Whale: Draw red/gold split on purple body
+        // Red half (left side)
+        graphics.fillStyle(0x8b3a3a, 0.9) // Burgundy
+        graphics.fillCircle(0, 0, scaledRadius * 0.6)
+
+        // Gold half (right side) - overlay
+        graphics.fillStyle(0xc9a227, 0.9) // Antique Gold
+        graphics.fillCircle(scaledRadius * 0.3, 0, scaledRadius * 0.55)
+
+        symbol = '2X'
+        symbolScale = config.radius * 0.7 * scale
+      } else if (type === 'gas') {
+        // Gas: skull symbol drawn with graphics
+        const skullGraphics = this.add.graphics()
+        this.drawSkull(skullGraphics, 0, 0, config.radius * scale, 0xffffff)
+        container.add(skullGraphics)
+        symbol = '' // No text for gas
+        symbolScale = 0
+      } else {
+        // Call/Put: BTC ₿ symbol
+        symbol = '₿'
+        symbolScale = config.radius * 0.8 * scale
       }
 
-      // 4. Generate texture from container
+      // Add text symbol with drop shadow for raised appearance
+      if (symbol) {
+        // Shadow first (offset and blurred)
+        const shadowText = this.add
+          .text(2 * scale, 2 * scale, symbol, {
+            fontSize: `${symbolScale}px`,
+            fontStyle: 'bold',
+            fontFamily: 'Arial',
+            color: '#000000',
+          })
+          .setOrigin(0.5)
+
+        // Main text on top (white with black outline)
+        const mainText = this.add
+          .text(0, 0, symbol, {
+            fontSize: `${symbolScale}px`,
+            fontStyle: 'bold',
+            fontFamily: 'Arial',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 2 * scale,
+          })
+          .setOrigin(0.5)
+
+        container.add(shadowText)
+        container.add(mainText)
+      }
+
+      // =========================================================================
+      // GENERATE TEXTURE FROM CONTAINER
+      // =========================================================================
+
       // Create a render texture to capture the container
       const renderTexture = this.make.renderTexture({ width: diameter, height: diameter }, false)
       renderTexture.draw(container, diameter / 2, diameter / 2)
       renderTexture.saveTexture(`texture_${type}`)
+
+      // Set linear filtering for smooth scaling on high-DPI displays
+      this.textures.get(`texture_${type}`).setFilter(Phaser.Textures.FilterMode.LINEAR)
+
       renderTexture.destroy()
 
       // Cleanup
@@ -825,7 +891,10 @@ export class TradingScene extends Scene {
       const type = tokenObj.getData('type') as CoinType
       const config = COIN_CONFIG[type]
 
-      this.collisionCircle.setTo(tokenObj.x, tokenObj.y, config.radius)
+      // Hitbox: 85% of visual size, accounting for mobile scale (matching Token.spawn())
+      const mobileScale = this.isMobile ? 1.3 : 1
+      const hitboxRadius = config.radius * 0.85 * mobileScale
+      this.collisionCircle.setTo(tokenObj.x, tokenObj.y, hitboxRadius)
 
       if (Geom.Intersects.LineToCircle(this.collisionLine, this.collisionCircle)) {
         this.sliceCoin(coinId, tokenObj)
@@ -1182,7 +1251,7 @@ export class TradingScene extends Scene {
 
     const config = COIN_CONFIG[coinType]
     let text: string
-    let color = config.color
+    let color: number = config.color // Widened type with 'let'
     let fontSize = this.isMobile ? '28px' : '22px' // Smaller for longer text
 
     // Determine text based on coin type
@@ -1196,10 +1265,11 @@ export class TradingScene extends Scene {
       fontSize = this.isMobile ? '32px' : '26px'
     } else if (coinType === 'whale') {
       text = '2X'
-      color = 0xff00ff // Magenta
+      color = 0x39ff14 // Electric Lime (green)
       fontSize = this.isMobile ? '48px' : '40px'
     } else {
-      text = config.arrow
+      // Fallback (shouldn't happen)
+      text = '?'
       fontSize = this.isMobile ? '48px' : '36px'
     }
 
