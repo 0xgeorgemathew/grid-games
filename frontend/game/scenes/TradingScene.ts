@@ -169,27 +169,32 @@ const GRID_CONFIG = {
 
 // Coin configuration for visual rendering (Classic Casino Token theme)
 // Colors: Muted, metallic tones with thick dark edges for milled rim effect
+// Hitbox multipliers adjust slice difficulty: larger = easier, smaller = harder
 export const COIN_CONFIG = {
   call: {
     color: 0x4a7c59, // Muted Forest Green
     edgeColor: 0x2d4a35, // Dark Green (milled edge)
     radius: 12,
+    hitboxMultiplier: 1.4, // 40% larger hitbox - easier to slice
   },
   put: {
     color: 0x8b3a3a, // Muted Burgundy
     edgeColor: 0x4a1f1f, // Dark Burgundy (milled edge)
     radius: 12,
+    hitboxMultiplier: 1.4, // 40% larger hitbox - easier to slice
   },
   gas: {
     color: 0xc9a227, // Antique Gold
     edgeColor: 0x8b6914, // Bronze (milled edge)
     radius: 12,
     innerColor: 0xff8c00, // Orange inner (keep gradient for gas)
+    hitboxMultiplier: 2.0, // 2x hitbox - much easier to slice (encourage quick reaction)
   },
   whale: {
     color: 0x6b4c8a, // Royal Purple
     edgeColor: 0x3d2a4f, // Dark Purple (milled edge)
     radius: 15, // Slightly larger than regular
+    hitboxMultiplier: 0.7, // 30% smaller hitbox - harder to slice (reward precision)
   },
 } as const
 
@@ -893,7 +898,7 @@ export class TradingScene extends Scene {
 
       // Hitbox: 85% of visual size, accounting for mobile scale (matching Token.spawn())
       const mobileScale = this.isMobile ? 1.3 : 1
-      const hitboxRadius = config.radius * 0.85 * mobileScale
+      const hitboxRadius = config.radius * 0.85 * mobileScale * (config.hitboxMultiplier ?? 1.0)
       this.collisionCircle.setTo(tokenObj.x, tokenObj.y, hitboxRadius)
 
       if (Geom.Intersects.LineToCircle(this.collisionLine, this.collisionCircle)) {
