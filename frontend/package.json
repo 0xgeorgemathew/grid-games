@@ -11,6 +11,7 @@
     "types": "tsc --noEmit"
   },
   "dependencies": {
+    "@ensdomains/ensjs": "^4.2.2",
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
     "class-variance-authority": "^0.7.1",
@@ -29,6 +30,7 @@
     "tailwindcss-animate": "^1.0.7",
     "three": "^0.160.0",
     "three-stdlib": "^2.36.1",
+    "viem": "^2.45.1",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
