@@ -48,26 +48,11 @@ export function MatchmakingScreen() {
 
     setIsClaiming(true)
     try {
-      // Create sponsored wallet
-      const createResponse = await fetch('/api/create-wallet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id }),
-      })
-
-      if (!createResponse.ok) {
-        const errorData = await createResponse.json()
-        throw new Error(errorData.error || 'Failed to create sponsored wallet')
-      }
-
-      const { wallet: sponsoredWallet } = await createResponse.json()
-
-      // Claim USDC and transfer to user's wallet
+      // Claim USDC directly to user's embedded wallet (gas sponsored by server)
       const claimResponse = await fetch('/api/claim-usdc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          walletId: sponsoredWallet.id,
           userWalletAddress: user.wallet.address,
           userId: user.id,
         }),
@@ -77,8 +62,6 @@ export function MatchmakingScreen() {
 
       if (claimResponse.ok) {
         setUsdcClaimed(true)
-      } else if (claimData.needsSponsoredWallet) {
-        alert('Please wait a moment and try again. Your sponsored wallet is being set up.')
       } else {
         alert('Claim failed: ' + (claimData.error || 'Unknown error'))
       }
@@ -171,7 +154,7 @@ export function MatchmakingScreen() {
                 className="flex flex-col items-center gap-3"
               >
                 <ActionButton onClick={handleClaimFaucet} isLoading={isClaiming} color="green">
-                  {isClaiming ? 'CLAIMING...' : 'GET 10 USDC'}
+                  {isClaiming ? 'CLAIMING...' : 'GET 0.1 USDC'}
                 </ActionButton>
               </motion.div>
             ) : (
@@ -183,7 +166,7 @@ export function MatchmakingScreen() {
                 transition={{ duration: 0.4 }}
                 className="flex flex-col items-center gap-3"
               >
-                <p className="text-green-400 text-xs tracking-wider">✓ 10 USDC CLAIMED</p>
+                <p className="text-green-400 text-xs tracking-wider">✓ 0.1 USDC CLAIMED</p>
                 <ActionButton
                   onClick={handleEnter}
                   disabled={!isConnected || isMatching}
