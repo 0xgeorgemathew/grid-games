@@ -11,16 +11,14 @@ const privy = new PrivyClient({
 
 // Environment configuration
 const FAUCET_ADDRESS = (process.env.FAUCET_ADDRESS || process.env.NEXT_PUBLIC_FAUCET_ADDRESS) as `0x${string}`
-const USDC_ADDRESS = (process.env.USDC_ADDRESS || process.env.NEXT_PUBLIC_USDC_ADDRESS) as `0x${string}`
 const AUTHORIZATION_KEY = process.env.PRIVY_AUTHORIZATION_PRIVATE_KEY as string | undefined
 const AUTHORIZATION_KEY_ID = (process.env.PRIVY_AUTHORIZATION_KEY_ID || 'dosot9g1wi7fhmdv349o7tw3') as string
 
 // ABIs
-const FAUCET_ABI = parseAbi(['function claim() external'])
-const USDC_ABI = parseAbi(['function transfer(address to, uint256 amount) external returns (bool)'])
-
-// Claim amount: 0.1 USDC (6 decimals)
-const CLAIM_AMOUNT = BigInt(100_000)
+const FAUCET_ABI = parseAbi([
+  'function claim() external',
+  'function claimTo(address recipient) external'
+])
 
 // Simple in-memory rate limiting (resets on server restart)
 const claimHistory = new Map<string, { count: number; lastClaim: number }>()
@@ -105,29 +103,17 @@ export async function POST(req: NextRequest) {
     // Get or create the singleton sponsored wallet
     const { id: sponsoredWalletId } = await getSponsoredWallet()
 
-    // Step 1: Claim USDC to sponsored wallet
+    // Single transaction: claim directly to user's wallet using claimTo()
     const claimCallData = encodeFunctionData({
       abi: FAUCET_ABI,
-      functionName: 'claim',
+      functionName: 'claimTo',
+      args: [userWalletAddress as `0x${string}`],
     })
 
     const claimResult = await sendSponsoredTransaction(
       sponsoredWalletId,
       FAUCET_ADDRESS,
       claimCallData as `0x${string}`
-    )
-
-    // Step 2: Transfer USDC to user's wallet
-    const transferCallData = encodeFunctionData({
-      abi: USDC_ABI,
-      functionName: 'transfer',
-      args: [userWalletAddress as `0x${string}`, CLAIM_AMOUNT],
-    })
-
-    const transferResult = await sendSponsoredTransaction(
-      sponsoredWalletId,
-      USDC_ADDRESS,
-      transferCallData as `0x${string}`
     )
 
     // Update rate limiting and claim state
@@ -139,7 +125,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       claimTx: { hash: claimResult.hash },
-      transferTx: { hash: transferResult.hash },
       userWalletAddress,
     })
   } catch (error) {
