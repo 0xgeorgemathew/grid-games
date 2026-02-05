@@ -8,9 +8,10 @@ contract USDCFaucet is Ownable {
     IERC20 public constant usdc =
         IERC20(0x036CbD53842c5426634e7929541eC2318f3dCF7e); // Base Sepolia USDC
 
-    uint256 public claimAmount = 10 * 1e6; // 10 USDC (6 decimals)
+    uint256 public claimAmount = 100_000; // 0.1 USDC (6 decimals)
 
     event Claimed(address indexed user, uint256 amount);
+    event ClaimedTo(address indexed recipient, address indexed sponsor, uint256 amount);
     event ClaimAmountUpdated(uint256 oldAmount, uint256 newAmount);
     event Withdrawn(address indexed to, uint256 amount);
 
@@ -21,6 +22,14 @@ contract USDCFaucet is Ownable {
         require(usdc.balanceOf(address(this)) >= claimAmount, "Faucet empty");
         usdc.transfer(msg.sender, claimAmount);
         emit Claimed(msg.sender, claimAmount);
+    }
+
+    /// @notice Claim USDC from the faucet to a specific recipient (gas sponsored calls)
+    function claimTo(address recipient) external {
+        require(recipient != address(0), "Invalid recipient");
+        require(usdc.balanceOf(address(this)) >= claimAmount, "Faucet empty");
+        usdc.transfer(recipient, claimAmount);
+        emit ClaimedTo(recipient, msg.sender, claimAmount);
     }
 
     /// @notice Owner can set the claim amount
