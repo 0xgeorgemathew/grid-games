@@ -75,7 +75,7 @@ All players see the **same coin types in the same sequence** regardless of devic
 
 ### Settlement
 
-Orders settle 10 seconds after slicing using the latest BTC price from Binance WebSocket feed. Gas and Whale coins settle immediately (Gas applies penalty, Whale activates 2X mode).
+Orders settle 5 seconds after slicing using the latest BTC price from Binance WebSocket feed. Gas and Whale coins settle immediately (Gas applies penalty, Whale activates 2X mode).
 
 ```typescript
 const priceChange = (finalPrice - order.priceAtOrder) / order.priceAtOrder
@@ -158,10 +158,10 @@ if (data.coinType === 'whale') {
 3. `round_start` event emitted with round number and duration
 4. Coins spawn every 2000-3000ms with deterministic types (same sequence for both players) and random X positions
 5. Player slices coin:
-   - **Call/Put**: Order created with 10s countdown
+   - **Call/Put**: Order created with 5s countdown
    - **Gas**: Immediate penalty ($1 from slicer to opponent)
    - **Whale**: 2X mode activated for slicing player (10 seconds)
-6. After 10s, price checked → Winner/loser determined → Funds transferred (×2 if 2X active)
+6. After 5s, price checked → Winner/loser determined → Funds transferred (×2 if 2X active)
 
 ### Round End
 1. Round time expires (30s) OR knockout ($0)
