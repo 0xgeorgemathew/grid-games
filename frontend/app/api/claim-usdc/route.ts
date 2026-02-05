@@ -95,11 +95,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check if user already claimed (for this server session)
-    if (userClaims.has(userId)) {
-      return errorResponse('You have already claimed USDC. Please log out and log back in to claim again.', 400)
-    }
-
     // Get or create the singleton sponsored wallet
     const { id: sponsoredWalletId } = await getSponsoredWallet()
 
