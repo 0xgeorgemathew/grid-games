@@ -1,7 +1,10 @@
 import { Server as SocketIOServer } from 'socket.io'
 import { Socket } from 'socket.io'
-import { Player } from '@/game/types/trading'
+import { Player, RoundSummary } from '@/game/types/trading'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
+
+// Order settlement duration - time between slice and settlement (5 seconds)
+export const ORDER_SETTLEMENT_DURATION_MS = 5000
 
 // Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
 const DEBUG_FUNDS = process.env.DEBUG_FUNDS === 'true'
@@ -52,6 +55,60 @@ class SettlementGuard {
 }
 
 const settlementGuard = new SettlementGuard()
+
+// =============================================================================
+// Seeded RNG - Deterministic coin sequences for fair play
+// =============================================================================
+
+// Seeded random number generator for deterministic sequences
+class SeededRandom {
+  private seed: number
+
+  constructor(seed: number) {
+    this.seed = seed
+  }
+
+  next(): number {
+    this.seed = (this.seed * 1664525 + 1013904223) % 4294967296
+    return this.seed / 4294967296
+  }
+
+  nextInt(min: number, max: number): number {
+    return Math.floor(this.next() * (max - min + 1)) + min
+  }
+}
+
+// Pre-generated coin sequence per round
+class CoinSequence {
+  private sequence: Array<'call' | 'put' | 'gas' | 'whale'> = []
+  private index = 0
+
+  constructor(durationMs: number, minIntervalMs: number, maxIntervalMs: number, seed: number) {
+    const rng = new SeededRandom(seed)
+    const types: Array<'call' | 'put' | 'gas' | 'whale'> = [
+      'call',
+      'call',
+      'put',
+      'put',
+      'gas',
+      'whale',
+    ]
+
+    const estimatedSpawns = Math.ceil(durationMs / minIntervalMs) + 5
+    for (let i = 0; i < estimatedSpawns; i++) {
+      this.sequence.push(types[rng.nextInt(0, types.length - 1)])
+    }
+  }
+
+  next(): 'call' | 'put' | 'gas' | 'whale' | null {
+    if (this.index >= this.sequence.length) return null
+    return this.sequence[this.index++]
+  }
+
+  hasNext(): boolean {
+    return this.index < this.sequence.length
+  }
+}
 
 // =============================================================================
 // Price Feed Manager - Real-time Binance WebSocket
@@ -174,17 +231,7 @@ interface PendingOrder {
   priceAtOrder: number
   settlesAt: number
   isPlayer1: boolean // Stored at order creation to avoid lookup issues at settlement
-}
-
-// Round summary for game over display
-interface RoundSummary {
-  roundNumber: number
-  winnerId: string | null
-  isTie: boolean
-  player1Dollars: number
-  player2Dollars: number
-  player1Gained: number
-  player2Gained: number
+  multiplier: number // Stored at order creation - 2 if 2x was active when placed, 1 otherwise
 }
 
 // =============================================================================
@@ -214,7 +261,10 @@ class GameRoom {
   player1CashAtRoundStart: number = 10
   player2CashAtRoundStart: number = 10
   isSuddenDeath: boolean = false
-  readonly ROUND_DURATION = 100000 // 100 seconds
+  readonly ROUND_DURATION = 30000 // 30 seconds
+
+  // Deterministic coin sequence
+  private coinSequence: CoinSequence | null = null
 
   // Round history for game over summary
   roundHistory: RoundSummary[] = []
@@ -377,9 +427,37 @@ class GameRoom {
     this.isClosing = true
   }
 
-  // Flat spawn rate matching design doc
+  // Fruit Ninja-style spawn rate
   getSpawnInterval(): { minMs: number; maxMs: number } {
-    return { minMs: 800, maxMs: 1200 }
+    return { minMs: 2000, maxMs: 3000 }
+  }
+
+  // Initialize deterministic coin sequence for this round
+  initCoinSequence(): void {
+    const seed = this.hashString(`${this.id}-round${this.currentRound}`)
+    const spawnConfig = this.getSpawnInterval()
+    this.coinSequence = new CoinSequence(
+      this.ROUND_DURATION,
+      spawnConfig.minMs,
+      spawnConfig.maxMs,
+      seed
+    )
+  }
+
+  // Hash string to number for seeding
+  private hashString(str: string): number {
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i)
+      hash = (hash << 5) - hash + char
+      hash = hash & hash
+    }
+    return Math.abs(hash)
+  }
+
+  // Get next coin type from deterministic sequence
+  getNextCoinType(): 'call' | 'put' | 'gas' | 'whale' | null {
+    return this.coinSequence?.next() ?? null
   }
 }
 
@@ -550,7 +628,9 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
     const priceChange = (finalPrice - order.priceAtOrder) / order.priceAtOrder
 
     const isCorrect = order.coinType === 'call' ? priceChange > 0 : priceChange < 0
-    const impact = room.get2XMultiplier(order.playerId)
+    // Use the multiplier stored at order creation time (not current 2x state)
+    // This ensures orders placed during 2x window get 2x even if they settle after 2x expires
+    const impact = order.multiplier
 
     transferFunds(
       room,
@@ -570,6 +650,7 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
       isCorrect,
       priceAtOrder: order.priceAtOrder,
       finalPrice: finalPrice,
+      amountTransferred: impact,
     })
   } finally {
     settlementGuard.release(order.id)
@@ -580,23 +661,17 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
 // Game Logic - Coin Spawning
 // =============================================================================
 
-function spawnCoin(room: GameRoom): Coin {
-  const types: Array<'call' | 'put' | 'gas' | 'whale'> = [
-    'call',
-    'call',
-    'put',
-    'put',
-    'gas',
-    'whale',
-  ]
-  const type = types[Math.floor(Math.random() * types.length)]
+function spawnCoin(room: GameRoom): Coin | null {
+  const coinType = room.getNextCoinType()
+  if (!coinType) return null
+
   const coinId = `coin-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 
   const coin: Coin = {
     id: coinId,
-    type,
-    x: 0, // Will be set per-player
-    y: 0, // Will be set per-player
+    type: coinType,
+    x: 0,
+    y: 0,
   }
 
   room.addCoin(coin)
@@ -608,6 +683,9 @@ function spawnCoin(room: GameRoom): Coin {
 // =============================================================================
 
 function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
+  // Initialize deterministic coin sequence
+  room.initCoinSequence()
+
   // Initialize round state and emit round_start event
   room.startNewRound()
   io.to(room.id).emit('round_start', {
@@ -641,6 +719,8 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
 
     // Single coin spawn (no burst)
     const coin = spawnCoin(room)
+    if (!coin) return // Sequence exhausted
+
     emitCoinSpawn(coin)
 
     // Schedule next spawn
@@ -765,14 +845,19 @@ function handleSlice(
   const playerIds = room.getPlayerIds()
   const isPlayer1 = playerId === playerIds[0]
 
+  // Store the 2x multiplier at order creation time (not settlement time)
+  // This ensures orders placed during 2x window get 2x even if they settle after 2x expires
+  const multiplier = room.get2XMultiplier(playerId)
+
   const order: PendingOrder = {
     id: `order-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
     playerId,
     playerName: room.players.get(playerId)?.name || 'Unknown',
     coinType: data.coinType,
     priceAtOrder: data.priceAtSlice,
-    settlesAt: Date.now() + 10000, // 10 seconds
+    settlesAt: Date.now() + ORDER_SETTLEMENT_DURATION_MS, // 5 seconds
     isPlayer1, // Stored at creation to avoid lookup issues at settlement
+    multiplier, // Stored at creation - 2 if 2x was active when placed
   }
 
   room.addPendingOrder(order)
@@ -799,7 +884,7 @@ function handleSlice(
       settleOrder(io, room, order)
       checkGameOver(io, manager, room)
     }
-  }, 10000)
+  }, ORDER_SETTLEMENT_DURATION_MS)
 
   room.trackTimeout(timeoutId)
 }
@@ -823,6 +908,9 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
     // Emit round_end so clients see the updated win count
     const p1 = room.players.get(playerIds[0])
     const p2 = room.players.get(playerIds[1])
+    const p1Gained = (p1?.dollars || 10) - room.player1CashAtRoundStart
+    const p2Gained = (p2?.dollars || 10) - room.player2CashAtRoundStart
+
     io.to(room.id).emit('round_end', {
       roundNumber: room.currentRound,
       winnerId,
@@ -831,8 +919,20 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       player2Wins: room.player2Wins,
       player1Dollars: p1?.dollars,
       player2Dollars: p2?.dollars,
-      player1Gained: (p1?.dollars || 10) - room.player1CashAtRoundStart,
-      player2Gained: (p2?.dollars || 10) - room.player2CashAtRoundStart,
+      player1Gained: p1Gained,
+      player2Gained: p2Gained,
+    })
+
+    // CRITICAL: Record round summary before game_over (same as endRound)
+    room.roundHistory.push({
+      roundNumber: room.currentRound,
+      winnerId,
+      isTie: false,
+      player1Dollars: p1?.dollars || 10,
+      player2Dollars: p2?.dollars || 10,
+      player1Gained: p1Gained,
+      player2Gained: p2Gained,
+      playerLost: winnerId === playerIds[0] ? Math.max(0, p1Gained) : winnerId === playerIds[1] ? Math.max(0, p2Gained) : undefined,
     })
 
     // Emit game_over with knockout reason
@@ -896,6 +996,8 @@ function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom): voi
     player2Dollars: p2?.dollars || 10,
     player1Gained: p1Gained,
     player2Gained: p2Gained,
+    // Amount the winner gained (positive value, equal to loser's loss in zero-sum)
+    playerLost: winnerId === playerIds[0] ? Math.max(0, p1Gained) : winnerId === playerIds[1] ? Math.max(0, p2Gained) : undefined,
   })
 
   // Check if game should end

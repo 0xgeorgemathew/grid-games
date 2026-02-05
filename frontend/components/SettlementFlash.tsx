@@ -41,8 +41,8 @@ export function SettlementFlash() {
 
   if (!latestSettlement || !isVisible || !localPlayerId) return null
 
-  // Determine if local player won
-  const amount = latestSettlement.coinType === 'whale' ? 2 : 1
+  // Use the amount from server (includes 2x multiplier)
+  const amount = latestSettlement.amountTransferred ?? 1
   const isLocalPlayerWinner = latestSettlement.isCorrect
     ? latestSettlement.playerId === localPlayerId
     : players.find((p) => p.id !== latestSettlement.playerId)?.id === localPlayerId

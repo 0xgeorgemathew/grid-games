@@ -1,6 +1,21 @@
 export type CoinType = 'call' | 'put' | 'gas' | 'whale'
 
 /**
+ * Coin visual and physics configuration
+ * Used for rendering and hitbox calculation
+ */
+export type CoinConfig = {
+  color: number // Main coin color
+  edgeColor: number // Darker shade for milled edge/rim
+  radius: number // Visual radius in pixels
+  hitboxMultiplier?: number // Hitbox size multiplier (default 1.0)
+  innerColor?: number // Optional gradient center (gas coins only)
+  rotationSpeed?: number // Radians per second (unused in config, set dynamically)
+  jitterAmount?: number // For gas coins (unused in config, set dynamically)
+  hasTrail?: boolean // For whale coins (unused in config, set dynamically)
+}
+
+/**
  * Round summary for game over display
  * Shows results for each completed round
  */
@@ -12,6 +27,7 @@ export type RoundSummary = {
   player2Dollars: number
   player1Gained: number
   player2Gained: number
+  playerLost?: number // Amount the winner gained (positive value)
 }
 
 /**
@@ -49,7 +65,7 @@ export type SliceEvent = {
 }
 
 /**
- * Active order with 10-second countdown timer
+ * Active order with 5-second countdown timer
  * Emitted by server in 'order_placed' event
  */
 export type OrderPlacedEvent = {
@@ -62,7 +78,7 @@ export type OrderPlacedEvent = {
 }
 
 /**
- * Settlement result after 10-second timer expires
+ * Settlement result after 5-second timer expires
  * Emitted by server in 'order_settled' event
  */
 export type SettlementEvent = {
@@ -73,6 +89,7 @@ export type SettlementEvent = {
   isCorrect: boolean
   priceAtOrder: number
   finalPrice: number
+  amountTransferred: number // Actual amount transferred (1 or 2 with 2x multiplier)
 }
 
 /**

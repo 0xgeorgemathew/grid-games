@@ -14,6 +14,7 @@
     "@erc7824/nitrolite": "^0.5.3",
     "@privy-io/node": "^0.8.0",
     "@privy-io/react-auth": "^3.13.1",
+    "@ensdomains/ensjs": "^4.2.2",
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
     "class-variance-authority": "^0.7.1",

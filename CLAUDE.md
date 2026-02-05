@@ -92,7 +92,7 @@ anvil                # Start local Ethereum node
 
 HFT Battle uses a best-of-three round system:
 
-- **Round Duration**: 100 seconds per round
+- **Round Duration**: 30 seconds per round
 - **Starting Cash**: $10 per player, $20 total economy (zero-sum, $0 floor)
 - **Round End**: Time limit or knockout ($0)
 - **Game End**: First to 2 round wins
@@ -106,6 +106,7 @@ See `.claude/rules/game-design.md` for complete mechanics.
 1. **HFT Battle**: Single-monolith architecture - Next.js App Router hosts both frontend and Socket.IO server at `/api/socket`
 2. **Blockchain**: Frontend interacts directly with contracts via ethers.js for settlements
 3. **Data Persistence**: In-memory room state (no external DB for multiplayer)
+4. **Multiplier Snapshot**: Orders placed during Whale 2X mode capture multiplier at creation time (`order.multiplier = 2`). This ensures orders retain 2X even if they settle after the 10s power-up expires. See `game-events.ts:848-861`.
 
 ### Multiplayer Game Patterns (HFT Battle)
 

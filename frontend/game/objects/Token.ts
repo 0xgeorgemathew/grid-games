@@ -9,6 +9,7 @@ export interface CoinConfig {
   rotationSpeed?: number // Radians per second
   jitterAmount?: number // For gas coins
   hasTrail?: boolean // For whale coins
+  hitboxMultiplier?: number // Hitbox size multiplier (default 1.0)
 }
 
 export class Token extends GameObjects.Container {
@@ -153,8 +154,8 @@ export class Token extends GameObjects.Container {
     this.body.setBounce(0) // No bounce
     this.body.setCollideWorldBounds(false) // Fall through edges
 
-    // Hitbox: 85% of visual size (forgiving slicing)
-    const hitboxRadius = config.radius * 0.85 * scale
+    // Hitbox: 85% of visual size (forgiving slicing), with hitbox multiplier
+    const hitboxRadius = config.radius * 0.85 * scale * (config.hitboxMultiplier ?? 1.0)
     this.body.setCircle(hitboxRadius)
 
     // Start at minimum visible scale (prevents stuck-at-0)

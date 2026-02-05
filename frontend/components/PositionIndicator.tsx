@@ -7,8 +7,11 @@ import { cn } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 import { formatPrice } from '@/lib/formatPrice'
 
+// Order settlement duration - must match server value
+const ORDER_SETTLEMENT_DURATION_MS = 5000 // 5 seconds
+
 export function PositionIndicator() {
-  const { activeOrders, localPlayerId, pendingOrders } = useTradingStore()
+  const { activeOrders, localPlayerId, pendingOrders, whale2XExpiresAt } = useTradingStore()
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -34,7 +37,7 @@ export function PositionIndicator() {
           {localOrders.map((order, index) => {
             const isCall = order.coinType === 'call'
             const timeLeft = Math.max(0, order.settlesAt - now)
-            const progress = Math.min(1, timeLeft / 10000) // 10s window
+            const progress = Math.min(1, timeLeft / ORDER_SETTLEMENT_DURATION_MS)
 
             // Check if settled
             const settled = pendingOrders.get(order.orderId)
@@ -45,6 +48,12 @@ export function PositionIndicator() {
 
             // Determine amount based on coin type
             const amount = order.coinType === 'whale' ? 2 : 1
+
+            // Check if order was placed during 2x multiplier window
+            // Order settlesAt timestamp is when it was placed + 10s
+            // If 2x was active when order was placed, show 2X badge
+            const orderPlacedAt = order.settlesAt - ORDER_SETTLEMENT_DURATION_MS
+            const was2XActive = whale2XExpiresAt && orderPlacedAt < whale2XExpiresAt
 
             // Border and glow styles based on state
             const borderStyle = isTimedOut
@@ -235,19 +244,38 @@ export function PositionIndicator() {
                     )}
                   </div>
 
-                  {/* Right: Coin type badge */}
-                  <div
-                    className={cn(
-                      'px-1.5 py-1 rounded-lg text-[10px] font-bold font-mono shrink-0',
-                      order.coinType === 'call' &&
-                        'bg-green-500/20 text-green-400 border border-green-500/30',
-                      order.coinType === 'put' &&
-                        'bg-red-500/20 text-red-400 border border-red-500/30',
-                      order.coinType === 'whale' &&
-                        'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                  {/* Right: Coin type badge with 2X indicator */}
+                  <div className="flex items-center gap-1">
+                    {/* 2X badge if active during order */}
+                    {was2XActive && !settled && !isTimedOut && (
+                      <motion.div
+                        className="px-1.5 py-0.5 rounded bg-purple-500/30 border border-purple-500/50 text-[9px] font-bold text-purple-300"
+                        animate={{
+                          scale: [1, 1.1, 1],
+                          opacity: [0.8, 1, 0.8],
+                        }}
+                        transition={{
+                          duration: 1,
+                          repeat: Infinity,
+                        }}
+                      >
+                        2X
+                      </motion.div>
                     )}
-                  >
-                    {order.coinType === 'whale' ? '🐋' : order.coinType.toUpperCase()}
+
+                    <div
+                      className={cn(
+                        'px-1.5 py-1 rounded-lg text-[10px] font-bold font-mono shrink-0',
+                        order.coinType === 'call' &&
+                          'bg-green-500/20 text-green-400 border border-green-500/30',
+                        order.coinType === 'put' &&
+                          'bg-red-500/20 text-red-400 border border-red-500/30',
+                        order.coinType === 'whale' &&
+                          'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                      )}
+                    >
+                      {order.coinType === 'whale' ? '🐋' : order.coinType === 'call' ? 'LONG' : 'SHORT'}
+                    </div>
                   </div>
                 </div>
               </motion.div>
