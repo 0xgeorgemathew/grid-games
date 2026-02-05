@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTradingStore } from '@/game/stores/trading-store'
 import { motion, AnimatePresence } from 'framer-motion'
 import { GridScanBackground } from '@/components/GridScanBackground'
@@ -25,7 +25,7 @@ const BUTTON_TRANSITION = { duration: 2, repeat: Infinity, ease: 'easeInOut' as 
 
 export function MatchmakingScreen() {
   const { ready, authenticated, login, logout, user } = usePrivy()
-  const { isConnected, isMatching, findMatch } = useTradingStore()
+  const { isConnected, isMatching, findMatch, connect } = useTradingStore()
   const [playerName] = useState(() => {
     const name = TRADER_NAMES[Math.floor(Math.random() * TRADER_NAMES.length)]
     const suffix = Math.floor(Math.random() * 999)
@@ -33,6 +33,11 @@ export function MatchmakingScreen() {
   })
   const [usdcClaimed, setUsdcClaimed] = useState(false)
   const [isClaiming, setIsClaiming] = useState(false)
+
+  // Connect to Socket.IO when component mounts
+  useEffect(() => {
+    connect()
+  }, [connect])
 
   const handleEnter = () => {
     if (isConnected && !isMatching) {
