@@ -27,6 +27,47 @@ const PULSE_ANIMATION = {
   transition: { duration: 2, repeat: Infinity },
 } as const
 
+// 2X Multiplier Badge - Small inline badge for use in headers
+const Multiplier2XBadge = React.memo(function Multiplier2XBadge() {
+  const { whale2XExpiresAt } = useTradingStore()
+  const [timeLeft, setTimeLeft] = useState(() => Math.max(0, (whale2XExpiresAt || 0) - Date.now()))
+
+  useEffect(() => {
+    const calculateTimeLeft = () => {
+      const remaining = whale2XExpiresAt ? Math.max(0, whale2XExpiresAt - Date.now()) : 0
+      setTimeLeft(remaining)
+    }
+
+    const interval = setInterval(calculateTimeLeft, 50)
+
+    return () => clearInterval(interval)
+  }, [whale2XExpiresAt])
+
+  const isActive = timeLeft > 0
+  const duration = 10000 // 10 seconds
+  const secondsLeft = Math.ceil(timeLeft / 1000)
+
+  return (
+    <AnimatePresence mode="wait">
+      {isActive && (
+        <motion.div
+          key="2x-badge"
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -10 }}
+          transition={{ duration: 0.2 }}
+          className="px-2 py-1 rounded font-black text-xs tracking-wider bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/50"
+          style={{
+            textShadow: '0 0 10px rgba(217,70,239,0.8)',
+          }}
+        >
+          ⚡ 2X ({secondsLeft}s)
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+})
+
 type PlayerColor = 'green' | 'red'
 
 interface PlayerHealthBarProps {
@@ -229,25 +270,31 @@ const RoundHeader = React.memo(function RoundHeader({
   return (
     <motion.div
       variants={itemVariants}
-      className="flex items-center justify-between px-2 py-1.5 bg-black/20 rounded-lg border border-white/10"
+      className="flex items-center justify-between px-2 py-1.5 bg-black/20 rounded-lg border border-white/10 gap-2"
       initial="hidden"
       animate="visible"
     >
-      {/* Round Badge */}
-      <div
-        className={cn(
-          'px-3 py-1 rounded font-black text-xs tracking-wider',
-          isSuddenDeath
-            ? 'bg-red-500/20 text-red-400 border border-red-500/50'
-            : 'bg-tron-cyan/20 text-tron-cyan border border-tron-cyan/50'
-        )}
-        style={{
-          textShadow: isSuddenDeath
-            ? '0 0 10px rgba(239,68,68,0.8)'
-            : '0 0 10px rgba(0,243,255,0.5)',
-        }}
-      >
-        {roundDisplay}
+      {/* Left Section: Round Badge + 2X Indicator */}
+      <div className="flex items-center gap-2">
+        {/* Round Badge */}
+        <div
+          className={cn(
+            'px-3 py-1 rounded font-black text-xs tracking-wider',
+            isSuddenDeath
+              ? 'bg-red-500/20 text-red-400 border border-red-500/50'
+              : 'bg-tron-cyan/20 text-tron-cyan border border-tron-cyan/50'
+          )}
+          style={{
+            textShadow: isSuddenDeath
+              ? '0 0 10px rgba(239,68,68,0.8)'
+              : '0 0 10px rgba(0,243,255,0.5)',
+          }}
+        >
+          {roundDisplay}
+        </div>
+
+        {/* 2X Multiplier Badge */}
+        <Multiplier2XBadge />
       </div>
 
       {/* Timer - Large digital display */}
@@ -301,6 +348,7 @@ export const GameHUD = React.memo(function GameHUD() {
     player2Wins,
     isSuddenDeath,
     roundTimeRemaining,
+    whale2XExpiresAt,
   } = useTradingStore()
 
   const [showHowToPlay, setShowHowToPlay] = useState(false)

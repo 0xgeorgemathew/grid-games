@@ -234,9 +234,8 @@ export class TradingScene extends Scene {
   }[] = []
   private readonly SPLIT_POOL_SIZE = 10
 
-  // Whale 2X
-  private whale2XIndicator: GameObjects.Text | null = null
-  private whale2XExpiresAt = 0
+  // Whale 2X state is now managed in React HUD via trading-store
+  // This scene only forwards events, no visual indicator here
 
   // State
   private isShutdown = false
@@ -351,7 +350,6 @@ export class TradingScene extends Scene {
     this.updateTextObjects(this.opponentSlices, -1, -0.02)
     this.updateTextObjects(this.damageIndicators, -1.5, -0.02)
     this.updateTextObjects(this.sliceArrows, 0, 0)
-    this.updateWhale2XIndicator()
   }
 
   private updateTextObjects(arr: GameObjects.Text[], vy: number, alphaDelta: number): void {
@@ -788,9 +786,6 @@ export class TradingScene extends Scene {
 
     this.sliceArrows.forEach((t) => t.destroy())
     this.sliceArrows.length = 0
-
-    this.whale2XIndicator?.destroy()
-    this.whale2XIndicator = null
   }
 
   private drawBlade(): void {
@@ -1325,39 +1320,8 @@ export class TradingScene extends Scene {
     durationMs: number
     isLocalPlayer: boolean
   }): void {
-    if (!data.isLocalPlayer) return // Only show for local player
-
-    this.whale2XExpiresAt = Date.now() + data.durationMs
-
-    // Create or update indicator
-    if (!this.whale2XIndicator) {
-      this.whale2XIndicator = this.add
-        .text(this.cameras.main.width / 2, 100, '2X ACTIVE!', {
-          fontSize: '48px',
-          fontStyle: 'bold',
-          color: '#ff00ff',
-          stroke: '#000000',
-          strokeThickness: 8,
-        })
-        .setOrigin(0.5)
-        .setDepth(1005)
-    }
-
-    // Pulse animation
-    this.tweens.add({
-      targets: this.whale2XIndicator,
-      scale: { from: 1, to: 1.2 },
-      alpha: { from: 1, to: 0.7 },
-      duration: 500,
-      yoyo: true,
-      repeat: -1,
-    })
-  }
-
-  private updateWhale2XIndicator(): void {
-    if (this.whale2XIndicator && Date.now() > this.whale2XExpiresAt) {
-      this.whale2XIndicator.destroy()
-      this.whale2XIndicator = null
-    }
+    // Visual indicator is now in React HUD (GameHUD.tsx)
+    // This scene only forwards the event via window.phaserEvents
+    // No Phaser-side rendering needed
   }
 }

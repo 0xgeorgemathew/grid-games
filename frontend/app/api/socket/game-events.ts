@@ -1,6 +1,6 @@
 import { Server as SocketIOServer } from 'socket.io'
 import { Socket } from 'socket.io'
-import { Player } from '@/game/types/trading'
+import { Player, RoundSummary } from '@/game/types/trading'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 
 // Order settlement duration - time between slice and settlement (5 seconds)
@@ -232,17 +232,6 @@ interface PendingOrder {
   settlesAt: number
   isPlayer1: boolean // Stored at order creation to avoid lookup issues at settlement
   multiplier: number // Stored at order creation - 2 if 2x was active when placed, 1 otherwise
-}
-
-// Round summary for game over display
-interface RoundSummary {
-  roundNumber: number
-  winnerId: string | null
-  isTie: boolean
-  player1Dollars: number
-  player2Dollars: number
-  player1Gained: number
-  player2Gained: number
 }
 
 // =============================================================================
@@ -919,6 +908,9 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
     // Emit round_end so clients see the updated win count
     const p1 = room.players.get(playerIds[0])
     const p2 = room.players.get(playerIds[1])
+    const p1Gained = (p1?.dollars || 10) - room.player1CashAtRoundStart
+    const p2Gained = (p2?.dollars || 10) - room.player2CashAtRoundStart
+
     io.to(room.id).emit('round_end', {
       roundNumber: room.currentRound,
       winnerId,
@@ -927,8 +919,20 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       player2Wins: room.player2Wins,
       player1Dollars: p1?.dollars,
       player2Dollars: p2?.dollars,
-      player1Gained: (p1?.dollars || 10) - room.player1CashAtRoundStart,
-      player2Gained: (p2?.dollars || 10) - room.player2CashAtRoundStart,
+      player1Gained: p1Gained,
+      player2Gained: p2Gained,
+    })
+
+    // CRITICAL: Record round summary before game_over (same as endRound)
+    room.roundHistory.push({
+      roundNumber: room.currentRound,
+      winnerId,
+      isTie: false,
+      player1Dollars: p1?.dollars || 10,
+      player2Dollars: p2?.dollars || 10,
+      player1Gained: p1Gained,
+      player2Gained: p2Gained,
+      playerLost: winnerId === playerIds[0] ? Math.max(0, p1Gained) : winnerId === playerIds[1] ? Math.max(0, p2Gained) : undefined,
     })
 
     // Emit game_over with knockout reason
@@ -992,6 +996,8 @@ function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom): voi
     player2Dollars: p2?.dollars || 10,
     player1Gained: p1Gained,
     player2Gained: p2Gained,
+    // Amount the winner gained (positive value, equal to loser's loss in zero-sum)
+    playerLost: winnerId === playerIds[0] ? Math.max(0, p1Gained) : winnerId === playerIds[1] ? Math.max(0, p2Gained) : undefined,
   })
 
   // Check if game should end

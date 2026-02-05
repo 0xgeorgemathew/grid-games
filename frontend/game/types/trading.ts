@@ -27,6 +27,7 @@ export type RoundSummary = {
   player2Dollars: number
   player1Gained: number
   player2Gained: number
+  playerLost?: number // Amount the winner gained (positive value)
 }
 
 /**
