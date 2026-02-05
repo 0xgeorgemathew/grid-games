@@ -5,6 +5,7 @@ import { useTradingStore } from '@/game/stores/trading-store'
 import { motion, AnimatePresence } from 'framer-motion'
 import { GridScanBackground } from '@/components/GridScanBackground'
 import { usePrivy } from '@privy-io/react-auth'
+import { getChannelManager } from '@/lib/yellow/channel-manager'
 
 const BOTTOM_DOTS_COUNT = 7
 
@@ -23,15 +24,21 @@ const TRADER_NAMES = [
 
 const BUTTON_TRANSITION = { duration: 2, repeat: Infinity, ease: 'easeInOut' as const }
 
+type MatchState = 'login' | 'claim' | 'ready' | 'checking' | 'insufficient' | 'entering'
+
 export function MatchmakingScreen() {
   const { ready, authenticated, login, logout, user } = usePrivy()
   const { isConnected, isMatching, findMatch, connect } = useTradingStore()
+  const channelManager = getChannelManager()
+
   const [playerName] = useState(() => {
     const name = TRADER_NAMES[Math.floor(Math.random() * TRADER_NAMES.length)]
     const suffix = Math.floor(Math.random() * 999)
     return `${name}${suffix}`
   })
-  const [usdcClaimed, setUsdcClaimed] = useState(false)
+
+  const [matchState, setMatchState] = useState<MatchState>('login')
+  const [usdcBalance, setUsdcBalance] = useState<string>('0')
   const [isClaiming, setIsClaiming] = useState(false)
 
   // Connect to Socket.IO when component mounts
@@ -39,11 +46,14 @@ export function MatchmakingScreen() {
     connect()
   }, [connect])
 
-  const handleEnter = () => {
-    if (isConnected && !isMatching) {
-      findMatch(playerName)
+  // Update match state based on auth
+  useEffect(() => {
+    if (authenticated) {
+      setMatchState((prev) => (prev === 'login' ? 'claim' : prev))
+    } else {
+      setMatchState('login')
     }
-  }
+  }, [authenticated])
 
   const handleClaimFaucet = async () => {
     if (!authenticated || !ready || !user?.wallet) {
@@ -53,7 +63,6 @@ export function MatchmakingScreen() {
 
     setIsClaiming(true)
     try {
-      // Claim USDC directly to user's embedded wallet (gas sponsored by server)
       const claimResponse = await fetch('/api/claim-usdc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -66,7 +75,8 @@ export function MatchmakingScreen() {
       const claimData = await claimResponse.json()
 
       if (claimResponse.ok) {
-        setUsdcClaimed(true)
+        // Check balance after claiming
+        await checkBalance()
       } else {
         alert('Claim failed: ' + (claimData.error || 'Unknown error'))
       }
@@ -75,6 +85,42 @@ export function MatchmakingScreen() {
     } finally {
       setIsClaiming(false)
     }
+  }
+
+  const checkBalance = async () => {
+    if (!user?.wallet) return
+
+    setMatchState('checking')
+    try {
+      const result = await channelManager.checkBalance(user.wallet.address)
+      setUsdcBalance(result.formatted || '0')
+
+      if (result.hasEnough) {
+        setMatchState('ready')
+      } else {
+        setMatchState('insufficient')
+      }
+    } catch (error) {
+      console.error('Balance check error:', error)
+      setMatchState('insufficient')
+    }
+  }
+
+  const handleEnter = async () => {
+    if (!isConnected || isMatching || !user?.wallet) return
+
+    setMatchState('entering')
+
+    // Final balance check before entering
+    const balanceResult = await channelManager.checkBalance(user.wallet.address)
+    if (!balanceResult.hasEnough) {
+      setUsdcBalance(balanceResult.formatted || '0')
+      setMatchState('insufficient')
+      return
+    }
+
+    // Proceed with matchmaking
+    findMatch(playerName)
   }
 
   if (!ready) {
@@ -135,7 +181,7 @@ export function MatchmakingScreen() {
         {/* Auth Section */}
         <div className="flex flex-col items-center gap-4">
           <AnimatePresence mode="wait">
-            {!authenticated ? (
+            {matchState === 'login' && (
               <motion.div
                 key="login"
                 initial={{ opacity: 0, y: 20 }}
@@ -149,29 +195,73 @@ export function MatchmakingScreen() {
                   LOGIN WITH GOOGLE
                 </ActionButton>
               </motion.div>
-            ) : !usdcClaimed ? (
+            )}
+
+            {matchState === 'claim' && (
               <motion.div
-                key="faucet"
+                key="claim"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.4 }}
                 className="flex flex-col items-center gap-3"
               >
+                <p className="text-gray-400 text-xs tracking-wider">CLAIM 0.1 USDC TO START</p>
                 <ActionButton onClick={handleClaimFaucet} isLoading={isClaiming} color="green">
                   {isClaiming ? 'CLAIMING...' : 'GET 0.1 USDC'}
                 </ActionButton>
               </motion.div>
-            ) : (
+            )}
+
+            {matchState === 'checking' && (
               <motion.div
-                key="match"
+                key="checking"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.4 }}
                 className="flex flex-col items-center gap-3"
               >
-                <p className="text-green-400 text-xs tracking-wider">✓ 0.1 USDC CLAIMED</p>
+                <p className="text-cyan-400 text-xs tracking-wider animate-pulse">CHECKING BALANCE...</p>
+              </motion.div>
+            )}
+
+            {matchState === 'insufficient' && (
+              <motion.div
+                key="insufficient"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+                className="flex flex-col items-center gap-3"
+              >
+                <p className="text-yellow-400 text-xs tracking-wider">
+                  BALANCE: {usdcBalance} USDC (NEED 1.0)
+                </p>
+                <ActionButton onClick={handleClaimFaucet} isLoading={isClaiming} color="green">
+                  {isClaiming ? 'CLAIMING...' : 'GET MORE USDC'}
+                </ActionButton>
+                <button
+                  onClick={checkBalance}
+                  className="text-xs text-gray-400 hover:text-gray-300 transition-colors"
+                >
+                  REFRESH BALANCE
+                </button>
+              </motion.div>
+            )}
+
+            {matchState === 'ready' && (
+              <motion.div
+                key="ready"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+                className="flex flex-col items-center gap-3"
+              >
+                <p className="text-green-400 text-xs tracking-wider">
+                  ✓ READY ({usdcBalance} USDC)
+                </p>
                 <ActionButton
                   onClick={handleEnter}
                   disabled={!isConnected || isMatching}
@@ -185,6 +275,19 @@ export function MatchmakingScreen() {
                 >
                   LOGOUT
                 </button>
+              </motion.div>
+            )}
+
+            {matchState === 'entering' && (
+              <motion.div
+                key="entering"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+                className="flex flex-col items-center gap-3"
+              >
+                <p className="text-cyan-400 text-xs tracking-wider animate-pulse">FINDING OPPONENT...</p>
               </motion.div>
             )}
           </AnimatePresence>
@@ -209,7 +312,7 @@ export function MatchmakingScreen() {
 type ActionButtonProps = {
   children: string
   onClick: () => void
-  color: 'indigo' | 'green' | 'cyan'
+  color: 'indigo' | 'green' | 'cyan' | 'yellow'
   isLoading?: boolean
   disabled?: boolean
 }
@@ -218,6 +321,7 @@ const COLOR_CONFIG = {
   indigo: { border: 'border-indigo-400/30', text: 'text-indigo-300', glow: 'rgba(99,102,241,0.6)' },
   green: { border: 'border-green-400/30', text: 'text-green-300', glow: 'rgba(34,197,94,0.6)' },
   cyan: { border: 'border-cyan-400/30', text: 'text-cyan-300', glow: 'rgba(0,217,255,0.6)' },
+  yellow: { border: 'border-yellow-400/30', text: 'text-yellow-300', glow: 'rgba(250,204,21,0.6)' },
 }
 
 function ActionButton({ children, onClick, color, isLoading = false, disabled = false }: ActionButtonProps) {
