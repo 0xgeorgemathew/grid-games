@@ -4,15 +4,7 @@ import { useState } from 'react'
 import { useTradingStore } from '@/game/stores/trading-store'
 import { motion, AnimatePresence } from 'framer-motion'
 import { GridScanBackground } from '@/components/GridScanBackground'
-
-const GLOW_ANIMATION = {
-  textShadow: [
-    '0 0 20px rgba(0,217,255,0.4)',
-    '0 0 40px rgba(0,217,255,0.8)',
-    '0 0 20px rgba(0,217,255,0.4)',
-  ] as string[],
-  transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' },
-} as const
+import { usePrivy } from '@privy-io/react-auth'
 
 const BOTTOM_DOTS_COUNT = 7
 
@@ -30,19 +22,39 @@ const TRADER_NAMES = [
 ]
 
 export function MatchmakingScreen() {
-  // Use full store (not selectors) to avoid infinite loop
-  // Selectors with object literals cause React hydration issues
+  const { ready, authenticated, login, logout } = usePrivy()
   const { isConnected, isMatching, findMatch } = useTradingStore()
   const [playerName] = useState(() => {
     const name = TRADER_NAMES[Math.floor(Math.random() * TRADER_NAMES.length)]
     const suffix = Math.floor(Math.random() * 999)
     return `${name}${suffix}`
   })
+  const [usdcClaimed, setUsdcClaimed] = useState(false)
 
   const handleEnter = () => {
     if (isConnected && !isMatching) {
       findMatch(playerName)
     }
+  }
+
+  const handleClaimFaucet = () => {
+    setUsdcClaimed(true)
+  }
+
+  // Show loading while Privy initializes
+  if (!ready) {
+    return (
+      <div className="min-h-screen relative flex items-center justify-center overflow-hidden">
+        <GridScanBackground />
+        <motion.p
+          className="relative z-20 font-[family-name:var(--font-orbitron)] text-cyan-400 tracking-widest"
+          animate={{ opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+        >
+          INITIALIZING...
+        </motion.p>
+      </div>
+    )
   }
 
   return (
@@ -66,7 +78,7 @@ export function MatchmakingScreen() {
 
       {/* Main Content */}
       <div className="relative z-20 flex flex-col items-center gap-12 px-6">
-        {/* Main Title - ENTER THE GRID - Vertical */}
+        {/* Main Title - ENTER THE GRID */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -96,70 +108,65 @@ export function MatchmakingScreen() {
           </div>
         </motion.div>
 
-        {/* ENTER Button */}
-        <motion.button
-          onClick={handleEnter}
-          disabled={!isConnected || isMatching}
-          className="relative group"
-          whileHover={{ scale: isConnected && !isMatching ? 1.02 : 1 }}
-          whileTap={{ scale: isConnected && !isMatching ? 0.98 : 1 }}
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.3, duration: 0.6 }}
-        >
-          <motion.div
-            className="absolute inset-0 rounded-lg"
-            animate={{
-              boxShadow:
-                isConnected && !isMatching
-                  ? [
-                      '0 0 20px rgba(0,217,255,0.3)',
-                      '0 0 60px rgba(0,217,255,0.6)',
-                      '0 0 20px rgba(0,217,255,0.3)',
-                    ]
-                  : '0 0 10px rgba(255,255,255,0.1)',
-            }}
-            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-          />
-
-          {/* Button body - 10% smaller */}
-          <div className="relative px-12 py-3 bg-black/40 backdrop-blur-md border border-cyan-400/30 rounded">
-            <motion.span
-              className="font-[family-name:var(--font-orbitron)] text-[10px] tracking-[0.3em] font-medium block"
-              animate={
-                isConnected && !isMatching
-                  ? {
-                      textShadow: [
-                        '0 0 10px rgba(0,217,255,0.5)',
-                        '0 0 20px rgba(0,217,255,0.8)',
-                        '0 0 10px rgba(0,217,255,0.5)',
-                      ],
-                    }
-                  : {}
-              }
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-            >
-              <span className={isConnected && !isMatching ? 'text-cyan-300' : 'text-white/20'}>
-                {isMatching ? 'ENTERING...' : 'ENTER'}
-              </span>
-            </motion.span>
-          </div>
-
-          {/* Hover inner glow */}
-          {isConnected && !isMatching && (
-            <motion.div
-              className="absolute inset-0 rounded-lg"
-              initial={{ opacity: 0 }}
-              whileHover={{ opacity: 1 }}
-              style={{
-                background:
-                  'radial-gradient(ellipse at center, rgba(0,217,255,0.15) 0%, transparent 70%)',
-              }}
-            />
-          )}
-        </motion.button>
+        {/* Auth Section */}
+        <div className="flex flex-col items-center gap-4">
+          <AnimatePresence mode="wait">
+            {!authenticated ? (
+              // Login Screen
+              <motion.div
+                key="login"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+                className="flex flex-col items-center gap-4"
+              >
+                <p className="text-gray-400 text-sm tracking-wider">
+                  CONNECT TO PLAY
+                </p>
+                <LoginButton onClick={login} />
+              </motion.div>
+            ) : !usdcClaimed ? (
+              // Faucet Screen - only show GET 10 USDC
+              <motion.div
+                key="faucet"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+                className="flex flex-col items-center gap-3"
+              >
+                <FaucetButton onClick={handleClaimFaucet} />
+              </motion.div>
+            ) : (
+              // Ready to play - show ENTER
+              <motion.div
+                key="match"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+                className="flex flex-col items-center gap-3"
+              >
+                <p className="text-green-400 text-xs tracking-wider">✓ 10 USDC CLAIMED</p>
+                <EnterButton
+                  isConnected={true}
+                  isMatching={isMatching}
+                  onClick={handleEnter}
+                />
+                <button
+                  onClick={logout}
+                  className="text-xs text-gray-500 hover:text-gray-400 transition-colors"
+                >
+                  LOGOUT
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
+      {/* Bottom dots */}
       <div className="fixed bottom-12 left-0 right-0 z-20 flex justify-center gap-2">
         {[...Array(BOTTOM_DOTS_COUNT)].map((_, i) => (
           <motion.div
@@ -179,5 +186,140 @@ export function MatchmakingScreen() {
         ))}
       </div>
     </div>
+  )
+}
+
+// Faucet Button Component
+function FaucetButton({ onClick }: { onClick: () => void }) {
+  return (
+    <motion.button
+      onClick={onClick}
+      className="relative group"
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+    >
+      <motion.div
+        className="absolute inset-0 rounded-lg"
+        animate={{
+          boxShadow: [
+            '0 0 20px rgba(34,197,94,0.3)',
+            '0 0 60px rgba(34,197,94,0.6)',
+            '0 0 20px rgba(34,197,94,0.3)',
+          ],
+        }}
+        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <div className="relative px-12 py-3 bg-black/40 backdrop-blur-md border border-green-400/30 rounded">
+        <motion.span
+          className="font-[family-name:var(--font-orbitron)] text-[10px] tracking-[0.3em] font-medium block text-green-300"
+          animate={{
+            textShadow: [
+              '0 0 10px rgba(34,197,94,0.5)',
+              '0 0 20px rgba(34,197,94,0.8)',
+              '0 0 10px rgba(34,197,94,0.5)',
+            ],
+          }}
+          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          GET 10 USDC
+        </motion.span>
+      </div>
+    </motion.button>
+  )
+}
+
+// Login Button Component
+function LoginButton({ onClick }: { onClick: () => void }) {
+  return (
+    <motion.button
+      onClick={onClick}
+      className="relative group"
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+    >
+      <motion.div
+        className="absolute inset-0 rounded-lg"
+        animate={{
+          boxShadow: [
+            '0 0 20px rgba(99,102,241,0.3)',
+            '0 0 60px rgba(99,102,241,0.6)',
+            '0 0 20px rgba(99,102,241,0.3)',
+          ],
+        }}
+        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <div className="relative px-12 py-3 bg-black/40 backdrop-blur-md border border-indigo-400/30 rounded">
+        <motion.span
+          className="font-[family-name:var(--font-orbitron)] text-[10px] tracking-[0.3em] font-medium block text-indigo-300"
+          animate={{
+            textShadow: [
+              '0 0 10px rgba(99,102,241,0.5)',
+              '0 0 20px rgba(99,102,241,0.8)',
+              '0 0 10px rgba(99,102,241,0.5)',
+            ],
+          }}
+          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          LOGIN WITH GOOGLE
+        </motion.span>
+      </div>
+    </motion.button>
+  )
+}
+
+// Enter Button Component
+function EnterButton({
+  isConnected,
+  isMatching,
+  onClick,
+}: {
+  isConnected: boolean
+  isMatching: boolean
+  onClick: () => void
+}) {
+  return (
+    <motion.button
+      onClick={onClick}
+      disabled={!isConnected || isMatching}
+      className="relative group"
+      whileHover={{ scale: isConnected && !isMatching ? 1.02 : 1 }}
+      whileTap={{ scale: isConnected && !isMatching ? 0.98 : 1 }}
+    >
+      <motion.div
+        className="absolute inset-0 rounded-lg"
+        animate={{
+          boxShadow:
+            isConnected && !isMatching
+              ? [
+                  '0 0 20px rgba(0,217,255,0.3)',
+                  '0 0 60px rgba(0,217,255,0.6)',
+                  '0 0 20px rgba(0,217,255,0.3)',
+                ]
+              : '0 0 10px rgba(255,255,255,0.1)',
+        }}
+        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <div className="relative px-12 py-3 bg-black/40 backdrop-blur-md border border-cyan-400/30 rounded">
+        <motion.span
+          className="font-[family-name:var(--font-orbitron)] text-[10px] tracking-[0.3em] font-medium block"
+          animate={
+            isConnected && !isMatching
+              ? {
+                  textShadow: [
+                    '0 0 10px rgba(0,217,255,0.5)',
+                    '0 0 20px rgba(0,217,255,0.8)',
+                    '0 0 10px rgba(0,217,255,0.5)',
+                  ],
+                }
+              : {}
+          }
+          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          <span className={isConnected && !isMatching ? 'text-cyan-300' : 'text-white/20'}>
+            {isMatching ? 'ENTERING...' : 'ENTER'}
+          </span>
+        </motion.span>
+      </div>
+    </motion.button>
   )
 }
