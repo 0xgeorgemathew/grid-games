@@ -10,7 +10,7 @@ const privy = new PrivyClient({
 })
 
 // Environment configuration
-const FAUCET_ADDRESS = (process.env.FAUCET_ADDRESS || process.env.NEXT_PUBLIC_FAUCET_ADDRESS) as `0x${string}`
+const FAUCET_ADDRESS = process.env.NEXT_PUBLIC_FAUCET_ADDRESS as `0x${string}`
 const AUTHORIZATION_KEY = process.env.PRIVY_AUTHORIZATION_PRIVATE_KEY as string | undefined
 const AUTHORIZATION_KEY_ID = (process.env.PRIVY_AUTHORIZATION_KEY_ID || 'dosot9g1wi7fhmdv349o7tw3') as string
 
