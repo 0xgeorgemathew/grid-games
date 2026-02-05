@@ -30,6 +30,7 @@ export class TradingScene extends Scene {
 
   // Grid
   private gridGraphics!: GameObjects.Graphics
+  private backgroundImage!: GameObjects.Image
 
   // Collision detection
   private collisionLine = new Geom.Line(0, 0, 0, 0)
@@ -63,9 +64,37 @@ export class TradingScene extends Scene {
     this.visualEffects = new VisualEffects(this, this.isMobile)
     this.bladeRenderer = new BladeRenderer(this, this.isMobile)
 
+    // Create vignette background texture once
+    this.createVignetteBackground()
+
+    // Create background image with vignette texture
+    this.backgroundImage = this.add.image(0, 0, 'vignette-bg')
+    this.backgroundImage.setOrigin(0, 0)
+    this.backgroundImage.setDepth(-2)
+
     this.gridGraphics = this.add.graphics()
     this.gridGraphics.setDepth(-1)
-    this.drawGridBackground()
+
+    // Enable PostFX and add bloom for the electric neon effect
+    // Bloom color naturally matches the cyan grid lines (0x00f3ff)
+    this.gridGraphics.setPostPipeline('BloomPostFX')
+    const bloomPipeline = this.gridGraphics.getPostPipeline('BloomPostFX') as any
+    if (bloomPipeline) {
+      // API varies by Phaser version - try both method and property
+      if (typeof bloomPipeline.setBlurStrength === 'function') {
+        bloomPipeline.setBlurStrength(1.2)
+      } else if ('strength' in bloomPipeline) {
+        bloomPipeline.strength = 1.2
+      } else if ('blurStrength' in bloomPipeline) {
+        bloomPipeline.blurStrength = 1.2
+      }
+
+      if (typeof bloomPipeline.setBlurQuality === 'function') {
+        bloomPipeline.setBlurQuality(2)
+      } else if ('blurQuality' in bloomPipeline) {
+        bloomPipeline.blurQuality = 2
+      }
+    }
 
     this.coinRenderer.generateCachedTextures()
 
@@ -112,6 +141,7 @@ export class TradingScene extends Scene {
 
       this.physics.world.setBounds(0, 0, gameSize.width, gameSize.height)
       this.cameras.main.setViewport(0, 0, gameSize.width, gameSize.height)
+      this.createVignetteBackground()
       this.drawGridBackground()
       updateDimensions()
     })
@@ -130,68 +160,86 @@ export class TradingScene extends Scene {
     this.updateGrid()
     this.updateCoinPhysics()
     this.particles.update(delta)
-    this.bladeRenderer.draw((x, y) => this.particles.emitTrail(x, y, 2))
+    this.bladeRenderer.draw()
     this.checkCollisions()
     this.visualEffects.update()
   }
 
   private drawGridBackground(): void {
-    const width = this.cameras.main.width
-    const height = this.cameras.main.height
-
-    this.gridGraphics.fillStyle(GRID_CONFIG.bgColor, 1)
-    this.gridGraphics.fillRect(0, 0, width, height)
+    // Update background image size to match viewport
+    this.backgroundImage.setDisplaySize(this.cameras.main.width, this.cameras.main.height)
   }
 
   private updateGrid(): void {
     const width = this.cameras.main.width
     const height = this.cameras.main.height
     const time = this.time.now / 1000
-    const pulseIntensity = 0.15 + Math.sin(time * 2) * 0.05
+    const cellSize = GRID_CONFIG.size
 
+    // Digital breathing: modulate bloom intensity via alpha
+    const pulseIntensity = 0.4 + Math.sin(time * 2) * 0.15
+
+    // Clear grid graphics (background is separate image)
     this.gridGraphics.clear()
-    this.gridGraphics.setBlendMode(Phaser.BlendModes.NORMAL)
-    this.gridGraphics.fillStyle(GRID_CONFIG.bgColor, 1)
-    this.gridGraphics.fillRect(0, 0, width, height)
+
+    const numVerticalLines = Math.ceil(width / cellSize)
+    const numHorizontalLines = Math.ceil(height / cellSize) + 1 // +1 for seamless scrolling
+
+    // =========================================================================
+    // GRID SCROLL ANIMATION (moves top to bottom, infinite loop)
+    // =========================================================================
+    const scrollSpeed = 30 // pixels per second (slow, smooth scroll)
+    const gridOffset = (time * scrollSpeed) % cellSize // loops every cell height
 
     this.gridGraphics.setBlendMode(Phaser.BlendModes.ADD)
+    this.gridGraphics.lineStyle(2, GRID_CONFIG.color, pulseIntensity)
 
-    const numVerticalLines = Math.ceil(width / GRID_CONFIG.size)
-    const numHorizontalLines = Math.ceil(height / GRID_CONFIG.size)
-
-    // Vertical lines
+    // Draw vertical lines (constant position, don't scroll)
     for (let i = 0; i <= numVerticalLines; i++) {
-      const x = i * GRID_CONFIG.size
-      this.gridGraphics.lineStyle(6, GRID_CONFIG.color, pulseIntensity * 0.15)
-      this.gridGraphics.lineBetween(x, 0, x, height)
-      this.gridGraphics.lineStyle(3, GRID_CONFIG.color, pulseIntensity * 0.4)
-      this.gridGraphics.lineBetween(x, 0, x, height)
-      this.gridGraphics.lineStyle(1, GRID_CONFIG.color, pulseIntensity)
+      const x = i * cellSize
       this.gridGraphics.lineBetween(x, 0, x, height)
     }
 
-    // Horizontal lines
-    for (let j = 0; j <= numHorizontalLines; j++) {
-      const y = j * GRID_CONFIG.size
-      this.gridGraphics.lineStyle(6, GRID_CONFIG.color, pulseIntensity * 0.15)
-      this.gridGraphics.lineBetween(0, y, width, y)
-      this.gridGraphics.lineStyle(3, GRID_CONFIG.color, pulseIntensity * 0.4)
-      this.gridGraphics.lineBetween(0, y, width, y)
-      this.gridGraphics.lineStyle(1, GRID_CONFIG.color, pulseIntensity)
-      this.gridGraphics.lineBetween(0, y, width, y)
+    // Draw horizontal lines with vertical scroll offset
+    for (let j = -1; j <= numHorizontalLines; j++) {
+      const y = j * cellSize + gridOffset
+      if (y >= -cellSize && y <= height + cellSize) {
+        this.gridGraphics.lineBetween(0, y, width, y)
+      }
     }
 
-    // Intersections
+    // =========================================================================
+    // DIGITAL VERTICES with scroll animation
+    // =========================================================================
+    const vertexSize = 4
     for (let i = 0; i <= numVerticalLines; i++) {
-      for (let j = 0; j <= numHorizontalLines; j++) {
-        const x = i * GRID_CONFIG.size
-        const y = j * GRID_CONFIG.size
+      for (let j = -1; j <= numHorizontalLines; j++) {
+        const x = i * cellSize
+        const y = j * cellSize + gridOffset
 
-        this.gridGraphics.fillStyle(GRID_CONFIG.color, pulseIntensity * 1.25)
-        this.gridGraphics.fillCircle(x, y, 6)
+        // Only draw if visible
+        if (y >= -vertexSize && y <= height + vertexSize) {
+          // Outer cyan glow square
+          this.gridGraphics.fillStyle(GRID_CONFIG.color, pulseIntensity * 0.6)
+          this.gridGraphics.fillRect(x - vertexSize / 2, y - vertexSize / 2, vertexSize, vertexSize)
 
-        this.gridGraphics.fillStyle(0xffffff, pulseIntensity * 2.5)
-        this.gridGraphics.fillCircle(x, y, 2.5)
+          // Inner bright white core square
+          this.gridGraphics.fillStyle(0xffffff, pulseIntensity)
+          this.gridGraphics.fillRect(x - 1.5, y - 1.5, 3, 3)
+        }
+      }
+    }
+
+    // Modulate bloom intensity based on pulse for "humming" effect
+    const bloomPipeline = this.gridGraphics.getPostPipeline('BloomPostFX') as any
+    if (bloomPipeline) {
+      const newStrength = 1 + Math.sin(time * 2) * 0.3
+      if (typeof bloomPipeline.setBlurStrength === 'function') {
+        bloomPipeline.setBlurStrength(newStrength)
+      } else if ('strength' in bloomPipeline) {
+        bloomPipeline.strength = newStrength
+      } else if ('blurStrength' in bloomPipeline) {
+        bloomPipeline.blurStrength = newStrength
       }
     }
   }
@@ -258,6 +306,7 @@ export class TradingScene extends Scene {
 
     this.particles.destroy()
     this.gridGraphics?.destroy()
+    this.backgroundImage?.destroy()
     this.visualEffects.setShutdown(true)
     this.visualEffects.destroy()
     this.bladeRenderer.destroy()
@@ -280,32 +329,23 @@ export class TradingScene extends Scene {
   }
 
   private checkCollisions(): void {
-    // Check collisions whenever blade has points (no gesture state check)
-    const bladePath = this.bladeRenderer.getBladePath()
-    if (bladePath.length < 2) return
+    // Get all collision segments (center + edges for recent blade positions)
+    const segments = this.bladeRenderer.getCollisionSegments()
+    if (segments.length === 0) return
 
     // Guard against shutdown - tokenPool may be destroyed
     if (!this.tokenPool) return
 
-    const p1 = bladePath[bladePath.length - 2]
-    const p2 = bladePath[bladePath.length - 1]
-
-    // Reuse line instance (update coordinates instead of creating new)
-    this.collisionLine.setTo(p1.x, p1.y, p2.x, p2.y)
-
-    // Get nearby coins from spatial grid
-    const nearbyCoinIds = this.spatialGrid.getCoinsNearLine(p1, p2)
-
     // Track sliced coins this frame to prevent double-slicing
     const slicedThisFrame = new Set<string>()
 
-    // Iterate pool and check nearby coins
+    // Iterate pool and check all nearby coins against all segments
     for (const token of this.tokenPool.getChildren()) {
       const tokenObj = token as Token
       if (!tokenObj.active) continue
 
       const coinId = tokenObj.getData('id')
-      if (!nearbyCoinIds.has(coinId) || slicedThisFrame.has(coinId)) continue
+      if (slicedThisFrame.has(coinId)) continue
 
       const type = tokenObj.getData('type') as CoinType
       const config = COIN_CONFIG[type]
@@ -315,16 +355,60 @@ export class TradingScene extends Scene {
       const hitboxRadius = config.radius * 0.85 * mobileScale * (config.hitboxMultiplier ?? 1.0)
       this.collisionCircle.setTo(tokenObj.x, tokenObj.y, hitboxRadius)
 
-      if (Geom.Intersects.LineToCircle(this.collisionLine, this.collisionCircle)) {
-        this.sliceCoin(coinId, tokenObj)
-        slicedThisFrame.add(coinId)
-        // NOTE: No break here - allows multi-coin combos in single fast swipe
+      // Check against all collision segments
+      for (const seg of segments) {
+        this.collisionLine.setTo(seg.x1, seg.y1, seg.x2, seg.y2)
+        
+        if (Geom.Intersects.LineToCircle(this.collisionLine, this.collisionCircle)) {
+          this.sliceCoin(coinId, tokenObj)
+          slicedThisFrame.add(coinId)
+          break // Move to next coin once sliced
+        }
       }
     }
   }
 
   private isCameraAvailable(): boolean {
     return this.cameras?.main !== undefined
+  }
+
+  private createVignetteBackground(): void {
+    const width = this.cameras.main.width
+    const height = this.cameras.main.height
+
+    // Create canvas texture for vignette effect
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Create radial gradient: center (0x051014) → edges (0x000000)
+    const centerX = width / 2
+    const centerY = height / 2
+    const maxRadius = Math.max(width, height) / 1.5
+    const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, maxRadius)
+
+    // Dark charcoal/teal center to pure black edges
+    gradient.addColorStop(0, '#051014')
+    gradient.addColorStop(0.6, '#03080a')
+    gradient.addColorStop(1, '#000000')
+
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, width, height)
+
+    // Add texture to cache
+    const textureKey = 'vignette-bg'
+    if (this.textures.exists(textureKey)) {
+      this.textures.remove(textureKey)
+    }
+    this.textures.addCanvas(textureKey, canvas)
+
+    // Update existing background image or create new one
+    if (this.backgroundImage) {
+      this.backgroundImage.setTexture(textureKey)
+      this.backgroundImage.setDisplaySize(width, height)
+    }
   }
 
   private handleCoinSpawn(data: {

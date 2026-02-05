@@ -216,7 +216,10 @@ export class CoinRenderer {
       // =========================================================================
 
       // Create a render texture to capture the container
-      const renderTexture = this.scene.make.renderTexture({ width: diameter, height: diameter }, false)
+      const renderTexture = this.scene.make.renderTexture(
+        { width: diameter, height: diameter },
+        false
+      )
       renderTexture.draw(container, diameter / 2, diameter / 2)
       renderTexture.saveTexture(`texture_${type}`)
 
