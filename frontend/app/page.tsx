@@ -7,6 +7,8 @@ import { PositionIndicator } from '@/components/PositionIndicator'
 import { GameCanvasBackground } from '@/components/GameCanvasBackground'
 import { ToastNotifications } from '@/components/ToastNotifications'
 import { GameOverModal } from '@/components/GameOverModal'
+import { SettlementFlash } from '@/components/SettlementFlash'
+import { RoundEndFlash } from '@/components/RoundEndFlash'
 import GameCanvas from '@/components/GameCanvas'
 import { useEffect } from 'react'
 
@@ -32,6 +34,12 @@ export default function Home() {
 
       {/* Game Over Modal - shows when game ends */}
       <GameOverModal />
+
+      {/* Settlement Flash - shows when orders settle */}
+      <SettlementFlash />
+
+      {/* Round End Flash - shows round results */}
+      <RoundEndFlash />
 
       {!isPlaying ? (
         <MatchmakingScreen />
