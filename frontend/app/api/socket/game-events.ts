@@ -3,6 +3,9 @@ import { Socket } from 'socket.io'
 import { Player } from '@/game/types/trading'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 
+// Order settlement duration - time between slice and settlement (5 seconds)
+export const ORDER_SETTLEMENT_DURATION_MS = 5000
+
 // Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
 const DEBUG_FUNDS = process.env.DEBUG_FUNDS === 'true'
 
@@ -228,6 +231,7 @@ interface PendingOrder {
   priceAtOrder: number
   settlesAt: number
   isPlayer1: boolean // Stored at order creation to avoid lookup issues at settlement
+  multiplier: number // Stored at order creation - 2 if 2x was active when placed, 1 otherwise
 }
 
 // Round summary for game over display
@@ -635,7 +639,9 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
     const priceChange = (finalPrice - order.priceAtOrder) / order.priceAtOrder
 
     const isCorrect = order.coinType === 'call' ? priceChange > 0 : priceChange < 0
-    const impact = room.get2XMultiplier(order.playerId)
+    // Use the multiplier stored at order creation time (not current 2x state)
+    // This ensures orders placed during 2x window get 2x even if they settle after 2x expires
+    const impact = order.multiplier
 
     transferFunds(
       room,
@@ -655,6 +661,7 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
       isCorrect,
       priceAtOrder: order.priceAtOrder,
       finalPrice: finalPrice,
+      amountTransferred: impact,
     })
   } finally {
     settlementGuard.release(order.id)
@@ -849,14 +856,19 @@ function handleSlice(
   const playerIds = room.getPlayerIds()
   const isPlayer1 = playerId === playerIds[0]
 
+  // Store the 2x multiplier at order creation time (not settlement time)
+  // This ensures orders placed during 2x window get 2x even if they settle after 2x expires
+  const multiplier = room.get2XMultiplier(playerId)
+
   const order: PendingOrder = {
     id: `order-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
     playerId,
     playerName: room.players.get(playerId)?.name || 'Unknown',
     coinType: data.coinType,
     priceAtOrder: data.priceAtSlice,
-    settlesAt: Date.now() + 10000, // 10 seconds
+    settlesAt: Date.now() + ORDER_SETTLEMENT_DURATION_MS, // 5 seconds
     isPlayer1, // Stored at creation to avoid lookup issues at settlement
+    multiplier, // Stored at creation - 2 if 2x was active when placed
   }
 
   room.addPendingOrder(order)
@@ -883,7 +895,7 @@ function handleSlice(
       settleOrder(io, room, order)
       checkGameOver(io, manager, room)
     }
-  }, 10000)
+  }, ORDER_SETTLEMENT_DURATION_MS)
 
   room.trackTimeout(timeoutId)
 }

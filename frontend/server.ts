@@ -49,8 +49,8 @@ app.prepare().then(() => {
       process.exit(0)
     })
 
-    // Force shutdown after 10s (should be plenty for settlement)
-    setTimeout(() => process.exit(1), 10000)
+    // Force shutdown after 5s (should be plenty for settlement)
+    setTimeout(() => process.exit(1), 5000)
   }
 
   process.on('SIGTERM', () => shutdown('SIGTERM'))

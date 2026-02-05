@@ -75,10 +75,13 @@ interface TradingState {
 
   // Game state
   tugOfWar: number
-  activeOrders: Map<string, OrderPlacedEvent> // Active orders (10s countdown)
+  activeOrders: Map<string, OrderPlacedEvent> // Active orders (5s countdown)
   pendingOrders: Map<string, SettlementEvent> // Settlement history
   latestSettlement: SettlementEvent | null // Latest settlement for flash notification
   toasts: Toast[] // Toast notifications
+
+  // 2x multiplier state (whale power-up)
+  whale2XExpiresAt: number | null // Timestamp when 2x expires for local player
 
   // Price feed
   priceSocket: WebSocket | null
@@ -224,6 +227,9 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   latestSettlement: null,
   toasts: [],
 
+  // 2x multiplier state
+  whale2XExpiresAt: null,
+
   // Price feed state
   priceSocket: null,
   priceReconnectTimer: null,
@@ -324,6 +330,11 @@ export const useTradingStore = create<TradingState>((set, get) => ({
         const { localPlayerId } = get()
         const isLocalPlayer = data.playerId === localPlayerId
 
+        // Store 2x expiration if local player activated it
+        if (isLocalPlayer) {
+          set({ whale2XExpiresAt: Date.now() + data.durationMs })
+        }
+
         // Forward to Phaser for visual feedback
         if (window.phaserEvents) {
           window.phaserEvents.emit('whale_2x_activated', {
@@ -402,7 +413,8 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   handleSettlement: (settlement) => {
     const { isPlayer1, players, pendingOrders, tugOfWar, activeOrders } = get()
-    const amount = getDamageForCoinType(settlement.coinType)
+    // Use the actual amount transferred from server (includes 2x multiplier)
+    const amount = settlement.amountTransferred ?? getDamageForCoinType(settlement.coinType)
 
     const winnerId = settlement.isCorrect
       ? settlement.playerId
@@ -521,6 +533,19 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       activeOrders: new Map(),
       pendingOrders: new Map(),
     })
+
+    // Emit custom event for RoundEndFlash component
+    window.dispatchEvent(
+      new CustomEvent('round_end_flash', {
+        detail: {
+          roundNumber: data.roundNumber,
+          winnerId: data.winnerId,
+          isTie: data.isTie,
+          player1Gained: data.player1Gained,
+          player2Gained: data.player2Gained,
+        },
+      })
+    )
 
     // Show round end notification
     const { localPlayerId, players } = get()
@@ -723,6 +748,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       isPlaying: false,
       isMatching: false,
       latestSettlement: null,
+      whale2XExpiresAt: null, // Clear 2x state
       // Round state reset
       currentRound: 1,
       player1Wins: 0,

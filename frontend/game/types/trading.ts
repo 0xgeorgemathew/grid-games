@@ -64,7 +64,7 @@ export type SliceEvent = {
 }
 
 /**
- * Active order with 10-second countdown timer
+ * Active order with 5-second countdown timer
  * Emitted by server in 'order_placed' event
  */
 export type OrderPlacedEvent = {
@@ -77,7 +77,7 @@ export type OrderPlacedEvent = {
 }
 
 /**
- * Settlement result after 10-second timer expires
+ * Settlement result after 5-second timer expires
  * Emitted by server in 'order_settled' event
  */
 export type SettlementEvent = {
@@ -88,6 +88,7 @@ export type SettlementEvent = {
   isCorrect: boolean
   priceAtOrder: number
   finalPrice: number
+  amountTransferred: number // Actual amount transferred (1 or 2 with 2x multiplier)
 }
 
 /**
