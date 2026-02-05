@@ -46,8 +46,8 @@ export function HowToPlayModal({ isOpen, onClose }: HowToPlayModalProps) {
                 <div>
                   <h3 className="font-bold text-tron-cyan mb-1">🎯 Objective</h3>
                   <p>
-                    Predict if BTC price will go UP or DOWN in 5 seconds. Correct predictions
-                    damage your opponent. Reach $0 opponent value to win!
+                    Predict if BTC price will go UP or DOWN in 5 seconds. Correct predictions damage
+                    your opponent. Reach $0 opponent value to win!
                   </p>
                 </div>
 

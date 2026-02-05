@@ -118,7 +118,11 @@ export function RoundEndFlash() {
           <motion.div
             className={cn(
               'absolute inset-0',
-              data.isTie ? 'bg-tron-white/5' : data.winnerId === localPlayerId ? 'bg-green-500/8' : 'bg-red-500/8'
+              data.isTie
+                ? 'bg-tron-white/5'
+                : data.winnerId === localPlayerId
+                  ? 'bg-green-500/8'
+                  : 'bg-red-500/8'
             )}
             animate={{
               opacity: [0, 0.2, 0.15, 0],
@@ -191,7 +195,11 @@ export function RoundEndFlash() {
                         : 'text-tron-white-dim'
                   )}
                 >
-                  {localGained > 0 ? `+$${localGained}` : localGained < 0 ? `-$${Math.abs(localGained)}` : '$0'}
+                  {localGained > 0
+                    ? `+$${localGained}`
+                    : localGained < 0
+                      ? `-$${Math.abs(localGained)}`
+                      : '$0'}
                 </span>
               </div>
 
