@@ -1,6 +1,6 @@
 /**
  * ENS Registration API Route
- * 
+ *
  * Handles ENS subdomain registration via sponsored transactions.
  * Follows the same pattern as claim-usdc.
  */
@@ -18,7 +18,8 @@ const privy = new PrivyClient({
 
 // Environment configuration (same as claim-usdc)
 const AUTHORIZATION_KEY = process.env.PRIVY_AUTHORIZATION_PRIVATE_KEY as string | undefined
-const AUTHORIZATION_KEY_ID = (process.env.PRIVY_AUTHORIZATION_KEY_ID || 'dosot9g1wi7fhmdv349o7tw3') as string
+const AUTHORIZATION_KEY_ID = (process.env.PRIVY_AUTHORIZATION_KEY_ID ||
+  'dosot9g1wi7fhmdv349o7tw3') as string
 
 // ENS Contract addresses on Base Sepolia
 const L2_REGISTRAR = '0x85465BBfF2b825481E67A7F1C9eB309e693814E7' as `0x${string}`
@@ -56,7 +57,8 @@ const REGISTRY_ABI = [
 const LEVERAGE_KEY = 'games.grid.leverage'
 
 // Namehash constants for calculating node
-const ETH_NODE = '0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae' as `0x${string}`
+const ETH_NODE =
+  '0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae' as `0x${string}`
 
 function getGridEthNode(): `0x${string}` {
   const gridHash = keccak256(toHex('grid'))
@@ -110,25 +112,26 @@ async function sendSponsoredTransaction(
   }
 
   console.log('Sending sponsored transaction to:', to)
-  
+
   const result = await privy.wallets().ethereum().sendTransaction(walletId, params)
-  
+
   console.log('Privy sendTransaction result:', JSON.stringify(result, null, 2))
-  
+
   // Extract hash from various possible response structures
   // Sponsored transactions use ERC-4337, so user_operation_hash is the identifier
-  const hash = (result as { hash?: string }).hash || 
-               (result as { user_operation_hash?: string }).user_operation_hash ||
-               (result as { transaction_hash?: string }).transaction_hash ||
-               (result as { transactionHash?: string }).transactionHash ||
-               (result as { transaction_id?: string }).transaction_id ||
-               ''
-  
+  const hash =
+    (result as { hash?: string }).hash ||
+    (result as { user_operation_hash?: string }).user_operation_hash ||
+    (result as { transaction_hash?: string }).transaction_hash ||
+    (result as { transactionHash?: string }).transactionHash ||
+    (result as { transaction_id?: string }).transaction_id ||
+    ''
+
   if (!hash) {
     console.error('No transaction hash found in result:', result)
     throw new Error('Transaction submitted but no hash returned')
   }
-  
+
   return hash
 }
 
