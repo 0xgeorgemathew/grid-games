@@ -199,7 +199,7 @@ const PlayerHealthBar = React.memo(
             <PlayerName
               username={!name.startsWith('0x') ? name : undefined}
               address={name.startsWith('0x') ? name : undefined}
-              className="text-white"
+              className={isYou ? 'text-white' : 'text-red-400'}
             />
           </motion.span>
           {isYou ? (

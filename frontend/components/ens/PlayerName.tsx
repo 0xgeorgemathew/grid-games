@@ -27,7 +27,7 @@ export function PlayerName({
 
     return enableGlow ? (
       <motion.span
-        className={`font-[family-name:var(--font-orbitron)] inline-block ${className}`}
+        className="font-[family-name:var(--font-orbitron)] inline-block"
         animate={{
           textShadow: [
             '0 0 10px rgba(0, 243, 255, 0.3)',
@@ -37,7 +37,19 @@ export function PlayerName({
         }}
         transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
       >
-        {displayName}
+        <motion.span
+          className={className || 'text-white'}
+          animate={{
+            textShadow: [
+              '0 0 10px rgba(0, 243, 255, 0.3)',
+              '0 0 20px rgba(0, 243, 255, 0.6)',
+              '0 0 10px rgba(0, 243, 255, 0.3)',
+            ],
+          }}
+          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          {displayName}
+        </motion.span>
         {!showFull && (
           <motion.span
             className="text-cyan-400"
@@ -55,8 +67,8 @@ export function PlayerName({
         )}
       </motion.span>
     ) : (
-      <span className={`font-[family-name:var(--font-orbitron)] ${className}`}>
-        {displayName}
+      <span className="font-[family-name:var(--font-orbitron)]">
+        <span className={className || 'text-white'}>{displayName}</span>
         {!showFull && <span className="text-cyan-400">.grid.eth</span>}
       </span>
     )
