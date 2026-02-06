@@ -84,15 +84,19 @@ export const GameOverModal = React.memo(function GameOverModal() {
             {isWinner ? 'VICTORY' : 'DEFEAT'}
           </motion.h2>
           <div className="text-white/70 mt-2 text-sm tracking-[0.2em] flex items-center justify-center gap-2">
-            <PlayerName
-              username={
-                !gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined
-              }
-              address={
-                gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined
-              }
-              className="text-white"
-            />
+            {gameOverData.winnerName ? (
+              <PlayerName
+                username={
+                  !gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined
+                }
+                address={
+                  gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined
+                }
+                className="text-white"
+              />
+            ) : (
+              <span>UNKNOWN</span>
+            )}
             <span>WINS THE GAME</span>
           </div>
         </motion.div>
