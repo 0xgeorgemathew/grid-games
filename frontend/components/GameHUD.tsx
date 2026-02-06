@@ -31,7 +31,7 @@ const PULSE_ANIMATION = {
 
 // 2X Multiplier Badge - Small inline badge for use in headers
 const Multiplier2XBadge = React.memo(function Multiplier2XBadge() {
-  const { whale2XExpiresAt } = useTradingStore()
+  const { whale2XExpiresAt, whaleMultiplier } = useTradingStore()
   const [timeLeft, setTimeLeft] = useState(() => Math.max(0, (whale2XExpiresAt || 0) - Date.now()))
 
   useEffect(() => {
@@ -46,7 +46,6 @@ const Multiplier2XBadge = React.memo(function Multiplier2XBadge() {
   }, [whale2XExpiresAt])
 
   const isActive = timeLeft > 0
-  const duration = 10000 // 10 seconds
   const secondsLeft = Math.ceil(timeLeft / 1000)
 
   return (
@@ -63,7 +62,7 @@ const Multiplier2XBadge = React.memo(function Multiplier2XBadge() {
             textShadow: '0 0 10px rgba(217,70,239,0.8)',
           }}
         >
-          ⚡ 2X ({secondsLeft}s)
+          ⚡ {whaleMultiplier}X ({secondsLeft}s)
         </motion.div>
       )}
     </AnimatePresence>
@@ -197,7 +196,7 @@ const PlayerHealthBar = React.memo(
             }}
             transition={{ duration: 0.3 }}
           >
-            <PlayerName 
+            <PlayerName
               username={!name.startsWith('0x') ? name : undefined}
               address={name.startsWith('0x') ? name : undefined}
               className="text-white"

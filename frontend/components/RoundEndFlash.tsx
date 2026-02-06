@@ -211,7 +211,7 @@ export function RoundEndFlash() {
               <div className="flex flex-col items-center">
                 <span className="text-[10px] text-tron-white-dim uppercase tracking-wider mb-1 flex items-center justify-center">
                   {opponent?.name ? (
-                    <PlayerName 
+                    <PlayerName
                       username={!opponent.name.startsWith('0x') ? opponent.name : undefined}
                       address={opponent.name.startsWith('0x') ? opponent.name : undefined}
                       className="text-tron-white-dim"

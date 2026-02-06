@@ -14,30 +14,34 @@ interface ClaimUsernameProps {
 export function ClaimUsername({ onClaimed, onSkip }: ClaimUsernameProps) {
   const [username, setUsername] = useState('')
   const [showValidation, setShowValidation] = useState(false)
-  
-  const { available: isAvailable, isLoading: isChecking, error: availabilityError } = useCheckAvailability(username)
+
+  const {
+    available: isAvailable,
+    isLoading: isChecking,
+    error: availabilityError,
+  } = useCheckAvailability(username)
   const { register, isRegistering, error: registerError } = useRegisterSubdomain()
-  
+
   const validation = validateUsername(username)
-  
+
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
     setUsername(value)
     setShowValidation(value.length > 0)
   }, [])
-  
+
   const handleClaim = useCallback(async () => {
     if (!validation.isValid || !isAvailable) return
-    
+
     const success = await register(username)
     if (success) {
       onClaimed(username)
     }
   }, [username, validation.isValid, isAvailable, register, onClaimed])
-  
+
   const canClaim = validation.isValid && isAvailable && !isChecking && !isRegistering
   const error = registerError || (showValidation && (validation.error || availabilityError))
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -59,7 +63,7 @@ export function ClaimUsername({ onClaimed, onSkip }: ClaimUsernameProps) {
           Choose a unique username for the grid
         </p>
       </div>
-      
+
       {/* Input Container */}
       <div className="w-full">
         <div className="relative">
@@ -67,13 +71,22 @@ export function ClaimUsername({ onClaimed, onSkip }: ClaimUsernameProps) {
           <motion.div
             className="absolute inset-0 rounded-lg"
             animate={{
-              boxShadow: username && canClaim
-                ? ['0 0 20px rgba(34,197,94,0.3)', '0 0 40px rgba(34,197,94,0.5)', '0 0 20px rgba(34,197,94,0.3)']
-                : ['0 0 10px rgba(0,217,255,0.2)', '0 0 20px rgba(0,217,255,0.3)', '0 0 10px rgba(0,217,255,0.2)']
+              boxShadow:
+                username && canClaim
+                  ? [
+                      '0 0 20px rgba(34,197,94,0.3)',
+                      '0 0 40px rgba(34,197,94,0.5)',
+                      '0 0 20px rgba(34,197,94,0.3)',
+                    ]
+                  : [
+                      '0 0 10px rgba(0,217,255,0.2)',
+                      '0 0 20px rgba(0,217,255,0.3)',
+                      '0 0 10px rgba(0,217,255,0.2)',
+                    ],
             }}
             transition={{ duration: 2, repeat: Infinity }}
           />
-          
+
           {/* Input */}
           <input
             type="text"
@@ -92,7 +105,7 @@ export function ClaimUsername({ onClaimed, onSkip }: ClaimUsernameProps) {
             `}
             disabled={isRegistering}
           />
-          
+
           {/* Status indicator */}
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
             {isChecking && (
@@ -122,7 +135,7 @@ export function ClaimUsername({ onClaimed, onSkip }: ClaimUsernameProps) {
             )}
           </div>
         </div>
-        
+
         {/* Preview */}
         {username && (
           <motion.p
@@ -133,7 +146,7 @@ export function ClaimUsername({ onClaimed, onSkip }: ClaimUsernameProps) {
             {formatENSName(username)}
           </motion.p>
         )}
-        
+
         {/* Error message */}
         {error && (
           <motion.p
@@ -145,7 +158,7 @@ export function ClaimUsername({ onClaimed, onSkip }: ClaimUsernameProps) {
           </motion.p>
         )}
       </div>
-      
+
       {/* Actions */}
       <div className="flex flex-col items-center gap-3">
         <ActionButton
@@ -156,7 +169,7 @@ export function ClaimUsername({ onClaimed, onSkip }: ClaimUsernameProps) {
         >
           {isRegistering ? 'CLAIMING...' : 'CLAIM USERNAME'}
         </ActionButton>
-        
+
         {onSkip && (
           <button
             onClick={onSkip}
@@ -166,7 +179,7 @@ export function ClaimUsername({ onClaimed, onSkip }: ClaimUsernameProps) {
           </button>
         )}
       </div>
-      
+
       {/* Transaction pending message */}
       {isRegistering && (
         <motion.p

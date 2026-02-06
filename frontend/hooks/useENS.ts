@@ -1,6 +1,6 @@
 /**
  * ENS Hooks for Grid Games
- * 
+ *
  * Mixed mode implementation:
  * - Reads: Ethers.js
  * - Register: Server API
@@ -78,7 +78,7 @@ export function useUserName(address: string | undefined) {
     setIsLoading(true)
     try {
       const contract = getRegistrarContract()
-      
+
       const fullName = await contract.getFullName(address)
 
       if (fullName && fullName.length > 0) {
@@ -166,76 +166,81 @@ export function useRegisterSubdomain() {
   const isMountedRef = useRef(true)
   useEffect(() => {
     isMountedRef.current = true
-    return () => { isMountedRef.current = false }
+    return () => {
+      isMountedRef.current = false
+    }
   }, [])
 
-  const register = useCallback(async (label: string): Promise<boolean> => {
-    if (!user?.id || !user?.wallet?.address) {
-      setError('Please login first')
-      return false
-    }
-
-    const validation = validateUsername(label)
-    if (!validation.isValid) {
-      setError(validation.error || 'Invalid username')
-      return false
-    }
-
-    const normalizedLabel = label.toLowerCase()
-
-    setIsRegistering(true)
-    setError(null)
-    setTxHash(null)
-
-    try {
-      // 1. Check availability
-      const contract = getRegistrarContract()
-      const isAvailable = await contract.available(normalizedLabel)
-
-      if (!isAvailable) {
-        setError('Username is already taken')
-        setIsRegistering(false)
+  const register = useCallback(
+    async (label: string): Promise<boolean> => {
+      if (!user?.id || !user?.wallet?.address) {
+        setError('Please login first')
         return false
       }
 
-      // 2. Call Server API
-      const response = await fetch('/api/ens', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'register',
-          userId: user.id,
-          userWalletAddress: user.wallet.address,
-          label: normalizedLabel,
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Registration failed')
+      const validation = validateUsername(label)
+      if (!validation.isValid) {
+        setError(validation.error || 'Invalid username')
+        return false
       }
 
-      if (!isMountedRef.current) return false
+      const normalizedLabel = label.toLowerCase()
 
-      if (data.hash) {
-        setTxHash(data.hash as Hex)
-      }
+      setIsRegistering(true)
+      setError(null)
+      setTxHash(null)
 
-      if (isMountedRef.current) {
-        setIsRegistering(false)
+      try {
+        // 1. Check availability
+        const contract = getRegistrarContract()
+        const isAvailable = await contract.available(normalizedLabel)
+
+        if (!isAvailable) {
+          setError('Username is already taken')
+          setIsRegistering(false)
+          return false
+        }
+
+        // 2. Call Server API
+        const response = await fetch('/api/ens', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'register',
+            userId: user.id,
+            userWalletAddress: user.wallet.address,
+            label: normalizedLabel,
+          }),
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Registration failed')
+        }
+
+        if (!isMountedRef.current) return false
+
+        if (data.hash) {
+          setTxHash(data.hash as Hex)
+        }
+
+        if (isMountedRef.current) {
+          setIsRegistering(false)
+        }
+        return true
+      } catch (err: unknown) {
+        console.error('Error registering subdomain:', err)
+        if (isMountedRef.current) {
+          const errorMessage = err instanceof Error ? err.message : 'Registration failed'
+          setError(errorMessage)
+          setIsRegistering(false)
+        }
+        return false
       }
-      return true
-    } catch (err: unknown) {
-      console.error('Error registering subdomain:', err)
-      if (isMountedRef.current) {
-        const errorMessage = err instanceof Error ? err.message : 'Registration failed'
-        setError(errorMessage)
-        setIsRegistering(false)
-      }
-      return false
-    }
-  }, [user])
+    },
+    [user]
+  )
 
   return { register, isRegistering, error, txHash }
 }
@@ -305,7 +310,7 @@ export function useSetLeverage() {
     onSuccess: (res) => {
       console.log('Transaction success:', res)
       setIsProcessing(false)
-    }
+    },
   })
 
   // Derived isSetting state
@@ -314,84 +319,89 @@ export function useSetLeverage() {
   const isMountedRef = useRef(true)
   useEffect(() => {
     isMountedRef.current = true
-    return () => { isMountedRef.current = false }
+    return () => {
+      isMountedRef.current = false
+    }
   }, [])
 
-  const setLeverage = useCallback(async (label: string, leverage: LeverageOption): Promise<boolean> => {
-    if (!user?.wallet?.address) {
-      setError('Please login first')
-      return false
-    }
-
-    const wallet = wallets.find(w => w.address === user.wallet?.address) || wallets[0]
-    if (!wallet) {
-      setError('No wallet found')
-      return false
-    }
-
-    setIsProcessing(true)
-    setError(null)
-    setTxHash(null)
-
-    try {
-      // 1. Calculate Node
-      // Use ethers for read safety
-      const registry = getRegistryContract()
-      const baseNode = await registry.baseNode()
-      const node = await registry.makeNode(baseNode, label.toLowerCase())
-
-      // 2. Send transaction via Privy hook (Sponsored)
-      
-      // Encode data
-      const data = encodeFunctionData({
-        abi: registryAbi,
-        functionName: 'setText',
-        args: [node, LEVERAGE_KEY, leverage],
-      })
-
-      // Switch chain logic not strictly needed if sendTransaction handles checks,
-      // but Privy sendTransaction docs say: "If the user is on the wrong chain, they will be prompted to switch."
-      // BUT for gasless/embedded wallet, it might better to switch explicitly just in case.
-      const chainId = Number(wallet.chainId.split(':')[1])
-      if (chainId !== baseSepolia.id) {
-        await wallet.switchChain(baseSepolia.id)
+  const setLeverage = useCallback(
+    async (label: string, leverage: LeverageOption): Promise<boolean> => {
+      if (!user?.wallet?.address) {
+        setError('Please login first')
+        return false
       }
 
-      // Send
-      // Note: sendTransaction follows { to, data, value, chainId? }, { address, sponsor }
-      const receipt = await sendTransaction(
-        {
-          to: L2_REGISTRY as Address,
-          data,
-          chainId: baseSepolia.id
-        },
-        {
-          uiOptions: {
-            description: 'Set Leverage',
-            buttonText: 'Confirm',
+      const wallet = wallets.find((w) => w.address === user.wallet?.address) || wallets[0]
+      if (!wallet) {
+        setError('No wallet found')
+        return false
+      }
+
+      setIsProcessing(true)
+      setError(null)
+      setTxHash(null)
+
+      try {
+        // 1. Calculate Node
+        // Use ethers for read safety
+        const registry = getRegistryContract()
+        const baseNode = await registry.baseNode()
+        const node = await registry.makeNode(baseNode, label.toLowerCase())
+
+        // 2. Send transaction via Privy hook (Sponsored)
+
+        // Encode data
+        const data = encodeFunctionData({
+          abi: registryAbi,
+          functionName: 'setText',
+          args: [node, LEVERAGE_KEY, leverage],
+        })
+
+        // Switch chain logic not strictly needed if sendTransaction handles checks,
+        // but Privy sendTransaction docs say: "If the user is on the wrong chain, they will be prompted to switch."
+        // BUT for gasless/embedded wallet, it might better to switch explicitly just in case.
+        const chainId = Number(wallet.chainId.split(':')[1])
+        if (chainId !== baseSepolia.id) {
+          await wallet.switchChain(baseSepolia.id)
+        }
+
+        // Send
+        // Note: sendTransaction follows { to, data, value, chainId? }, { address, sponsor }
+        const receipt = await sendTransaction(
+          {
+            to: L2_REGISTRY as Address,
+            data,
+            chainId: baseSepolia.id,
           },
-          address: wallet.address as Address,
-          sponsor: true,
-        } as any
-      )
-      
-      // If receipt has hash
-      const hash = (receipt as any).hash as Hex
-      
-      if (isMountedRef.current) {
-        setTxHash(hash)
+          {
+            uiOptions: {
+              description: 'Set Leverage',
+              buttonText: 'Confirm',
+            },
+            address: wallet.address as Address,
+            sponsor: true,
+          } as any
+        )
+
+        // If receipt has hash
+        const hash = (receipt as any).hash as Hex
+
+        if (isMountedRef.current) {
+          setTxHash(hash)
+        }
+        return true
+      } catch (err: unknown) {
+        console.error('Error setting leverage:', err)
+        setIsProcessing(false)
+        if (isMountedRef.current) {
+          const errorMessage = err instanceof Error ? err.message : 'Failed to set leverage'
+          setError(errorMessage)
+        }
+        return false
       }
-      return true
-    } catch (err: unknown) {
-      console.error('Error setting leverage:', err)
-      setIsProcessing(false)
-      if (isMountedRef.current) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to set leverage'
-        setError(errorMessage)
-      }
-      return false
-    }
-  }, [user, wallets, sendTransaction])
+    },
+    [user, wallets, sendTransaction]
+  )
 
   return { setLeverage, isSetting, error, txHash }
 }

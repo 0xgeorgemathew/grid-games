@@ -58,7 +58,7 @@ export const GameOverModal = React.memo(function GameOverModal() {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="fixed inset-0 bg-black/90 backdrop-blur-sm z-40 flex items-center justify-center"
+      className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[60] flex items-center justify-center"
     >
       <motion.div
         initial={{ scale: 0.8, y: 20 }}
@@ -83,10 +83,14 @@ export const GameOverModal = React.memo(function GameOverModal() {
           >
             {isWinner ? 'VICTORY' : 'DEFEAT'}
           </motion.h2>
-          <div className="text-white/70 mt-2 text-sm tracking-widest flex items-center justify-center gap-2">
-            <PlayerName 
-              username={!gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined}
-              address={gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined}
+          <div className="text-white/70 mt-2 text-sm tracking-[0.2em] flex items-center justify-center gap-2">
+            <PlayerName
+              username={
+                !gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined
+              }
+              address={
+                gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined
+              }
               className="text-white"
             />
             <span>WINS THE GAME</span>
@@ -99,13 +103,13 @@ export const GameOverModal = React.memo(function GameOverModal() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
-            className="flex flex-col items-center gap-1 mb-4"
+            className="flex flex-col items-center gap-2 mb-4"
           >
-            <h3 className="font-[family-name:var(--font-orbitron)] text-sm tracking-[0.3em] text-white/60">
+            <h3 className="font-[family-name:var(--font-orbitron)] text-sm tracking-[0.2em] text-white/60">
               ROUND
             </h3>
             <motion.h3
-              className="font-[family-name:var(--font-orbitron)] text-lg tracking-[0.25em] text-cyan-400"
+              className="font-[family-name:var(--font-orbitron)] text-xl tracking-[0.2em] text-tron-cyan"
               animate={GLOW_ANIMATION.textShadow}
               transition={GLOW_ANIMATION.transition}
             >
@@ -114,7 +118,7 @@ export const GameOverModal = React.memo(function GameOverModal() {
           </motion.div>
 
           {/* Round Cards - Local Player Perspective */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             {gameOverData.rounds.map((round, index) => {
               const result = getRoundResult(round)
               const amountText =
@@ -146,11 +150,11 @@ export const GameOverModal = React.memo(function GameOverModal() {
                       </span>
                       <span
                         className={cn(
-                          'font-[family-name:var(--font-orbitron)] text-sm tracking-wider',
+                          'font-[family-name:var(--font-orbitron)] text-sm tracking-[0.2em]',
                           result.isWin
-                            ? 'text-cyan-300'
+                            ? 'text-tron-cyan'
                             : result.isLoss
-                              ? 'text-orange-300'
+                              ? 'text-tron-orange'
                               : 'text-white/60'
                         )}
                       >
@@ -160,19 +164,25 @@ export const GameOverModal = React.memo(function GameOverModal() {
                     {amountText && (
                       <motion.span
                         className={cn(
-                          'font-[family-name:var(--font-orbitron)] text-lg font-bold tracking-wider',
-                          result.isWin ? 'text-green-400' : 'text-red-400'
+                          'font-[family-name:var(--font-orbitron)] text-xl font-bold tracking-[0.2em]',
+                          result.isWin ? 'text-tron-cyan' : 'text-tron-orange'
                         )}
                         animate={
                           result.isWin
                             ? {
                                 textShadow: [
-                                  '0 0 10px rgba(74,222,128,0.3)',
-                                  '0 0 20px rgba(74,222,128,0.6)',
-                                  '0 0 10px rgba(74,222,128,0.3)',
+                                  '0 0 10px rgba(0,217,255,0.3)',
+                                  '0 0 20px rgba(0,217,255,0.6)',
+                                  '0 0 10px rgba(0,217,255,0.3)',
                                 ],
                               }
-                            : undefined
+                            : {
+                                textShadow: [
+                                  '0 0 10px rgba(255,107,0,0.3)',
+                                  '0 0 20px rgba(255,107,0,0.6)',
+                                  '0 0 10px rgba(255,107,0,0.3)',
+                                ],
+                              }
                         }
                         transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                       >
@@ -199,21 +209,23 @@ export const GameOverModal = React.memo(function GameOverModal() {
           <div className="grid grid-cols-2 gap-4">
             {/* Local Player Tally */}
             <div className="flex flex-col items-center p-2 rounded bg-white/5 border border-white/5">
-              <span className="text-[10px] text-tron-white-dim mb-1 tracking-wider">YOU</span>
+              <span className="text-[10px] text-tron-white-dim mb-1 tracking-[0.2em]">YOU</span>
               <span className="font-[family-name:var(--font-orbitron)] text-xl font-bold text-white">
                 ${localPlayer?.dollars ?? 0}
               </span>
             </div>
             {/* Opponent Tally */}
             <div className="flex flex-col items-center p-2 rounded bg-white/5 border border-white/5">
-              <span className="text-[10px] text-tron-white-dim mb-1 tracking-wider flex items-center gap-1">
+              <span className="text-[10px] text-tron-white-dim mb-1 tracking-[0.2em] flex items-center gap-2">
                 {opponent?.name ? (
-                  <PlayerName 
+                  <PlayerName
                     username={!opponent.name.startsWith('0x') ? opponent.name : undefined}
                     address={opponent.name.startsWith('0x') ? opponent.name : undefined}
                     className="text-tron-white-dim"
                   />
-                ) : 'OPPONENT'}
+                ) : (
+                  'OPPONENT'
+                )}
               </span>
               <span className="font-[family-name:var(--font-orbitron)] text-xl font-bold text-white">
                 ${opponent?.dollars ?? 0}
@@ -227,7 +239,7 @@ export const GameOverModal = React.memo(function GameOverModal() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.8 }}
-          className="mb-6 text-white/70 text-sm tracking-widest font-[family-name:var(--font-orbitron)]"
+          className="mb-6 text-white/70 text-sm tracking-[0.2em] font-[family-name:var(--font-orbitron)]"
         >
           FINAL SCORE: {gameOverData.player1Wins} - {gameOverData.player2Wins}
         </motion.div>
@@ -255,7 +267,7 @@ export const GameOverModal = React.memo(function GameOverModal() {
           />
           <div className="relative px-12 py-3 bg-black/40 backdrop-blur-md border border-cyan-400/30 rounded">
             <motion.span
-              className="font-[family-name:var(--font-orbitron)] text-sm tracking-[0.3em] font-medium block text-cyan-300"
+              className="font-[family-name:var(--font-orbitron)] text-sm tracking-[0.2em] font-medium block text-tron-cyan"
               animate={{
                 textShadow: [
                   '0 0 10px rgba(0,217,255,0.5)',

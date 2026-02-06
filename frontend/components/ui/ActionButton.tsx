@@ -23,13 +23,13 @@ export type ActionButtonProps = {
   size?: 'sm' | 'md'
 }
 
-export function ActionButton({ 
-  children, 
-  onClick, 
-  color, 
-  isLoading = false, 
+export function ActionButton({
+  children,
+  onClick,
+  color,
+  isLoading = false,
   disabled = false,
-  size = 'md'
+  size = 'md',
 }: ActionButtonProps) {
   const config = COLOR_CONFIG[color]
   const isInteractive = !isLoading && !disabled
@@ -54,13 +54,19 @@ export function ActionButton({
         }}
         transition={BUTTON_TRANSITION}
       />
-      <div className={`relative ${paddingClass} bg-black/40 backdrop-blur-md border ${config.border} rounded`}>
+      <div
+        className={`relative ${paddingClass} bg-black/40 backdrop-blur-md border ${config.border} rounded`}
+      >
         <motion.span
           className={`font-[family-name:var(--font-orbitron)] ${textSize} tracking-[0.3em] font-medium block ${config.text}`}
           animate={
             isInteractive
               ? {
-                  textShadow: [`0 0 10px ${config.glow}80`, `0 0 20px ${config.glow}`, `0 0 10px ${config.glow}80`],
+                  textShadow: [
+                    `0 0 10px ${config.glow}80`,
+                    `0 0 20px ${config.glow}`,
+                    `0 0 10px ${config.glow}80`,
+                  ],
                 }
               : {}
           }

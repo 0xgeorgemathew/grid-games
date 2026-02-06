@@ -10,20 +10,20 @@ import { ActionButton } from '@/components/ui/ActionButton'
 import { ClaimUsername } from '@/components/ens/ClaimUsername'
 import { SetLeverage } from '@/components/ens/SetLeverage'
 import { PlayerName } from '@/components/ens/PlayerName'
-import { useUserName } from '@/hooks/useENS'
+import { useUserName, useGetLeverage } from '@/hooks/useENS'
 import type { LeverageOption } from '@/lib/ens'
 
 const BOTTOM_DOTS_COUNT = 7
 
-type MatchState = 
-  | 'login' 
+type MatchState =
+  | 'login'
   | 'checkingUsername'
-  | 'claimUsername' 
+  | 'claimUsername'
   | 'setLeverage'
-  | 'claim' 
-  | 'checking' 
+  | 'claim'
+  | 'checking'
   | 'insufficient'
-  | 'ready' 
+  | 'ready'
   | 'entering'
 
 export function MatchmakingScreen() {
@@ -34,14 +34,25 @@ export function MatchmakingScreen() {
   const [matchState, setMatchState] = useState<MatchState>('login')
   const [usdcBalance, setUsdcBalance] = useState<string>('0')
   const [isClaiming, setIsClaiming] = useState(false)
-  
+
   // ENS state
   const [claimedUsername, setClaimedUsername] = useState<string | null>(null)
   const [selectedLeverage, setSelectedLeverage] = useState<LeverageOption>('2x')
-  
+
+  // Get user's leverage from ENS
+  const { leverage: ensLeverage } = useGetLeverage(claimedUsername)
+
+  // Store actions
+  const setUserLeverage = useTradingStore((state) => state.setUserLeverage)
+
   // Check if user already has a username using getFullName()
   const walletAddress = user?.wallet?.address as `0x${string}` | undefined
-  const { label: existingUsername, hasName, isLoading: isCheckingUsername, hasChecked } = useUserName(walletAddress)
+  const {
+    label: existingUsername,
+    hasName,
+    isLoading: isCheckingUsername,
+    hasChecked,
+  } = useUserName(walletAddress)
 
   // Connect to Socket.IO when component mounts
   useEffect(() => {
@@ -68,6 +79,16 @@ export function MatchmakingScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, user?.wallet, existingUsername, hasName, hasChecked, isCheckingUsername])
 
+  // Update user leverage in store when leverage changes or username is claimed
+  useEffect(() => {
+    if (ensLeverage) {
+      setUserLeverage(ensLeverage)
+      setSelectedLeverage(ensLeverage)
+    } else if (claimedUsername) {
+      // Default to 2x if no leverage set
+      setUserLeverage('2x')
+    }
+  }, [ensLeverage, claimedUsername, setUserLeverage])
 
   const handleClaimFaucet = async () => {
     if (!authenticated || !ready || !user?.wallet) {
@@ -157,23 +178,26 @@ export function MatchmakingScreen() {
     const playerName = claimedUsername || user.wallet.address
     findMatch(playerName, user.wallet.address)
   }
-  
+
   // ENS callbacks
   const handleUsernameClaimed = useCallback((username: string) => {
     setClaimedUsername(username)
     setMatchState('setLeverage')
   }, [])
-  
-  const handleLeverageSet = useCallback((leverage: LeverageOption) => {
-    setSelectedLeverage(leverage)
-    checkBalance()
-  }, [checkBalance])
-  
+
+  const handleLeverageSet = useCallback(
+    (leverage: LeverageOption) => {
+      setSelectedLeverage(leverage)
+      checkBalance()
+    },
+    [checkBalance]
+  )
+
   const handleSkipUsername = useCallback(() => {
     // Skip username claiming and go to balance check
     checkBalance()
   }, [checkBalance])
-  
+
   const handleSkipLeverage = useCallback(() => {
     // Skip leverage setting and go to balance check
     checkBalance()
@@ -232,7 +256,6 @@ export function MatchmakingScreen() {
           >
             GRID
           </motion.h2>
-          
 
           {/* Show player name if claimed */}
           {claimedUsername && matchState !== 'claimUsername' && (
@@ -243,21 +266,31 @@ export function MatchmakingScreen() {
             >
               <div className="flex items-center gap-2 mb-2">
                 <p className="text-gray-500 text-[10px] tracking-[0.2em] font-medium">PLAYING AS</p>
-                <motion.button 
+                <motion.button
                   onClick={() => setMatchState('setLeverage')}
-                  whileHover={{ scale: 1.1, textShadow: "0 0 8px rgba(34, 211, 238, 0.8)" }}
+                  whileHover={{ scale: 1.1, textShadow: '0 0 8px rgba(34, 211, 238, 0.8)' }}
                   whileTap={{ scale: 0.95 }}
                   className="text-gray-500 hover:text-cyan-400 transition-colors p-1 rounded-full hover:bg-cyan-900/20"
                   title="Set Leverage"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
                     <circle cx="12" cy="12" r="3"></circle>
                   </svg>
                 </motion.button>
               </div>
-              <PlayerName 
-                username={claimedUsername} 
+              <PlayerName
+                username={claimedUsername}
                 className="text-cyan-300 text-xl tracking-wider"
               />
             </motion.div>
@@ -282,7 +315,7 @@ export function MatchmakingScreen() {
                 </ActionButton>
               </motion.div>
             )}
-            
+
             {matchState === 'checkingUsername' && (
               <motion.div
                 key="checkingUsername"
@@ -297,15 +330,15 @@ export function MatchmakingScreen() {
                 </p>
               </motion.div>
             )}
-            
+
             {matchState === 'claimUsername' && (
-              <ClaimUsername 
+              <ClaimUsername
                 key="claimUsername"
                 onClaimed={handleUsernameClaimed}
                 onSkip={handleSkipUsername}
               />
             )}
-            
+
             {matchState === 'setLeverage' && claimedUsername && (
               <SetLeverage
                 key="setLeverage"
@@ -340,7 +373,9 @@ export function MatchmakingScreen() {
                 transition={{ duration: 0.4 }}
                 className="flex flex-col items-center gap-3"
               >
-                <p className="text-cyan-400 text-xs tracking-wider animate-pulse">CHECKING BALANCE...</p>
+                <p className="text-cyan-400 text-xs tracking-wider animate-pulse">
+                  CHECKING BALANCE...
+                </p>
               </motion.div>
             )}
 
@@ -406,7 +441,9 @@ export function MatchmakingScreen() {
                 transition={{ duration: 0.4 }}
                 className="flex flex-col items-center gap-3"
               >
-                <p className="text-cyan-400 text-xs tracking-wider animate-pulse">FINDING OPPONENT...</p>
+                <p className="text-cyan-400 text-xs tracking-wider animate-pulse">
+                  FINDING OPPONENT...
+                </p>
               </motion.div>
             )}
           </AnimatePresence>

@@ -13,7 +13,12 @@ interface PlayerNameProps {
  * Component to display a player's name.
  * Shows ENS name if available, otherwise truncated address.
  */
-export function PlayerName({ username, address, showFull = false, className = '' }: PlayerNameProps) {
+export function PlayerName({
+  username,
+  address,
+  showFull = false,
+  className = '',
+}: PlayerNameProps) {
   if (username) {
     const displayName = showFull ? formatENSName(username) : username
     return (
@@ -23,7 +28,7 @@ export function PlayerName({ username, address, showFull = false, className = ''
       </span>
     )
   }
-  
+
   if (address) {
     const truncated = `${address.slice(0, 6)}...${address.slice(-4)}`
     return (
@@ -32,10 +37,6 @@ export function PlayerName({ username, address, showFull = false, className = ''
       </span>
     )
   }
-  
-  return (
-    <span className={`text-gray-500 ${className}`}>
-      Unknown
-    </span>
-  )
+
+  return <span className={`text-gray-500 ${className}`}>Unknown</span>
 }

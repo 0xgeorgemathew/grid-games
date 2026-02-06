@@ -13,30 +13,30 @@ interface SetLeverageProps {
 }
 
 const LEVERAGE_COLORS: Record<LeverageOption, string> = {
-  '1x': 'rgba(34, 197, 94, 0.8)',    // Green - safe
-  '2x': 'rgba(74, 222, 128, 0.8)',   // Light green
-  '5x': 'rgba(250, 204, 21, 0.8)',   // Yellow - moderate
+  '1x': 'rgba(34, 197, 94, 0.8)', // Green - safe
+  '2x': 'rgba(74, 222, 128, 0.8)', // Light green
+  '5x': 'rgba(250, 204, 21, 0.8)', // Yellow - moderate
   '10x': 'rgba(251, 146, 60, 0.8)', // Orange - risky
-  '20x': 'rgba(239, 68, 68, 0.8)',   // Red - high risk
+  '20x': 'rgba(239, 68, 68, 0.8)', // Red - high risk
 }
 
 export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) {
   const [selectedLeverage, setSelectedLeverage] = useState<LeverageOption>('2x')
   const { leverage: currentLeverage, isLoading: isLoadingCurrent } = useGetLeverage(username)
   const { setLeverage, isSetting, error } = useSetLeverage()
-  
+
   const handleSave = useCallback(async () => {
     const success = await setLeverage(username, selectedLeverage)
     if (success) {
       onComplete(selectedLeverage)
     }
   }, [username, selectedLeverage, setLeverage, onComplete])
-  
+
   const handleSkip = useCallback(() => {
     // If skipping, use current leverage or default to 5x
     onComplete(currentLeverage || '2x')
   }, [currentLeverage, onComplete])
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -58,14 +58,14 @@ export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) 
           Higher leverage = higher risk & reward
         </p>
       </div>
-      
+
       {/* Leverage Options */}
       <div className="w-full">
         <div className="flex gap-2 justify-center">
           {LEVERAGE_OPTIONS.map((option) => {
             const isSelected = selectedLeverage === option
             const color = LEVERAGE_COLORS[option]
-            
+
             return (
               <motion.button
                 key={option}
@@ -75,9 +75,10 @@ export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) 
                   relative px-4 py-3 rounded-lg
                   font-[family-name:var(--font-orbitron)] text-sm font-medium
                   transition-all duration-200
-                  ${isSelected 
-                    ? 'bg-black/80 border-2 shadow-[0_0_15px_rgba(34,211,238,0.1)]' 
-                    : 'bg-cyan-950/20 border border-cyan-900/30 hover:border-cyan-400/50 hover:bg-cyan-900/30'
+                  ${
+                    isSelected
+                      ? 'bg-black/80 border-2 shadow-[0_0_15px_rgba(34,211,238,0.1)]'
+                      : 'bg-cyan-950/20 border border-cyan-900/30 hover:border-cyan-400/50 hover:bg-cyan-900/30'
                   }
                 `}
                 style={{
@@ -97,7 +98,7 @@ export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) 
                         `0 0 10px ${color}40`,
                         `0 0 25px ${color}60`,
                         `0 0 10px ${color}40`,
-                      ]
+                      ],
                     }}
                     transition={{ duration: 1.5, repeat: Infinity }}
                   />
@@ -107,7 +108,7 @@ export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) 
             )
           })}
         </div>
-        
+
         {/* Risk indicator */}
         <motion.div
           className="mt-4 text-center"
@@ -115,12 +116,12 @@ export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) 
           initial={{ opacity: 0, y: 5 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <p 
+          <p
             className="text-xs tracking-wider font-medium px-4 py-2 rounded bg-black/40 border border-white/5"
-            style={{ 
+            style={{
               color: LEVERAGE_COLORS[selectedLeverage],
               borderColor: `${LEVERAGE_COLORS[selectedLeverage]}30`,
-              boxShadow: `0 0 10px ${LEVERAGE_COLORS[selectedLeverage]}10`
+              boxShadow: `0 0 10px ${LEVERAGE_COLORS[selectedLeverage]}10`,
             }}
           >
             {selectedLeverage === '1x' && 'SAFE MODE - No multiplier'}
@@ -130,14 +131,14 @@ export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) 
             {selectedLeverage === '20x' && 'MAXIMUM RISK - 20x gains/losses'}
           </p>
         </motion.div>
-        
+
         {/* Current leverage (if exists) */}
         {!isLoadingCurrent && currentLeverage && (
           <p className="text-gray-500 text-xs text-center mt-3 tracking-wider">
             Current: {currentLeverage}
           </p>
         )}
-        
+
         {/* Error message */}
         {error && (
           <motion.p
@@ -149,7 +150,7 @@ export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) 
           </motion.p>
         )}
       </div>
-      
+
       {/* Actions */}
       <div className="flex flex-col items-center gap-3">
         <ActionButton
@@ -160,7 +161,7 @@ export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) 
         >
           {isSetting ? 'SAVING...' : 'SAVE LEVERAGE'}
         </ActionButton>
-        
+
         {onSkip && (
           <button
             onClick={handleSkip}
@@ -170,7 +171,7 @@ export function SetLeverage({ username, onComplete, onSkip }: SetLeverageProps) 
           </button>
         )}
       </div>
-      
+
       {/* Transaction pending message */}
       {isSetting && (
         <motion.p
