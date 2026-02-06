@@ -9,7 +9,7 @@ export const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as cons
 export const USDC_DECIMALS = 6
 
 // Game economics
-export const ENTRY_STAKE = '100000' // 1 USDC (6 decimals)
+export const ENTRY_STAKE = '10000000' // 10 USDC (6 decimals)
 export const PER_SLICE_AMOUNT = '100000' // 0.1 USDC per win/loss
 
 // Channel configuration
