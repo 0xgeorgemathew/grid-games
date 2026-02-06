@@ -7,7 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { PrivyClient } from '@privy-io/node'
-import { encodeFunctionData, keccak256, toHex, encodePacked } from 'viem'
+import { encodeFunctionData, keccak256, toHex, encodePacked, createPublicClient, http } from 'viem'
+import { baseSepolia } from 'viem/chains'
 
 export const runtime = 'nodejs'
 
@@ -55,6 +56,56 @@ const REGISTRY_ABI = [
 
 // Leverage key for text records
 const LEVERAGE_KEY = 'games.grid.leverage'
+const TOTAL_GAMES_KEY = 'games.grid.total_games'
+const STREAK_KEY = 'games.grid.streak'
+
+// Public client for reading from ENS
+const publicClient = createPublicClient({
+  chain: baseSepolia,
+  transport: http('https://sepolia.base.org'),
+})
+
+// Registry ABI for reading text records
+const REGISTRY_READ_ABI = [
+  {
+    name: 'text',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'node', type: 'bytes32' },
+      { name: 'key', type: 'string' },
+    ],
+    outputs: [{ type: 'string' }],
+  },
+  {
+    name: 'baseNode',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'bytes32' }],
+  },
+  {
+    name: 'makeNode',
+    type: 'function',
+    stateMutability: 'pure',
+    inputs: [
+      { name: 'parentNode', type: 'bytes32' },
+      { name: 'label', type: 'string' },
+    ],
+    outputs: [{ type: 'bytes32' }],
+  },
+] as const
+
+// Registrar ABI for reverse lookup
+const REGISTRAR_READ_ABI = [
+  {
+    name: 'getFullName',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'addr', type: 'address' }],
+    outputs: [{ type: 'string' }],
+  },
+] as const
 
 // Namehash constants for calculating node
 const ETH_NODE =
@@ -133,6 +184,94 @@ async function sendSponsoredTransaction(
   }
 
   return hash
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const action = searchParams.get('action')
+
+    if (action === 'getName') {
+      // Reverse lookup: get ENS name from address
+      const address = searchParams.get('address')
+      if (!address) {
+        return errorResponse('address is required for getName', 400)
+      }
+
+      try {
+        // @ts-ignore - viem ABI type compatibility
+        const name = await publicClient.readContract({
+          address: L2_REGISTRAR,
+          abi: REGISTRAR_READ_ABI,
+          functionName: 'getFullName',
+          args: [address as `0x${string}`],
+        }) as string
+
+        return NextResponse.json({ name })
+      } catch (err) {
+        console.error('Error getting name from address:', err)
+        return NextResponse.json({ name: null })
+      }
+    }
+
+    if (action === 'getStats') {
+      // Get player stats from ENS text records
+      const label = searchParams.get('label')
+      if (!label) {
+        return errorResponse('label is required for getStats', 400)
+      }
+
+      try {
+        // Get base node and make subdomain node
+        // @ts-ignore - viem ABI type compatibility
+        const baseNode = await publicClient.readContract({
+          address: L2_REGISTRY,
+          abi: REGISTRY_READ_ABI,
+          functionName: 'baseNode',
+          args: [],
+        }) as `0x${string}`
+
+        // @ts-ignore - viem ABI type compatibility
+        const node = await publicClient.readContract({
+          address: L2_REGISTRY,
+          abi: REGISTRY_READ_ABI,
+          functionName: 'makeNode',
+          args: [baseNode, label.toLowerCase()],
+        }) as `0x${string}`
+
+        // Read both text records in parallel
+        const [totalGamesStr, streakStr] = await Promise.all([
+          // @ts-ignore
+          publicClient.readContract({
+            address: L2_REGISTRY,
+            abi: REGISTRY_READ_ABI,
+            functionName: 'text',
+            args: [node, TOTAL_GAMES_KEY],
+          }),
+          // @ts-ignore
+          publicClient.readContract({
+            address: L2_REGISTRY,
+            abi: REGISTRY_READ_ABI,
+            functionName: 'text',
+            args: [node, STREAK_KEY],
+          }),
+        ])
+
+        return NextResponse.json({
+          totalGames: totalGamesStr ? parseInt(totalGamesStr as string, 10) : 0,
+          streak: streakStr ? parseInt(streakStr as string, 10) : 0,
+        })
+      } catch (err) {
+        console.error('Error getting stats:', err)
+        return NextResponse.json({ totalGames: 0, streak: 0 })
+      }
+    }
+
+    return errorResponse('Invalid action. Use "getName" or "getStats"', 400)
+  } catch (error) {
+    console.error('ENS GET error:', error)
+    return errorResponse('Request failed', 500)
+  }
 }
 
 export async function POST(req: NextRequest) {
