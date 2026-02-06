@@ -12,12 +12,13 @@ const privy = new PrivyClient({
 // Environment configuration
 const FAUCET_ADDRESS = process.env.NEXT_PUBLIC_FAUCET_ADDRESS as `0x${string}`
 const AUTHORIZATION_KEY = process.env.PRIVY_AUTHORIZATION_PRIVATE_KEY as string | undefined
-const AUTHORIZATION_KEY_ID = (process.env.PRIVY_AUTHORIZATION_KEY_ID || 'dosot9g1wi7fhmdv349o7tw3') as string
+const AUTHORIZATION_KEY_ID = (process.env.PRIVY_AUTHORIZATION_KEY_ID ||
+  'dosot9g1wi7fhmdv349o7tw3') as string
 
 // ABIs
 const FAUCET_ABI = parseAbi([
   'function claim() external',
-  'function claimTo(address recipient) external'
+  'function claimTo(address recipient) external',
 ])
 
 // Simple in-memory rate limiting (resets on server restart)
@@ -68,19 +69,19 @@ async function sendSponsoredTransaction(
     }),
   }
 
-
   console.log('Sending sponsored transaction to:', to)
-  
+
   const result = await privy.wallets().ethereum().sendTransaction(walletId, params)
-  
+
   // Extract hash from various possible response structures
-  const hash = (result as { hash?: string }).hash || 
-               (result as { user_operation_hash?: string }).user_operation_hash ||
-               (result as { transaction_hash?: string }).transaction_hash ||
-               (result as { transactionHash?: string }).transactionHash ||
-               (result as { transaction_id?: string }).transaction_id ||
-               ''
-               
+  const hash =
+    (result as { hash?: string }).hash ||
+    (result as { user_operation_hash?: string }).user_operation_hash ||
+    (result as { transaction_hash?: string }).transaction_hash ||
+    (result as { transactionHash?: string }).transactionHash ||
+    (result as { transaction_id?: string }).transaction_id ||
+    ''
+
   return hash
 }
 
