@@ -11,12 +11,13 @@
     "types": "tsc --noEmit"
   },
   "dependencies": {
+    "@ensdomains/ensjs": "^4.2.2",
     "@erc7824/nitrolite": "^0.5.3",
     "@privy-io/node": "^0.8.0",
     "@privy-io/react-auth": "^3.13.1",
-    "@ensdomains/ensjs": "^4.2.2",
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
+    "@tanstack/react-query": "^5.90.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "ethers": "^6.16.0",
@@ -34,6 +35,7 @@
     "three": "^0.160.0",
     "three-stdlib": "^2.36.1",
     "viem": "^2.45.1",
+    "wagmi": "^3.4.2",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
