@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io'
 import { Socket } from 'socket.io'
 import { Player, RoundSummary } from '@/game/types/trading'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
+import { ENTRY_STAKE } from '@/lib/yellow/config'
 import { initializeNitrolite, createGameChannel, updateChannelState, settleChannel } from '@/lib/yellow/nitrolite-client'
 
 // Order settlement duration - time between slice and settlement (5 seconds)
@@ -280,6 +281,8 @@ class GameRoom {
   channelStatus: 'INITIAL' | 'ACTIVE' | 'FINAL' = 'INITIAL'
   player1Address: `0x${string}` | null = null
   player2Address: `0x${string}` | null = null
+  // Track which socket ID corresponds to which wallet address
+  addressToSocketId: Map<string, string> = new Map()
 
   constructor(roomId: string) {
     this.id = roomId
@@ -309,6 +312,14 @@ class GameRoom {
   // Get 2X multiplier for a player (2 if active, 1 if not)
   get2XMultiplier(playerId: string): number {
     return this.hasWhale2X(playerId) ? 2 : 1
+  }
+
+  // Get player dollars by wallet address (for Yellow channel settlements)
+  getDollarsByWalletAddress(walletAddress: string): number {
+    const socketId = this.addressToSocketId.get(walletAddress.toLowerCase())
+    if (!socketId) return 10 // fallback to starting amount
+    const player = this.players.get(socketId)
+    return player?.dollars ?? 10
   }
 
   addPlayer(id: string, name: string, sceneWidth: number, sceneHeight: number): void {
@@ -799,21 +810,18 @@ async function createYellowChannel(
 async function updateYellowChannel(room: GameRoom): Promise<void> {
   if (!room.channelId || !room.player1Address || !room.player2Address) return
 
-  const playerIds = room.getPlayerIds()
-  const [p1Id, p2Id] = playerIds
-
-  const player1 = room.players.get(p1Id)
-  const player2 = room.players.get(p2Id)
-
-  if (!player1 || !player2) return
+  // CRITICAL: Get dollars by wallet address, not by socket ID order
+  // This ensures correct mapping regardless of Map iteration order
+  const player1Dollars = room.getDollarsByWalletAddress(room.player1Address)
+  const player2Dollars = room.getDollarsByWalletAddress(room.player2Address)
 
   try {
     await updateChannelState({
       channelId: room.channelId,
       player1Address: room.player1Address,
       player2Address: room.player2Address,
-      player1Dollars: player1.dollars,
-      player2Dollars: player2.dollars,
+      player1Dollars,
+      player2Dollars,
       version: room.currentRound,
     })
 
@@ -831,21 +839,18 @@ async function settleYellowChannel(room: GameRoom): Promise<{
 } | null> {
   if (!room.channelId || !room.player1Address || !room.player2Address) return null
 
-  const playerIds = room.getPlayerIds()
-  const [p1Id, p2Id] = playerIds
-
-  const player1 = room.players.get(p1Id)
-  const player2 = room.players.get(p2Id)
-
-  if (!player1 || !player2) return null
+  // CRITICAL: Get dollars by wallet address, not by socket ID order
+  // This ensures correct mapping regardless of Map iteration order
+  const player1Dollars = room.getDollarsByWalletAddress(room.player1Address)
+  const player2Dollars = room.getDollarsByWalletAddress(room.player2Address)
 
   try {
     const result = await settleChannel({
       channelId: room.channelId,
       player1Address: room.player1Address,
       player2Address: room.player2Address,
-      player1Dollars: player1.dollars,
-      player2Dollars: player2.dollars,
+      player1Dollars,
+      player2Dollars,
     })
 
     room.channelStatus = 'FINAL'
@@ -881,12 +886,14 @@ async function createMatch(
   room.addPlayer(playerId1, name1, sceneWidth1, sceneHeight1)
   room.addPlayer(playerId2, name2, sceneWidth2, sceneHeight2)
 
-  // Store wallet addresses for Yellow channel
+  // Store wallet addresses for Yellow channel AND create address → socket ID mapping
   if (wallet1 && wallet1.startsWith('0x')) {
     room.player1Address = wallet1 as `0x${string}`
+    room.addressToSocketId.set(wallet1.toLowerCase(), playerId1)
   }
   if (wallet2 && wallet2.startsWith('0x')) {
     room.player2Address = wallet2 as `0x${string}`
+    room.addressToSocketId.set(wallet2.toLowerCase(), playerId2)
   }
 
   // Create Yellow channel if both wallets present
