@@ -34,7 +34,9 @@ export class ChannelManager {
   }
 
   /** Check if player has enough balance (1 USDC) */
-  async checkBalance(walletAddress: string): Promise<{ hasEnough: boolean; balance: string; formatted: string }> {
+  async checkBalance(
+    walletAddress: string
+  ): Promise<{ hasEnough: boolean; balance: string; formatted: string }> {
     try {
       const response = await fetch(`${this.apiUrl}/api/usdc-balance`, {
         method: 'POST',
