@@ -1,61 +1,73 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTradingStore } from '@/game/stores/trading-store'
 import { motion, AnimatePresence } from 'framer-motion'
 import { GridScanBackground } from '@/components/GridScanBackground'
 import { usePrivy } from '@privy-io/react-auth'
 import { getChannelManager } from '@/lib/yellow/channel-manager'
+import { ActionButton } from '@/components/ui/ActionButton'
+import { ClaimUsername } from '@/components/ens/ClaimUsername'
+import { SetLeverage } from '@/components/ens/SetLeverage'
+import { PlayerName } from '@/components/ens/PlayerName'
+import { useUserName } from '@/hooks/useENS'
+import type { LeverageOption } from '@/lib/ens'
 
 const BOTTOM_DOTS_COUNT = 7
 
-const TRADER_NAMES = [
-  'Alfa',
-  'Bravo',
-  'Charlie',
-  'Delta',
-  'Echo',
-  'Foxtrot',
-  'Golf',
-  'Hotel',
-  'India',
-  'Juliet',
-]
-
-const BUTTON_TRANSITION = { duration: 2, repeat: Infinity, ease: 'easeInOut' as const }
-
-type MatchState = 'login' | 'claim' | 'ready' | 'checking' | 'insufficient' | 'entering'
+type MatchState = 
+  | 'login' 
+  | 'checkingUsername'
+  | 'claimUsername' 
+  | 'setLeverage'
+  | 'claim' 
+  | 'checking' 
+  | 'insufficient'
+  | 'ready' 
+  | 'entering'
 
 export function MatchmakingScreen() {
   const { ready, authenticated, login, logout, user } = usePrivy()
   const { isConnected, isMatching, findMatch, connect } = useTradingStore()
   const channelManager = getChannelManager()
 
-  const [playerName] = useState(() => {
-    const name = TRADER_NAMES[Math.floor(Math.random() * TRADER_NAMES.length)]
-    const suffix = Math.floor(Math.random() * 999)
-    return `${name}${suffix}`
-  })
-
   const [matchState, setMatchState] = useState<MatchState>('login')
   const [usdcBalance, setUsdcBalance] = useState<string>('0')
   const [isClaiming, setIsClaiming] = useState(false)
+  
+  // ENS state
+  const [claimedUsername, setClaimedUsername] = useState<string | null>(null)
+  const [selectedLeverage, setSelectedLeverage] = useState<LeverageOption>('2x')
+  
+  // Check if user already has a username using getFullName()
+  const walletAddress = user?.wallet?.address as `0x${string}` | undefined
+  const { label: existingUsername, hasName, isLoading: isCheckingUsername, hasChecked } = useUserName(walletAddress)
 
   // Connect to Socket.IO when component mounts
   useEffect(() => {
     connect()
   }, [connect])
 
-  // Update match state based on auth - check balance immediately
+  // Update match state based on auth - check for existing username
   useEffect(() => {
-    if (authenticated && user?.wallet) {
-      // Check balance on login to determine correct state
-      checkBalance()
+    if (authenticated && user?.wallet && hasChecked) {
+      if (hasName && existingUsername) {
+        // User already has a username, skip to balance check
+        setClaimedUsername(existingUsername)
+        checkBalance()
+      } else if (!isCheckingUsername) {
+        // No username found, prompt to claim
+        setMatchState('claimUsername')
+      }
+    } else if (authenticated && user?.wallet && !hasChecked) {
+      setMatchState('checkingUsername')
     } else if (!authenticated) {
       setMatchState('login')
+      setClaimedUsername(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authenticated, user?.wallet])
+  }, [authenticated, user?.wallet, existingUsername, hasName, hasChecked, isCheckingUsername])
+
 
   const handleClaimFaucet = async () => {
     if (!authenticated || !ready || !user?.wallet) {
@@ -109,7 +121,7 @@ export function MatchmakingScreen() {
     }
   }
 
-  const checkBalance = async () => {
+  const checkBalance = useCallback(async () => {
     if (!user?.wallet) return
 
     setMatchState('checking')
@@ -126,7 +138,7 @@ export function MatchmakingScreen() {
       console.error('Balance check error:', error)
       setMatchState('insufficient')
     }
-  }
+  }, [user?.wallet, channelManager])
 
   const handleEnter = async () => {
     if (!isConnected || isMatching || !user?.wallet) return
@@ -141,9 +153,31 @@ export function MatchmakingScreen() {
       return
     }
 
-    // Proceed with matchmaking - pass wallet address for Yellow channel
+    // Proceed with matchmaking - pass username or wallet address
+    const playerName = claimedUsername || user.wallet.address
     findMatch(playerName, user.wallet.address)
   }
+  
+  // ENS callbacks
+  const handleUsernameClaimed = useCallback((username: string) => {
+    setClaimedUsername(username)
+    setMatchState('setLeverage')
+  }, [])
+  
+  const handleLeverageSet = useCallback((leverage: LeverageOption) => {
+    setSelectedLeverage(leverage)
+    checkBalance()
+  }, [checkBalance])
+  
+  const handleSkipUsername = useCallback(() => {
+    // Skip username claiming and go to balance check
+    checkBalance()
+  }, [checkBalance])
+  
+  const handleSkipLeverage = useCallback(() => {
+    // Skip leverage setting and go to balance check
+    checkBalance()
+  }, [checkBalance])
 
   if (!ready) {
     return (
@@ -198,6 +232,36 @@ export function MatchmakingScreen() {
           >
             GRID
           </motion.h2>
+          
+
+          {/* Show player name if claimed */}
+          {claimedUsername && matchState !== 'claimUsername' && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-4 flex flex-col items-center"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-gray-500 text-[10px] tracking-[0.2em] font-medium">PLAYING AS</p>
+                <motion.button 
+                  onClick={() => setMatchState('setLeverage')}
+                  whileHover={{ scale: 1.1, textShadow: "0 0 8px rgba(34, 211, 238, 0.8)" }}
+                  whileTap={{ scale: 0.95 }}
+                  className="text-gray-500 hover:text-cyan-400 transition-colors p-1 rounded-full hover:bg-cyan-900/20"
+                  title="Set Leverage"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                </motion.button>
+              </div>
+              <PlayerName 
+                username={claimedUsername} 
+                className="text-cyan-300 text-xl tracking-wider"
+              />
+            </motion.div>
+          )}
         </motion.div>
 
         {/* Auth Section */}
@@ -213,10 +277,42 @@ export function MatchmakingScreen() {
                 className="flex flex-col items-center gap-4"
               >
                 <p className="text-gray-400 text-sm tracking-wider">CONNECT TO PLAY</p>
-                <ActionButton onClick={login} color="indigo">
+                <ActionButton onClick={login} color="cyan">
                   LOGIN WITH GOOGLE
                 </ActionButton>
               </motion.div>
+            )}
+            
+            {matchState === 'checkingUsername' && (
+              <motion.div
+                key="checkingUsername"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+                className="flex flex-col items-center gap-3"
+              >
+                <p className="text-cyan-400 text-xs tracking-wider animate-pulse">
+                  CHECKING IDENTITY...
+                </p>
+              </motion.div>
+            )}
+            
+            {matchState === 'claimUsername' && (
+              <ClaimUsername 
+                key="claimUsername"
+                onClaimed={handleUsernameClaimed}
+                onSkip={handleSkipUsername}
+              />
+            )}
+            
+            {matchState === 'setLeverage' && claimedUsername && (
+              <SetLeverage
+                key="setLeverage"
+                username={claimedUsername}
+                onComplete={handleLeverageSet}
+                onSkip={handleSkipLeverage}
+              />
             )}
 
             {matchState === 'claim' && (
@@ -283,6 +379,7 @@ export function MatchmakingScreen() {
               >
                 <p className="text-green-400 text-xs tracking-wider">
                   ✓ READY ({usdcBalance} USDC)
+                  {selectedLeverage !== '5x' && ` • ${selectedLeverage} LEVERAGE`}
                 </p>
                 <ActionButton
                   onClick={handleEnter}
@@ -328,60 +425,5 @@ export function MatchmakingScreen() {
         ))}
       </div>
     </div>
-  )
-}
-
-type ActionButtonProps = {
-  children: string
-  onClick: () => void
-  color: 'indigo' | 'green' | 'cyan' | 'yellow'
-  isLoading?: boolean
-  disabled?: boolean
-}
-
-const COLOR_CONFIG = {
-  indigo: { border: 'border-indigo-400/30', text: 'text-indigo-300', glow: 'rgba(99,102,241,0.6)' },
-  green: { border: 'border-green-400/30', text: 'text-green-300', glow: 'rgba(34,197,94,0.6)' },
-  cyan: { border: 'border-cyan-400/30', text: 'text-cyan-300', glow: 'rgba(0,217,255,0.6)' },
-  yellow: { border: 'border-yellow-400/30', text: 'text-yellow-300', glow: 'rgba(250,204,21,0.6)' },
-}
-
-function ActionButton({ children, onClick, color, isLoading = false, disabled = false }: ActionButtonProps) {
-  const config = COLOR_CONFIG[color]
-  const isInteractive = !isLoading && !disabled
-
-  return (
-    <motion.button
-      onClick={onClick}
-      disabled={disabled || isLoading}
-      className="relative group"
-      whileHover={isInteractive ? { scale: 1.02 } : undefined}
-      whileTap={isInteractive ? { scale: 0.98 } : undefined}
-    >
-      <motion.div
-        className="absolute inset-0 rounded-lg"
-        animate={{
-          boxShadow: isInteractive
-            ? [`0 0 20px ${config.glow}40`, `0 0 60px ${config.glow}`, `0 0 20px ${config.glow}40`]
-            : '0 0 10px rgba(255,255,255,0.1)',
-        }}
-        transition={BUTTON_TRANSITION}
-      />
-      <div className={`relative px-12 py-3 bg-black/40 backdrop-blur-md border ${config.border} rounded`}>
-        <motion.span
-          className={`font-[family-name:var(--font-orbitron)] text-[10px] tracking-[0.3em] font-medium block ${config.text}`}
-          animate={
-            isInteractive
-              ? {
-                  textShadow: [`0 0 10px ${config.glow}80`, `0 0 20px ${config.glow}`, `0 0 10px ${config.glow}80`],
-                }
-              : {}
-          }
-          transition={BUTTON_TRANSITION}
-        >
-          {children}
-        </motion.span>
-      </div>
-    </motion.button>
   )
 }

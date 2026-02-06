@@ -4,6 +4,7 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '@/game/stores/trading-store'
 import { cn } from '@/lib/utils'
+import { PlayerName } from '@/components/ens/PlayerName'
 
 const GLOW_ANIMATION = {
   textShadow: [
@@ -15,9 +16,22 @@ const GLOW_ANIMATION = {
 } as const
 
 export const GameOverModal = React.memo(function GameOverModal() {
-  const { isGameOver, gameOverData, localPlayerId, playAgain } = useTradingStore()
+  const { isGameOver, gameOverData, localPlayerId, playAgain, players } = useTradingStore()
+  const [showModal, setShowModal] = React.useState(false)
 
-  if (!isGameOver || !gameOverData) return null
+  // Delay showing modal to allow RoundEndFlash to finish
+  React.useEffect(() => {
+    if (isGameOver && gameOverData) {
+      const timer = setTimeout(() => {
+        setShowModal(true)
+      }, 3500) // 3.5s delay (RoundEndFlash is 3s)
+      return () => clearTimeout(timer)
+    } else {
+      setShowModal(false)
+    }
+  }, [isGameOver, gameOverData])
+
+  if (!showModal || !gameOverData) return null
 
   const isWinner = gameOverData.winnerId === localPlayerId
 
@@ -35,6 +49,10 @@ export const GameOverModal = React.memo(function GameOverModal() {
       isLoss: true,
     }
   }
+
+  // Get final wallet balances
+  const localPlayer = players.find((p) => p.id === localPlayerId)
+  const opponent = players.find((p) => p.id !== localPlayerId)
 
   return (
     <motion.div
@@ -65,9 +83,14 @@ export const GameOverModal = React.memo(function GameOverModal() {
           >
             {isWinner ? 'VICTORY' : 'DEFEAT'}
           </motion.h2>
-          <p className="text-white/70 mt-2 text-sm tracking-widest">
-            {gameOverData.winnerName} WINS THE GAME
-          </p>
+          <div className="text-white/70 mt-2 text-sm tracking-widest flex items-center justify-center gap-2">
+            <PlayerName 
+              username={!gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined}
+              address={gameOverData.winnerName.startsWith('0x') ? gameOverData.winnerName : undefined}
+              className="text-white"
+            />
+            <span>WINS THE GAME</span>
+          </div>
         </motion.div>
 
         {/* ROUND SUMMARY - Vertical Stacked Text */}
@@ -162,6 +185,42 @@ export const GameOverModal = React.memo(function GameOverModal() {
             })}
           </div>
         </div>
+
+        {/* Final Tally Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.7 }}
+          className="mb-6 bg-black/40 border border-white/10 rounded-xl p-4"
+        >
+          <h3 className="font-[family-name:var(--font-orbitron)] text-xs tracking-[0.2em] text-white/50 mb-3 uppercase">
+            Final Tally
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Local Player Tally */}
+            <div className="flex flex-col items-center p-2 rounded bg-white/5 border border-white/5">
+              <span className="text-[10px] text-tron-white-dim mb-1 tracking-wider">YOU</span>
+              <span className="font-[family-name:var(--font-orbitron)] text-xl font-bold text-white">
+                ${localPlayer?.dollars ?? 0}
+              </span>
+            </div>
+            {/* Opponent Tally */}
+            <div className="flex flex-col items-center p-2 rounded bg-white/5 border border-white/5">
+              <span className="text-[10px] text-tron-white-dim mb-1 tracking-wider flex items-center gap-1">
+                {opponent?.name ? (
+                  <PlayerName 
+                    username={!opponent.name.startsWith('0x') ? opponent.name : undefined}
+                    address={opponent.name.startsWith('0x') ? opponent.name : undefined}
+                    className="text-tron-white-dim"
+                  />
+                ) : 'OPPONENT'}
+              </span>
+              <span className="font-[family-name:var(--font-orbitron)] text-xl font-bold text-white">
+                ${opponent?.dollars ?? 0}
+              </span>
+            </div>
+          </div>
+        </motion.div>
 
         {/* Final Score */}
         <motion.div

@@ -4,6 +4,7 @@ import { useTradingStore } from '@/game/stores/trading-store'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { PlayerName } from '@/components/ens/PlayerName'
 
 const FLASH_DURATION = 3000 // 3 seconds for round end (longer than 1.2s for orders)
 
@@ -208,8 +209,16 @@ export function RoundEndFlash() {
 
               {/* Opponent result */}
               <div className="flex flex-col items-center">
-                <span className="text-[10px] text-tron-white-dim uppercase tracking-wider mb-1">
-                  {opponent?.name || 'Opponent'}
+                <span className="text-[10px] text-tron-white-dim uppercase tracking-wider mb-1 flex items-center justify-center">
+                  {opponent?.name ? (
+                    <PlayerName 
+                      username={!opponent.name.startsWith('0x') ? opponent.name : undefined}
+                      address={opponent.name.startsWith('0x') ? opponent.name : undefined}
+                      className="text-tron-white-dim"
+                    />
+                  ) : (
+                    'Opponent'
+                  )}
                 </span>
                 <span
                   className={cn(
