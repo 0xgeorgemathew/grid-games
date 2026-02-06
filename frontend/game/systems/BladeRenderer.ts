@@ -60,39 +60,45 @@ export class BladeRenderer {
     if (this.bladePath.length < 2) return []
 
     const segments: { x1: number; y1: number; x2: number; y2: number }[] = []
-    const collisionWidth = this.isMobile ? BLADE_CONFIG.mobileCollisionWidth : BLADE_CONFIG.desktopCollisionWidth
+    const collisionWidth = this.isMobile
+      ? BLADE_CONFIG.mobileCollisionWidth
+      : BLADE_CONFIG.desktopCollisionWidth
     const halfWidth = collisionWidth / 2
 
     // Get the recent points for collision (last N segments)
     const startIdx = Math.max(0, this.bladePath.length - this.COLLISION_TRAIL_LENGTH)
-    
+
     for (let i = startIdx; i < this.bladePath.length - 1; i++) {
       const p1 = this.bladePath[i]
       const p2 = this.bladePath[i + 1]
-      
+
       // Calculate perpendicular offset for ribbon edges
       const dx = p2.x - p1.x
       const dy = p2.y - p1.y
       const len = Math.sqrt(dx * dx + dy * dy) || 1
-      const px = -dy / len * halfWidth
-      const py = dx / len * halfWidth
-      
+      const px = (-dy / len) * halfWidth
+      const py = (dx / len) * halfWidth
+
       // Center line segment
       segments.push({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y })
-      
+
       // Top edge segment
-      segments.push({ 
-        x1: p1.x + px, y1: p1.y + py, 
-        x2: p2.x + px, y2: p2.y + py 
+      segments.push({
+        x1: p1.x + px,
+        y1: p1.y + py,
+        x2: p2.x + px,
+        y2: p2.y + py,
       })
-      
+
       // Bottom edge segment
-      segments.push({ 
-        x1: p1.x - px, y1: p1.y - py, 
-        x2: p2.x - px, y2: p2.y - py 
+      segments.push({
+        x1: p1.x - px,
+        y1: p1.y - py,
+        x2: p2.x - px,
+        y2: p2.y - py,
       })
     }
-    
+
     return segments
   }
 
@@ -153,7 +159,9 @@ export class BladeRenderer {
 
     this.bladeGraphics.setBlendMode(Phaser.BlendModes.ADD)
 
-    const ribbonWidth = this.isMobile ? BLADE_CONFIG.mobileRibbonWidth : BLADE_CONFIG.desktopRibbonWidth
+    const ribbonWidth = this.isMobile
+      ? BLADE_CONFIG.mobileRibbonWidth
+      : BLADE_CONFIG.desktopRibbonWidth
     const edgeWidth = this.isMobile ? BLADE_CONFIG.mobileEdgeWidth : BLADE_CONFIG.desktopEdgeWidth
 
     // Calculate perpendicular offsets for ribbon edges
@@ -186,11 +194,11 @@ export class BladeRenderer {
       const p1 = this.bladePath[i]
       const p2 = this.bladePath[i + 1]
       const t = i / (this.bladePath.length - 1)
-      
+
       // Digital flicker effect - subtle pulsing along the ribbon
       const flickerOffset = (i * 0.3 + this.flickerTime) % (Math.PI * 2)
       const flicker = 0.85 + Math.sin(flickerOffset) * 0.15
-      
+
       const alpha = t * t * 0.35 * flicker
 
       this.bladeGraphics.lineStyle(ribbonWidth * stretchFactor, BLADE_CONFIG.color, alpha)
@@ -207,10 +215,10 @@ export class BladeRenderer {
       const p2 = this.bladePath[i + 1]
       const perp1 = getPerp(i)
       const perp2 = getPerp(i + 1)
-      
+
       const t = i / (this.bladePath.length - 1)
       const alpha = t * t * 0.9
-      
+
       const halfWidth = (ribbonWidth * stretchFactor) / 2
 
       // Top edge line
@@ -220,7 +228,7 @@ export class BladeRenderer {
       this.bladeGraphics.lineTo(p2.x + perp2.px * halfWidth, p2.y + perp2.py * halfWidth)
       this.bladeGraphics.strokePath()
 
-      // Bottom edge line  
+      // Bottom edge line
       this.bladeGraphics.beginPath()
       this.bladeGraphics.moveTo(p1.x - perp1.px * halfWidth, p1.y - perp1.py * halfWidth)
       this.bladeGraphics.lineTo(p2.x - perp2.px * halfWidth, p2.y - perp2.py * halfWidth)
@@ -233,10 +241,10 @@ export class BladeRenderer {
       const p2 = this.bladePath[i + 1]
       const perp1 = getPerp(i)
       const perp2 = getPerp(i + 1)
-      
+
       const t = i / (this.bladePath.length - 1)
       const alpha = t * t * 0.5
-      
+
       const halfWidth = (ribbonWidth * stretchFactor) / 2
 
       // Top edge glow
