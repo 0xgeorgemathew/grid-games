@@ -37,8 +37,8 @@ declare global {
 }
 
 // Game constants
-const STANDARD_DAMAGE = 0.1
-const WHALE_DAMAGE = 0.2
+const STANDARD_DAMAGE = 1
+const WHALE_DAMAGE = 2
 const TUG_OF_WAR_MIN = -100
 const TUG_OF_WAR_MAX = 100
 
