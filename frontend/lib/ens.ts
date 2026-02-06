@@ -1,6 +1,6 @@
 /**
  * ENS L2 Integration Library for Grid Games
- * 
+ *
  * Contract addresses and ABIs for Base Sepolia ENS L2
  */
 
@@ -99,7 +99,7 @@ export const LEVERAGE_KEY = 'games.grid.leverage'
 
 // Leverage options
 export const LEVERAGE_OPTIONS = ['1x', '2x', '5x', '10x', '20x'] as const
-export type LeverageOption = typeof LEVERAGE_OPTIONS[number]
+export type LeverageOption = (typeof LEVERAGE_OPTIONS)[number]
 
 // Validate username format
 export function validateUsername(label: string): { isValid: boolean; error?: string } {
@@ -136,4 +136,78 @@ export function encodeSetTextCall(node: `0x${string}`, key: string, value: strin
     functionName: 'setText',
     args: [node, key, value],
   })
+}
+
+/**
+ * Get leverage for a wallet address from ENS text record
+ * Returns numeric leverage (1, 2, 5, 10, 20) or undefined
+ *
+ * This function performs on-chain reads directly from the ENS registry.
+ * The server uses this to determine a player's whale power-up multiplier.
+ */
+export async function getLeverageForAddress(address: string): Promise<number | undefined> {
+  try {
+    // Get ENS name from reverse resolution using the registrar
+    // @ts-ignore - viem ABI type compatibility issue with readonly arrays
+    const name = (await publicClient.readContract({
+      address: L2_REGISTRAR,
+      abi: registrarAbi,
+      functionName: 'getFullName',
+      args: [address as Address],
+    })) as string
+
+    if (!name) return undefined
+
+    // Extract label from "username.grid.eth"
+    const match = name.match(/^([^.]+)\.grid\.eth$/i)
+    if (!match) return undefined
+    const label = match[1]
+
+    // Get base node first
+    // @ts-ignore - viem ABI type compatibility issue with readonly arrays
+    const baseNode = (await publicClient.readContract({
+      address: L2_REGISTRY,
+      abi: registryAbi,
+      functionName: 'baseNode',
+      args: [],
+    })) as `0x${string}`
+
+    // Make node for the label
+    // @ts-ignore - viem ABI type compatibility issue with readonly arrays
+    const labelNode = (await publicClient.readContract({
+      address: L2_REGISTRY,
+      abi: registryAbi,
+      functionName: 'makeNode',
+      args: [baseNode, label.toLowerCase()],
+    })) as `0x${string}`
+
+    // Get leverage text record
+    // @ts-ignore - viem ABI type compatibility issue with readonly arrays
+    const leverageStr = (await publicClient.readContract({
+      address: L2_REGISTRY,
+      abi: registryAbi,
+      functionName: 'text',
+      args: [labelNode, LEVERAGE_KEY],
+    })) as string
+
+    if (!leverageStr) {
+      console.log(
+        `[ENS] No leverage set in ENS (using default 2x): address=${address.slice(0, 6)}...${address.slice(-4)}, name=${name}`
+      )
+      return undefined
+    }
+
+    // Parse "5x" → 5
+    const value = parseInt(leverageStr.replace('x', ''), 10)
+    const finalLeverage = [1, 2, 5, 10, 20].includes(value) ? value : 2
+
+    console.log(
+      `[ENS] Leverage fetched successfully: address=${address.slice(0, 6)}...${address.slice(-4)}, name=${name}, leverage=${finalLeverage}x`
+    )
+
+    return finalLeverage
+  } catch (error) {
+    console.error('[ENS] Failed to get leverage:', error)
+    return undefined // Default fallback handled elsewhere
+  }
 }
