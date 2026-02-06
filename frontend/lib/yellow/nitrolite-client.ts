@@ -15,6 +15,7 @@ import {
   Signature,
   StateIntent,
 } from '@erc7824/nitrolite'
+import { ENTRY_STAKE as CONFIG_ENTRY_STAKE } from './config'
 
 // ERC20 ABI (minimal - only what we need)
 const ERC20_ABI = [
@@ -69,7 +70,9 @@ export const YELLOW_CONFIG = {
 // USDC on Base Sepolia
 export const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as const
 export const USDC_DECIMALS = 6
-export const ENTRY_STAKE = BigInt(100_000) // 0.1 USDC (6 decimals)
+
+// Entry stake from config (10 USDC = 10_000_000 with 6 decimals)
+export const ENTRY_STAKE = BigInt(CONFIG_ENTRY_STAKE)
 
 // ============================================================================
 // Nitrolite Client Manager (Singleton)
