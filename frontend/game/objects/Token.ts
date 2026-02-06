@@ -46,6 +46,8 @@ export class Token extends GameObjects.Container {
    * - Upward velocity: -400 to -600 px/s (reaches 60-80% screen height)
    * - Horizontal drift: -50 to 50 px/s for variety
    * - Gravity: 180 pulls arc back down for satisfying parabola
+   *
+   * @param textureKey - Optional custom texture key (e.g., 'texture_whale_5x' for leverage-specific whale)
    */
   spawn(
     x: number,
@@ -53,7 +55,8 @@ export class Token extends GameObjects.Container {
     type: CoinType,
     id: string,
     config: CoinConfig,
-    isMobile: boolean
+    isMobile: boolean,
+    textureKey?: string
   ): void {
     this.config = config
 
@@ -64,12 +67,13 @@ export class Token extends GameObjects.Container {
     this.image.setDepth(10) // Ensure image inherits depth
 
     // Update texture with validation
-    const textureKey = `texture_${type}`
-    if (!this.scene.textures.exists(textureKey)) {
-      console.error(`Missing texture: ${textureKey}, falling back to texture_call`)
+    // Use provided textureKey or default to `texture_${type}`
+    const actualTextureKey = textureKey || `texture_${type}`
+    if (!this.scene.textures.exists(actualTextureKey)) {
+      console.error(`Missing texture: ${actualTextureKey}, falling back to texture_call`)
       this.image.setTexture('texture_call')
     } else {
-      this.image.setTexture(textureKey)
+      this.image.setTexture(actualTextureKey)
     }
 
     // Apply mobile scale (1.3x larger on mobile for better visibility)

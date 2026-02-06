@@ -14,6 +14,7 @@ import type {
   PriceData,
 } from '../types/trading'
 import type { Toast } from '@/components/ToastNotifications'
+import type { LeverageOption } from '@/lib/ens'
 
 // Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
 const DEBUG_FUNDS = typeof process !== 'undefined' && process.env?.DEBUG_FUNDS === 'true'
@@ -59,6 +60,9 @@ interface TradingState {
   isSceneReady: boolean // Phaser scene is ready to receive events
   socketCleanupFunctions: Array<() => void>
 
+  // User leverage (from ENS)
+  userLeverage: LeverageOption | null // User's selected leverage for whale texture
+
   // Room/Players
   roomId: string | null
   localPlayerId: string | null
@@ -82,6 +86,7 @@ interface TradingState {
 
   // 2x multiplier state (whale power-up)
   whale2XExpiresAt: number | null // Timestamp when 2x expires for local player
+  whaleMultiplier: number // Active whale multiplier (from ENS)
 
   // Price feed
   priceSocket: WebSocket | null
@@ -120,6 +125,9 @@ interface TradingState {
   removeToast: (id: string) => void
   clearToasts: () => void
   playAgain: () => void
+
+  // Leverage actions
+  setUserLeverage: (leverage: LeverageOption) => void
 }
 
 function getDamageForCoinType(coinType: CoinType): number {
@@ -218,6 +226,9 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   isPlayer1: false,
   players: [],
 
+  // User leverage
+  userLeverage: null,
+
   // Round state
   currentRound: 1,
   player1Wins: 0,
@@ -234,6 +245,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   // 2x multiplier state
   whale2XExpiresAt: null,
+  whaleMultiplier: 2, // Default to 2x
 
   // Price feed state
   priceSocket: null,
@@ -331,13 +343,16 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     socket.on(
       'whale_2x_activated',
-      (data: { playerId: string; playerName: string; durationMs: number }) => {
+      (data: { playerId: string; playerName: string; durationMs: number; multiplier: number }) => {
         const { localPlayerId } = get()
         const isLocalPlayer = data.playerId === localPlayerId
 
-        // Store 2x expiration if local player activated it
+        // Store 2x expiration and multiplier if local player activated it
         if (isLocalPlayer) {
-          set({ whale2XExpiresAt: Date.now() + data.durationMs })
+          set({
+            whale2XExpiresAt: Date.now() + data.durationMs,
+            whaleMultiplier: data.multiplier, // Store actual multiplier from ENS
+          })
         }
 
         // Forward to Phaser for visual feedback
@@ -754,6 +769,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       isMatching: false,
       latestSettlement: null,
       whale2XExpiresAt: null, // Clear 2x state
+      whaleMultiplier: 2, // Reset to default
       // Round state reset
       currentRound: 1,
       player1Wins: 0,
@@ -799,5 +815,9 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     set({ toasts: [] })
     get().resetGame()
     set({ isGameOver: false, gameOverData: null })
+  },
+
+  setUserLeverage: (leverage) => {
+    set({ userLeverage: leverage })
   },
 }))
