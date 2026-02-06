@@ -94,8 +94,10 @@ export const registryAbi = [
   },
 ] as const
 
-// Text record key for leverage
+// Text record keys
 export const LEVERAGE_KEY = 'games.grid.leverage'
+export const TOTAL_GAMES_KEY = 'games.grid.total_games'
+export const STREAK_KEY = 'games.grid.streak'
 
 // Leverage options
 export const LEVERAGE_OPTIONS = ['1x', '2x', '5x', '10x', '20x'] as const
@@ -136,6 +138,23 @@ export function encodeSetTextCall(node: `0x${string}`, key: string, value: strin
     functionName: 'setText',
     args: [node, key, value],
   })
+}
+
+/**
+ * Encode batch setText calls for multiple text records
+ * Returns array of encoded function data for use with multicall
+ */
+export function encodeBatchSetTextCalls(
+  node: `0x${string}`,
+  records: Array<{ key: string; value: string }>
+): `0x${string}`[] {
+  return records.map(({ key, value }) =>
+    encodeFunctionData({
+      abi: registryAbi,
+      functionName: 'setText',
+      args: [node, key, value],
+    })
+  )
 }
 
 /**
