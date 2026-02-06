@@ -264,19 +264,34 @@ export function MatchmakingScreen() {
               animate={{ opacity: 1 }}
               className="mt-4 flex flex-col items-center"
             >
-              <div className="flex items-center gap-2 mb-2">
-                <p className="text-gray-500 text-[10px] tracking-[0.2em] font-medium">PLAYING AS</p>
+              {/* Enhanced label row with better visibility */}
+              <div className="flex items-center gap-3 mb-3">
+                <motion.p
+                  className="text-cyan-400/70 text-[10px] tracking-[0.25em] font-medium"
+                  animate={{
+                    textShadow: [
+                      '0 0 5px rgba(0, 243, 255, 0.2)',
+                      '0 0 10px rgba(0, 243, 255, 0.4)',
+                      '0 0 5px rgba(0, 243, 255, 0.2)',
+                    ],
+                  }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                >
+                  PLAYING AS
+                </motion.p>
+                <motion.div className="h-3 w-px bg-cyan-400/30" />
+                {/* Larger, more visible settings button */}
                 <motion.button
                   onClick={() => setMatchState('setLeverage')}
-                  whileHover={{ scale: 1.1, textShadow: '0 0 8px rgba(34, 211, 238, 0.8)' }}
+                  whileHover={{ scale: 1.15, rotate: 90 }}
                   whileTap={{ scale: 0.95 }}
-                  className="text-gray-500 hover:text-cyan-400 transition-colors p-1 rounded-full hover:bg-cyan-900/20"
+                  className="text-cyan-400/60 hover:text-cyan-400 transition-colors p-2 rounded-full hover:bg-cyan-900/30"
                   title="Set Leverage"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
+                    width="18"
+                    height="18"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -289,10 +304,26 @@ export function MatchmakingScreen() {
                   </svg>
                 </motion.button>
               </div>
-              <PlayerName
-                username={claimedUsername}
-                className="text-cyan-300 text-xl tracking-wider"
-              />
+
+              {/* Username with larger size and enhanced glow */}
+              <motion.div className="relative" whileHover={{ scale: 1.05 }}>
+                {/* Background glow ring */}
+                <motion.div
+                  className="absolute inset-0 rounded-full blur-xl"
+                  animate={{
+                    background: [
+                      'radial-gradient(ellipse at center, rgba(0, 243, 255, 0.15) 0%, transparent 70%)',
+                      'radial-gradient(ellipse at center, rgba(0, 243, 255, 0.25) 0%, transparent 70%)',
+                      'radial-gradient(ellipse at center, rgba(0, 243, 255, 0.15) 0%, transparent 70%)',
+                    ],
+                  }}
+                  transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+                />
+                <PlayerName
+                  username={claimedUsername}
+                  className="text-cyan-300 text-2xl tracking-wider relative z-10"
+                />
+              </motion.div>
             </motion.div>
           )}
         </motion.div>

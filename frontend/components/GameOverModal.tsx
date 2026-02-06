@@ -115,6 +115,12 @@ export const GameOverModal = React.memo(function GameOverModal() {
             >
               SUMMARY
             </motion.h3>
+            {/* Animated data stream line */}
+            <motion.div
+              className="h-px bg-gradient-to-r from-transparent via-cyan-400 to-transparent w-32"
+              animate={{ opacity: [0.3, 1, 0.3], scaleX: [0.8, 1, 0.8] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            />
           </motion.div>
 
           {/* Round Cards - Local Player Perspective */}
@@ -134,8 +140,12 @@ export const GameOverModal = React.memo(function GameOverModal() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.4 + index * 0.1 }}
+                  whileHover={{
+                    scale: 1.02,
+                    borderColor: result.isWin ? 'rgba(0, 243, 255, 0.6)' : 'rgba(255, 107, 0, 0.6)',
+                  }}
                   className={cn(
-                    'relative rounded-lg p-4 border backdrop-blur-sm',
+                    'relative rounded-lg p-4 border backdrop-blur-sm overflow-hidden group',
                     result.isWin
                       ? 'border-cyan-400/30 bg-cyan-950/20'
                       : result.isLoss
@@ -143,9 +153,34 @@ export const GameOverModal = React.memo(function GameOverModal() {
                         : 'border-white/10 bg-white/5'
                   )}
                 >
-                  <div className="flex justify-between items-center">
+                  {/* Grid background overlay */}
+                  <div className="absolute inset-0 opacity-10 tron-grid pointer-events-none" />
+
+                  {/* Scanline effect on hover */}
+                  <motion.div
+                    className="absolute inset-0 pointer-events-none"
+                    initial={{ opacity: 0 }}
+                    whileHover={{ opacity: 1 }}
+                  >
+                    <motion.div
+                      className="w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                      animate={{ y: ['0%', '100%'] }}
+                      transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+                    />
+                  </motion.div>
+
+                  <div className="relative flex justify-between items-center">
                     <div className="text-left">
-                      <span className="text-white/40 text-xs tracking-widest block mb-1">
+                      <span
+                        className={cn(
+                          'font-[family-name:var(--font-orbitron)] text-xs tracking-widest block mb-1',
+                          result.isWin
+                            ? 'text-cyan-400/80'
+                            : result.isLoss
+                              ? 'text-orange-400/80'
+                              : 'text-white/60'
+                        )}
+                      >
                         ROUND {round.roundNumber}
                       </span>
                       <span
@@ -171,16 +206,16 @@ export const GameOverModal = React.memo(function GameOverModal() {
                           result.isWin
                             ? {
                                 textShadow: [
-                                  '0 0 10px rgba(0,217,255,0.3)',
-                                  '0 0 20px rgba(0,217,255,0.6)',
-                                  '0 0 10px rgba(0,217,255,0.3)',
+                                  '0 0 15px rgba(0,243,255,0.5)',
+                                  '0 0 30px rgba(0,243,255,0.8)',
+                                  '0 0 15px rgba(0,243,255,0.5)',
                                 ],
                               }
                             : {
                                 textShadow: [
-                                  '0 0 10px rgba(255,107,0,0.3)',
-                                  '0 0 20px rgba(255,107,0,0.6)',
-                                  '0 0 10px rgba(255,107,0,0.3)',
+                                  '0 0 15px rgba(255,107,0,0.5)',
+                                  '0 0 30px rgba(255,107,0,0.8)',
+                                  '0 0 15px rgba(255,107,0,0.5)',
                                 ],
                               }
                         }
@@ -208,29 +243,123 @@ export const GameOverModal = React.memo(function GameOverModal() {
           </h3>
           <div className="grid grid-cols-2 gap-4">
             {/* Local Player Tally */}
-            <div className="flex flex-col items-center p-2 rounded bg-white/5 border border-white/5">
-              <span className="text-[10px] text-tron-white-dim mb-1 tracking-[0.2em]">YOU</span>
-              <span className="font-[family-name:var(--font-orbitron)] text-xl font-bold text-white">
-                ${localPlayer?.dollars ?? 0}
+            <motion.div
+              whileHover={{ scale: 1.02 }}
+              className={cn(
+                'relative flex flex-col items-center p-3 rounded-lg border backdrop-blur-sm overflow-hidden group',
+                isWinner
+                  ? 'border-cyan-400/30 bg-cyan-950/20'
+                  : 'border-orange-400/30 bg-orange-950/20'
+              )}
+            >
+              {/* Grid background overlay */}
+              <div className="absolute inset-0 opacity-10 tron-grid pointer-events-none" />
+              {/* Scanline effect on hover */}
+              <motion.div
+                className="absolute inset-0 pointer-events-none"
+                initial={{ opacity: 0 }}
+                whileHover={{ opacity: 1 }}
+              >
+                <motion.div
+                  className="w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                  animate={{ y: ['0%', '100%'] }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+                />
+              </motion.div>
+              <span
+                className={cn(
+                  'text-[10px] mb-1 tracking-[0.2em] relative z-10',
+                  isWinner ? 'text-cyan-400/80' : 'text-orange-400/80'
+                )}
+              >
+                YOU
               </span>
-            </div>
+              <motion.span
+                className={cn(
+                  'font-[family-name:var(--font-orbitron)] text-xl font-bold tracking-[0.2em] relative z-10',
+                  isWinner ? 'text-tron-cyan' : 'text-tron-orange'
+                )}
+                animate={{
+                  textShadow: isWinner
+                    ? [
+                        '0 0 15px rgba(0,243,255,0.5)',
+                        '0 0 30px rgba(0,243,255,0.8)',
+                        '0 0 15px rgba(0,243,255,0.5)',
+                      ]
+                    : [
+                        '0 0 15px rgba(255,107,0,0.5)',
+                        '0 0 30px rgba(255,107,0,0.8)',
+                        '0 0 15px rgba(255,107,0,0.5)',
+                      ],
+                }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                ${localPlayer?.dollars ?? 0}
+              </motion.span>
+            </motion.div>
             {/* Opponent Tally */}
-            <div className="flex flex-col items-center p-2 rounded bg-white/5 border border-white/5">
-              <span className="text-[10px] text-tron-white-dim mb-1 tracking-[0.2em] flex items-center gap-2">
+            <motion.div
+              whileHover={{ scale: 1.02 }}
+              className={cn(
+                'relative flex flex-col items-center p-3 rounded-lg border backdrop-blur-sm overflow-hidden group',
+                isWinner
+                  ? 'border-orange-400/30 bg-orange-950/20'
+                  : 'border-cyan-400/30 bg-cyan-950/20'
+              )}
+            >
+              {/* Grid background overlay */}
+              <div className="absolute inset-0 opacity-10 tron-grid pointer-events-none" />
+              {/* Scanline effect on hover */}
+              <motion.div
+                className="absolute inset-0 pointer-events-none"
+                initial={{ opacity: 0 }}
+                whileHover={{ opacity: 1 }}
+              >
+                <motion.div
+                  className="w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                  animate={{ y: ['0%', '100%'] }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+                />
+              </motion.div>
+              <span
+                className={cn(
+                  'text-[10px] mb-1 tracking-[0.2em] flex items-center gap-2 relative z-10',
+                  isWinner ? 'text-orange-400/80' : 'text-cyan-400/80'
+                )}
+              >
                 {opponent?.name ? (
                   <PlayerName
                     username={!opponent.name.startsWith('0x') ? opponent.name : undefined}
                     address={opponent.name.startsWith('0x') ? opponent.name : undefined}
-                    className="text-tron-white-dim"
+                    className={isWinner ? 'text-orange-400/80' : 'text-cyan-400/80'}
                   />
                 ) : (
                   'OPPONENT'
                 )}
               </span>
-              <span className="font-[family-name:var(--font-orbitron)] text-xl font-bold text-white">
+              <motion.span
+                className={cn(
+                  'font-[family-name:var(--font-orbitron)] text-xl font-bold tracking-[0.2em] relative z-10',
+                  isWinner ? 'text-tron-orange' : 'text-tron-cyan'
+                )}
+                animate={{
+                  textShadow: isWinner
+                    ? [
+                        '0 0 15px rgba(255,107,0,0.5)',
+                        '0 0 30px rgba(255,107,0,0.8)',
+                        '0 0 15px rgba(255,107,0,0.5)',
+                      ]
+                    : [
+                        '0 0 15px rgba(0,243,255,0.5)',
+                        '0 0 30px rgba(0,243,255,0.8)',
+                        '0 0 15px rgba(0,243,255,0.5)',
+                      ],
+                }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+              >
                 ${opponent?.dollars ?? 0}
-              </span>
-            </div>
+              </motion.span>
+            </motion.div>
           </div>
         </motion.div>
 
