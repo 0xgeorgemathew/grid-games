@@ -422,7 +422,7 @@ export class VisualEffects {
     // Tron-style impact flash: brief white burst followed by colored flash
     // The white flash simulates the high-intensity "shatter" moment
     this.scene.cameras.main.flash(50, 255, 255, 255, false) // Quick white burst
-    
+
     // Followed by a subtle colored flash
     this.scene.time.delayedCall(50, () => {
       if (!this.isShutdown) {

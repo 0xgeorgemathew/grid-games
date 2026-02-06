@@ -1,6 +1,5 @@
 // Yellow Network Nitrolite integration
 
-
 import { createPublicClient, http, type Address, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { defineChain } from 'viem'
@@ -59,12 +58,15 @@ export const YELLOW_CONFIG = {
 
   // Deployed contracts from https://github.com/erc7824/nitrolite
   addresses: {
-    custody: (process.env.YELLOW_CUSTODY_ADDRESS || '0x019B65A265EB3363822f2752141b3dF16131b262') as Address,
-    adjudicator: (process.env.YELLOW_ADJUDICATOR_ADDRESS || '0x7c7ccbc98469190849BCC6c926307794fDfB11F2') as Address,
+    custody: (process.env.YELLOW_CUSTODY_ADDRESS ||
+      '0x019B65A265EB3363822f2752141b3dF16131b262') as Address,
+    adjudicator: (process.env.YELLOW_ADJUDICATOR_ADDRESS ||
+      '0x7c7ccbc98469190849BCC6c926307794fDfB11F2') as Address,
   },
 
   // Server private key for signing states (use environment variable in production)
-  serverPrivateKey: (process.env.YELLOW_SERVER_PRIVATE_KEY || '0x0000000000000000000000000000000000000000000000000000000000000000') as Hex,
+  serverPrivateKey: (process.env.YELLOW_SERVER_PRIVATE_KEY ||
+    '0x0000000000000000000000000000000000000000000000000000000000000000') as Hex,
 } as const
 
 // USDC on Base Sepolia
@@ -117,7 +119,10 @@ export function initializeNitrolite(): {
   })
 
   // Create server account for signing states
-  if (YELLOW_CONFIG.serverPrivateKey !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+  if (
+    YELLOW_CONFIG.serverPrivateKey !==
+    '0x0000000000000000000000000000000000000000000000000000000000000000'
+  ) {
     serverAccount = privateKeyToAccount(YELLOW_CONFIG.serverPrivateKey)
   }
 
@@ -157,7 +162,8 @@ export function isNitroliteConfigured(): boolean {
     YELLOW_CONFIG.addresses.adjudicator !== '0x0000000000000000000000000000000000000000'
 
   const hasServerKey =
-    YELLOW_CONFIG.serverPrivateKey !== '0x0000000000000000000000000000000000000000000000000000000000000000'
+    YELLOW_CONFIG.serverPrivateKey !==
+    '0x0000000000000000000000000000000000000000000000000000000000000000'
 
   return hasRealAddresses && hasServerKey
 }
@@ -184,7 +190,7 @@ export interface GameChannel {
     amount: string
   }>
   version: number
-  initialState: State  // Server-signed initial state (per Nitrolite docs)
+  initialState: State // Server-signed initial state (per Nitrolite docs)
 }
 
 /**
@@ -263,7 +269,10 @@ export async function createGameChannel(params: CreateGameChannelParams): Promis
   }
 
   // Sort addresses for deterministic ordering (required by Nitrolite)
-  const sorted = [player1Address.toLowerCase(), player2Address.toLowerCase()].sort() as [Address, Address]
+  const sorted = [player1Address.toLowerCase(), player2Address.toLowerCase()].sort() as [
+    Address,
+    Address,
+  ]
 
   // Generate unique nonce for this channel
   // Per docs: "nonce - a unique number to distinguish channels with the same participants"
@@ -289,14 +298,14 @@ export async function createGameChannel(params: CreateGameChannelParams): Promis
 
   // Create initial state with INITIALIZE intent (per Nitrolite protocol)
   const initialState: UnsignedState = {
-    intent: StateIntent.INITIALIZE,  // 1 = INITIALIZE (replaces CHANOPEN magic number)
+    intent: StateIntent.INITIALIZE, // 1 = INITIALIZE (replaces CHANOPEN magic number)
     version: BigInt(0),
     data: '0x' as Hex,
     allocations: [
       {
         destination: sorted[0],
         token: USDC_ADDRESS,
-        amount: ENTRY_STAKE,  // 0.1 USDC each
+        amount: ENTRY_STAKE, // 0.1 USDC each
       },
       {
         destination: sorted[1],
@@ -342,7 +351,7 @@ export async function createGameChannel(params: CreateGameChannelParams): Promis
       },
     ],
     version: 0,
-    initialState: signedInitialState,  // Server-signed initial state
+    initialState: signedInitialState, // Server-signed initial state
   }
 }
 
@@ -358,7 +367,8 @@ export async function updateChannelState(params: {
   player2Dollars: number
   version: number
 }): Promise<{ signedState: State; player1Payout: bigint; player2Payout: bigint }> {
-  const { player1Dollars, player2Dollars, channelId, version, player1Address, player2Address } = params
+  const { player1Dollars, player2Dollars, channelId, version, player1Address, player2Address } =
+    params
 
   if (!serverAccount) {
     throw new Error('Server account not initialized')
@@ -374,7 +384,10 @@ export async function updateChannelState(params: {
   const player2Payout = totalStake - player1Payout
 
   // Create updated state
-  const sorted = [player1Address.toLowerCase(), player2Address.toLowerCase()].sort() as [Address, Address]
+  const sorted = [player1Address.toLowerCase(), player2Address.toLowerCase()].sort() as [
+    Address,
+    Address,
+  ]
   const isPlayer1First = sorted[0].toLowerCase() === player1Address.toLowerCase()
 
   const updatedState: UnsignedState = {
@@ -497,7 +510,12 @@ export async function settleChannel(params: {
     channelId,
     player1Payout: player1Payout.toString(),
     player2Payout: player2Payout.toString(),
-    winner: player1Dollars > player2Dollars ? 'player1' : player2Dollars > player1Dollars ? 'player2' : 'tie',
+    winner:
+      player1Dollars > player2Dollars
+        ? 'player1'
+        : player2Dollars > player1Dollars
+          ? 'player2'
+          : 'tie',
     serverSignature,
   })
 

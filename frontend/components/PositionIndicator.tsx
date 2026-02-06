@@ -11,7 +11,8 @@ import { formatPrice } from '@/lib/formatPrice'
 const ORDER_SETTLEMENT_DURATION_MS = 5000 // 5 seconds
 
 export function PositionIndicator() {
-  const { activeOrders, localPlayerId, pendingOrders, whale2XExpiresAt } = useTradingStore()
+  const { activeOrders, localPlayerId, pendingOrders, whale2XExpiresAt, whaleMultiplier } =
+    useTradingStore()
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -246,7 +247,7 @@ export function PositionIndicator() {
 
                   {/* Right: Coin type badge with 2X indicator */}
                   <div className="flex items-center gap-1">
-                    {/* 2X badge if active during order */}
+                    {/* Dynamic multiplier badge if active during order */}
                     {was2XActive && !settled && !isTimedOut && (
                       <motion.div
                         className="px-1.5 py-0.5 rounded bg-purple-500/30 border border-purple-500/50 text-[9px] font-bold text-purple-300"
@@ -259,7 +260,7 @@ export function PositionIndicator() {
                           repeat: Infinity,
                         }}
                       >
-                        2X
+                        {whaleMultiplier}X
                       </motion.div>
                     )}
 

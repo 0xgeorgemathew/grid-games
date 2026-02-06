@@ -47,6 +47,11 @@ export class TradingScene extends Scene {
   private isShutdown = false
   private isMobile = false
   private eventEmitter: Phaser.Events.EventEmitter
+  private userLeverage: string = '2x' // User's leverage for whale texture
+
+  // Window visibility handlers for cleanup
+  private visibilityChangeHandler?: () => void
+  private windowBlurHandler?: () => void
 
   constructor() {
     super({ key: 'TradingScene' })
@@ -56,6 +61,10 @@ export class TradingScene extends Scene {
   create(): void {
     this.isMobile = this.sys.game.device.os.android || this.sys.game.device.os.iOS
     this.physics.world.setBounds(0, 0, this.cameras.main.width, this.cameras.main.height)
+
+    // Get user's leverage from store for whale texture generation
+    const store = useTradingStore.getState()
+    this.userLeverage = store.userLeverage || '2x'
 
     // Initialize systems
     this.particles = new ParticleSystem(this)
@@ -96,7 +105,8 @@ export class TradingScene extends Scene {
       }
     }
 
-    this.coinRenderer.generateCachedTextures()
+    // Generate textures with user's leverage for whale coin
+    this.coinRenderer.generateCachedTextures(this.userLeverage)
 
     // Token pool (use regular group since Token manages its own physics in spawn())
     this.tokenPool = this.add.group({
@@ -121,6 +131,22 @@ export class TradingScene extends Scene {
 
     this.input.on('pointerup', () => this.bladeRenderer.clearBladePath())
     this.input.on('pointerout', () => this.bladeRenderer.clearBladePath())
+
+    // Handle window visibility changes to clear blade when tab loses focus
+    // This prevents "ghost blade" artifacts when clicking outside the game window
+    this.visibilityChangeHandler = () => {
+      if (document.hidden) {
+        this.bladeRenderer.clearBladePath()
+      }
+    }
+    this.windowBlurHandler = () => {
+      this.bladeRenderer.clearBladePath()
+    }
+
+    // Use document visibility API for tab switching (Alt+Tab, Cmd+Tab)
+    document.addEventListener('visibilitychange', this.visibilityChangeHandler)
+    // Also handle window blur for clicking outside the browser
+    window.addEventListener('blur', this.windowBlurHandler)
     ;(window as { phaserEvents?: PhaserEventBridge }).phaserEvents = this
       .eventEmitter as PhaserEventBridge
     ;(window as { setSceneReady?: (ready: boolean) => void }).setSceneReady = (ready: boolean) => {
@@ -319,6 +345,16 @@ export class TradingScene extends Scene {
     delete (window as unknown as { setSceneReady?: (ready: boolean) => void }).setSceneReady
     delete (window as { phaserEvents?: PhaserEventBridge }).phaserEvents
 
+    // Remove window event listeners to prevent memory leaks
+    if (this.visibilityChangeHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityChangeHandler)
+      this.visibilityChangeHandler = undefined
+    }
+    if (this.windowBlurHandler) {
+      window.removeEventListener('blur', this.windowBlurHandler)
+      this.windowBlurHandler = undefined
+    }
+
     this.tokenPool.clear(true, true)
     this.eventEmitter.destroy()
     this.spatialGrid.clear()
@@ -358,7 +394,7 @@ export class TradingScene extends Scene {
       // Check against all collision segments
       for (const seg of segments) {
         this.collisionLine.setTo(seg.x1, seg.y1, seg.x2, seg.y2)
-        
+
         if (Geom.Intersects.LineToCircle(this.collisionLine, this.collisionCircle)) {
           this.sliceCoin(coinId, tokenObj)
           slicedThisFrame.add(coinId)
@@ -429,7 +465,11 @@ export class TradingScene extends Scene {
       token.body.enable = true
     }
 
-    token.spawn(data.x, data.y, data.coinType, data.coinId, config, this.isMobile)
+    // For whale coins, use leverage-specific texture key
+    const textureKey =
+      data.coinType === 'whale' ? `texture_whale_${this.userLeverage}` : `texture_${data.coinType}`
+
+    token.spawn(data.x, data.y, data.coinType, data.coinId, config, this.isMobile, textureKey)
 
     token.setData('gridX', token.x)
     token.setData('gridY', token.y)

@@ -13,6 +13,7 @@ import { formatPrice } from '@/lib/formatPrice'
 import { GAME_CONFIG } from '@/game/constants'
 import type { CryptoSymbol } from '@/game/stores/trading-store'
 import type { Player } from '@/game/types/trading'
+import { PlayerName } from '@/components/ens/PlayerName'
 
 const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
   btcusdt: 'BTC',
@@ -30,7 +31,7 @@ const PULSE_ANIMATION = {
 
 // 2X Multiplier Badge - Small inline badge for use in headers
 const Multiplier2XBadge = React.memo(function Multiplier2XBadge() {
-  const { whale2XExpiresAt } = useTradingStore()
+  const { whale2XExpiresAt, whaleMultiplier } = useTradingStore()
   const [timeLeft, setTimeLeft] = useState(() => Math.max(0, (whale2XExpiresAt || 0) - Date.now()))
 
   useEffect(() => {
@@ -45,7 +46,6 @@ const Multiplier2XBadge = React.memo(function Multiplier2XBadge() {
   }, [whale2XExpiresAt])
 
   const isActive = timeLeft > 0
-  const duration = 10000 // 10 seconds
   const secondsLeft = Math.ceil(timeLeft / 1000)
 
   return (
@@ -62,7 +62,7 @@ const Multiplier2XBadge = React.memo(function Multiplier2XBadge() {
             textShadow: '0 0 10px rgba(217,70,239,0.8)',
           }}
         >
-          ⚡ 2X ({secondsLeft}s)
+          ⚡ {whaleMultiplier}X ({secondsLeft}s)
         </motion.div>
       )}
     </AnimatePresence>
@@ -187,7 +187,7 @@ const PlayerHealthBar = React.memo(
       >
         <div className="flex items-center justify-between gap-1">
           <motion.span
-            className="font-bold tracking-wide truncate text-[10px] sm:text-xs md:text-sm text-white"
+            className="font-bold tracking-wide truncate text-[10px] sm:text-xs md:text-sm text-white flex items-center"
             animate={{
               textShadow:
                 healthColor === 'red'
@@ -196,7 +196,11 @@ const PlayerHealthBar = React.memo(
             }}
             transition={{ duration: 0.3 }}
           >
-            {name}
+            <PlayerName
+              username={!name.startsWith('0x') ? name : undefined}
+              address={name.startsWith('0x') ? name : undefined}
+              className={isYou ? 'text-white' : 'text-red-400'}
+            />
           </motion.span>
           {isYou ? (
             <span className="text-[10px] sm:text-xs font-black px-2 py-0.5 rounded bg-tron-cyan text-black shadow-[0_0_10px_rgba(0,243,255,0.5)]">

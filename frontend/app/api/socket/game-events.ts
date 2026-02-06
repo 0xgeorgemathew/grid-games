@@ -3,8 +3,14 @@ import { Socket } from 'socket.io'
 import { Player, RoundSummary } from '@/game/types/trading'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 import { ENTRY_STAKE } from '@/lib/yellow/config'
-import { initializeNitrolite, createGameChannel, updateChannelState, settleChannel } from '@/lib/yellow/nitrolite-client'
+import {
+  initializeNitrolite,
+  createGameChannel,
+  updateChannelState,
+  settleChannel,
+} from '@/lib/yellow/nitrolite-client'
 import { GAME_CONFIG } from '@/game/constants'
+import { getLeverageForAddress } from '@/lib/ens'
 
 // Order settlement duration - time between slice and settlement (5 seconds)
 export const ORDER_SETTLEMENT_DURATION_MS = GAME_CONFIG.ORDER_SETTLEMENT_DURATION_MS
@@ -274,8 +280,12 @@ class GameRoom {
   roundHistory: RoundSummary[] = []
 
   // Per-player 2X mode tracking (whale power-up)
-  private whale2XActive = new Map<string, number>() // playerId -> expiration timestamp
+  // Now stores multiplier data: { expiresAt: timestamp, multiplier: number }
+  private whale2XData = new Map<string, { expiresAt: number; multiplier: number }>()
   readonly WHALE_2X_DURATION = 10000 // 10 seconds
+
+  // Cache player leverage from ENS (for whale power-up)
+  private playerLeverageCache = new Map<string, number>() // playerId -> leverage
 
   // Yellow Network state channel
   channelId: string | null = null
@@ -295,24 +305,80 @@ class GameRoom {
 
   // Check if player has active 2X mode
   hasWhale2X(playerId: string): boolean {
-    const expiresAt = this.whale2XActive.get(playerId)
-    if (!expiresAt) return false
-    if (Date.now() > expiresAt) {
-      this.whale2XActive.delete(playerId)
+    const data = this.whale2XData.get(playerId)
+    if (!data) return false
+    if (Date.now() > data.expiresAt) {
+      this.whale2XData.delete(playerId)
       return false
     }
     return true
   }
 
-  // Activate 2X mode for a player
-  activateWhale2X(playerId: string): void {
+  // Activate whale mode for a player with their ENS leverage multiplier
+  activateWhale2X(playerId: string, multiplier: number): void {
     const expiresAt = Date.now() + this.WHALE_2X_DURATION
-    this.whale2XActive.set(playerId, expiresAt)
+    this.whale2XData.set(playerId, { expiresAt, multiplier })
   }
 
-  // Get 2X multiplier for a player (2 if active, 1 if not)
+  // Get multiplier for a player (leverage from ENS if whale active, 1 if not)
   get2XMultiplier(playerId: string): number {
-    return this.hasWhale2X(playerId) ? 2 : 1
+    const data = this.whale2XData.get(playerId)
+    if (!data) return 1 // No whale active = 1x base
+    if (Date.now() > data.expiresAt) {
+      this.whale2XData.delete(playerId)
+      return 1
+    }
+    return data.multiplier // Return ENS leverage (2, 5, 10, 20)
+  }
+
+  // Get player's leverage from ENS (with caching)
+  async getPlayerLeverage(playerId: string): Promise<number> {
+    // Check cache first
+    if (this.playerLeverageCache.has(playerId)) {
+      const cached = this.playerLeverageCache.get(playerId)!
+      console.log(
+        `[GameRoom] Using cached leverage: playerId=${playerId.slice(0, 8)}, leverage=${cached}x`
+      )
+      return cached
+    }
+
+    // Get wallet address from room
+    const walletAddress = this.getWalletAddress(playerId)
+    if (!walletAddress) {
+      console.log(
+        `[GameRoom] No wallet address for player (using default 2x): playerId=${playerId.slice(0, 8)}`
+      )
+      return 2 // Default to 2x
+    }
+
+    // Load from ENS
+    const leverage = await getLeverageForAddress(walletAddress)
+    const finalLeverage = leverage || 2 // Default to 2x
+
+    console.log(
+      `[GameRoom] Loaded leverage from ENS: playerId=${playerId.slice(0, 8)}, address=${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}, leverage=${finalLeverage}x`
+    )
+
+    // Cache for future use
+    this.playerLeverageCache.set(playerId, finalLeverage)
+    return finalLeverage
+  }
+
+  // Helper to get wallet address for player
+  private getWalletAddress(playerId: string): string | undefined {
+    if (
+      this.player1Address &&
+      this.addressToSocketId.get(this.player1Address.toLowerCase()) === playerId
+    ) {
+      return this.player1Address
+    }
+    if (
+      this.player2Address &&
+      this.addressToSocketId.get(this.player2Address.toLowerCase()) === playerId
+    ) {
+      return this.player2Address
+    }
+    return undefined
   }
 
   // Get player dollars by wallet address (for Yellow channel settlements)
@@ -324,7 +390,14 @@ class GameRoom {
   }
 
   addPlayer(id: string, name: string, sceneWidth: number, sceneHeight: number): void {
-    this.players.set(id, { id, name, dollars: GAME_CONFIG.STARTING_CASH, score: 0, sceneWidth, sceneHeight })
+    this.players.set(id, {
+      id,
+      name,
+      dollars: GAME_CONFIG.STARTING_CASH,
+      score: 0,
+      sceneWidth,
+      sceneHeight,
+    })
   }
 
   removePlayer(id: string): void {
@@ -397,8 +470,10 @@ class GameRoom {
   // Track cash at round start for determining round winner by dollars gained
   startNewRound(): void {
     const playerIds = this.getPlayerIds()
-    this.player1CashAtRoundStart = this.players.get(playerIds[0])?.dollars || GAME_CONFIG.STARTING_CASH
-    this.player2CashAtRoundStart = this.players.get(playerIds[1])?.dollars || GAME_CONFIG.STARTING_CASH
+    this.player1CashAtRoundStart =
+      this.players.get(playerIds[0])?.dollars || GAME_CONFIG.STARTING_CASH
+    this.player2CashAtRoundStart =
+      this.players.get(playerIds[1])?.dollars || GAME_CONFIG.STARTING_CASH
   }
 
   // Determine round winner by cash gained (not absolute dollars)
@@ -782,7 +857,7 @@ function transferFunds(room: GameRoom, winnerId: string, loserId: string, amount
   const actualTransfer = Math.min(amount, loser?.dollars || 0)
 
   if (winner) winner.dollars += actualTransfer
-  if (loser) loser.dollars -= actualTransfer  // Goes to 0, never negative
+  if (loser) loser.dollars -= actualTransfer // Goes to 0, never negative
 }
 
 // =============================================================================
@@ -815,7 +890,9 @@ async function createYellowChannel(
     })
   } catch (error) {
     // No mock fallback - throw to surface configuration issues
-    throw new Error(`[Nitrolite] Channel creation failed: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(
+      `[Nitrolite] Channel creation failed: ${error instanceof Error ? error.message : String(error)}`
+    )
   }
 }
 
@@ -835,7 +912,11 @@ async function updateYellowChannel(room: GameRoom): Promise<void> {
     player2Address: room.player2Address,
     player1Dollars,
     player2Dollars,
-    allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({ id, name: p.name, dollars: p.dollars })),
+    allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({
+      id,
+      name: p.name,
+      dollars: p.dollars,
+    })),
   })
 
   try {
@@ -873,7 +954,11 @@ async function settleYellowChannel(room: GameRoom): Promise<{
     player2Address: room.player2Address,
     player1Dollars,
     player2Dollars,
-    allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({ id, name: p.name, dollars: p.dollars })),
+    allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({
+      id,
+      name: p.name,
+      dollars: p.dollars,
+    })),
   })
 
   try {
@@ -894,7 +979,9 @@ async function settleYellowChannel(room: GameRoom): Promise<{
     }
   } catch (error) {
     // No mock fallback - throw to surface configuration issues
-    throw new Error(`[Nitrolite] Settlement failed: ${error instanceof Error ? error.message : String(error)}`)
+    throw new Error(
+      `[Nitrolite] Settlement failed: ${error instanceof Error ? error.message : String(error)}`
+    )
   }
 }
 
@@ -963,6 +1050,17 @@ async function createMatch(
   })
 
   manager.removeWaitingPlayer(playerId2)
+
+  // Broadcast lobby update after match is created
+  const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+    ([_id, player]) => ({
+      socketId: player.socketId,
+      name: player.name,
+      joinedAt: player.joinedAt,
+    })
+  )
+  io.emit('lobby_updated', { players: allWaitingPlayers })
+
   // Start game loop immediately - client's isSceneReady guard handles timing
   startGameLoop(io, manager, room)
 }
@@ -991,11 +1089,15 @@ async function handleSlice(
   }
 
   if (data.coinType === 'whale') {
-    room.activateWhale2X(playerId)
+    // Load leverage from ENS (defaults to 2x if not set)
+    const leverage = await room.getPlayerLeverage(playerId)
+
+    room.activateWhale2X(playerId, leverage)
     io.to(room.id).emit('whale_2x_activated', {
       playerId,
       playerName: room.players.get(playerId)?.name || 'Unknown',
       durationMs: room.WHALE_2X_DURATION,
+      multiplier: leverage, // Send actual leverage (2, 5, 10, 20)
     })
     io.to(room.id).emit('coin_sliced', {
       playerId,
@@ -1057,7 +1159,11 @@ async function handleSlice(
   room.trackTimeout(timeoutId)
 }
 
-async function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom): Promise<void> {
+async function checkGameOver(
+  io: SocketIOServer,
+  manager: RoomManager,
+  room: GameRoom
+): Promise<void> {
   // Knockout ends the game immediately (instant game over, not just round end)
   if (room.hasDeadPlayer()) {
     room.setClosing()
@@ -1313,6 +1419,31 @@ export function setupGameEvents(io: SocketIOServer): {
           const p1Height = sceneHeight || 800
           const p1Wallet = walletAddress
 
+          // ADD TO POOL FIRST (before checking for opponents)
+          // This ensures AUTO-MATCH players are visible in lobby briefly
+          manager.addWaitingPlayer(socket.id, validatedName)
+          const waitingPlayer = manager.getWaitingPlayer(socket.id)
+          if (waitingPlayer) {
+            if (sceneWidth && sceneHeight) {
+              waitingPlayer.sceneWidth = sceneWidth
+              waitingPlayer.sceneHeight = sceneHeight
+            }
+            if (walletAddress) {
+              waitingPlayer.walletAddress = walletAddress
+            }
+          }
+
+          // Broadcast lobby update (now includes self)
+          const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+            ([_id, player]) => ({
+              socketId: player.socketId,
+              name: player.name,
+              joinedAt: player.joinedAt,
+            })
+          )
+          io.emit('lobby_updated', { players: allWaitingPlayers })
+
+          // NOW CHECK FOR OPPONENT
           for (const [waitingId, waiting] of manager.getWaitingPlayers()) {
             if (waitingId !== socket.id) {
               const waitingSocket = io.of('/').sockets.get(waitingId)
@@ -1338,9 +1469,51 @@ export function setupGameEvents(io: SocketIOServer): {
                 ).catch((error) => {
                   console.error('[Match] Failed to create match:', error)
                 })
+
+                // Broadcast lobby update (both players removed after match)
+                const remainingPlayers = Array.from(manager.getWaitingPlayers().entries())
+                  .filter(([id]) => id !== socket.id && id !== waitingId)
+                  .map(([_id, player]) => ({
+                    socketId: player.socketId,
+                    name: player.name,
+                    joinedAt: player.joinedAt,
+                  }))
+                io.emit('lobby_updated', { players: remainingPlayers })
+
                 return
               }
             }
+          }
+
+          // No opponent found, already in pool from above
+          socket.emit('waiting_for_match')
+        } catch (error) {
+          socket.emit('error', { message: 'Failed to find match' })
+        }
+      }
+    )
+
+    // Join waiting pool without immediately matching (for lobby view)
+    socket.on(
+      'join_waiting_pool',
+      ({
+        playerName,
+        sceneWidth,
+        sceneHeight,
+        walletAddress,
+      }: {
+        playerName: string
+        sceneWidth?: number
+        sceneHeight?: number
+        walletAddress?: string
+      }) => {
+        try {
+          const validatedName = validatePlayerName(playerName)
+
+          // Check if already in waiting pool
+          if (manager.getWaitingPlayer(socket.id)) {
+            socket.emit('already_in_pool')
+            return
           }
 
           manager.addWaitingPlayer(socket.id, validatedName)
@@ -1354,32 +1527,123 @@ export function setupGameEvents(io: SocketIOServer): {
               waitingPlayer.walletAddress = walletAddress
             }
           }
-          socket.emit('waiting_for_match')
+
+          // Broadcast lobby update to all connected clients
+          const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+            ([_id, player]) => ({
+              socketId: player.socketId,
+              name: player.name,
+              joinedAt: player.joinedAt,
+            })
+          )
+          io.emit('lobby_updated', { players: allWaitingPlayers })
+
+          socket.emit('joined_waiting_pool')
         } catch (error) {
-          socket.emit('error', { message: 'Failed to find match' })
+          socket.emit('error', { message: 'Failed to join waiting pool' })
         }
       }
     )
 
-    socket.on('slice_coin', async (data: { coinId: string; coinType: string; priceAtSlice: number }) => {
-      try {
-        const roomId = manager.getPlayerRoomId(socket.id)
-        if (!roomId) return
+    // Leave waiting pool (when exiting lobby view)
+    socket.on('leave_waiting_pool', () => {
+      manager.removeWaitingPlayer(socket.id)
 
-        const room = manager.getRoom(roomId)
-        if (!room) {
-          manager.removePlayerFromRoom(socket.id)
-          return
+      // Broadcast lobby update to all connected clients
+      const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+        ([_id, player]) => ({
+          socketId: player.socketId,
+          name: player.name,
+          joinedAt: player.joinedAt,
+        })
+      )
+      io.emit('lobby_updated', { players: allWaitingPlayers })
+    })
+
+    socket.on(
+      'slice_coin',
+      async (data: { coinId: string; coinType: string; priceAtSlice: number }) => {
+        try {
+          const roomId = manager.getPlayerRoomId(socket.id)
+          if (!roomId) return
+
+          const room = manager.getRoom(roomId)
+          if (!room) {
+            manager.removePlayerFromRoom(socket.id)
+            return
+          }
+
+          await handleSlice(io, manager, room, socket.id, data)
+        } catch (error) {
+          socket.emit('error', { message: 'Failed to slice coin' })
         }
-
-        await handleSlice(io, manager, room, socket.id, data)
-      } catch (error) {
-        socket.emit('error', { message: 'Failed to slice coin' })
       }
+    )
+
+    // Get list of waiting players for lobby
+    socket.on('get_lobby_players', () => {
+      const players = Array.from(manager.getWaitingPlayers().entries())
+        .filter(([id]) => id !== socket.id)
+        .map(([_id, player]) => ({
+          socketId: player.socketId,
+          name: player.name,
+          joinedAt: player.joinedAt,
+        }))
+      socket.emit('lobby_players', players)
+    })
+
+    // Manually select an opponent
+    socket.on('select_opponent', ({ opponentSocketId }: { opponentSocketId: string }) => {
+      const opponent = manager.getWaitingPlayer(opponentSocketId)
+      if (!opponent) {
+        socket.emit('error', { message: 'Opponent no longer available' })
+        return
+      }
+
+      const opponentSocket = io.of('/').sockets.get(opponentSocketId)
+      if (!opponentSocket?.connected) {
+        socket.emit('error', { message: 'Opponent disconnected' })
+        manager.removeWaitingPlayer(opponentSocketId)
+        return
+      }
+
+      const localPlayer = manager.getWaitingPlayer(socket.id)
+      if (!localPlayer) {
+        socket.emit('error', { message: 'You must join waiting pool first' })
+        return
+      }
+
+      createMatch(
+        io,
+        manager,
+        socket.id,
+        opponentSocketId,
+        localPlayer.name,
+        opponent.name,
+        localPlayer.walletAddress,
+        opponent.walletAddress,
+        localPlayer.sceneWidth || 500,
+        localPlayer.sceneHeight || 800,
+        opponent.sceneWidth || 500,
+        opponent.sceneHeight || 800
+      ).catch((error) => {
+        console.error('[Match] Failed to create selected match:', error)
+        socket.emit('error', { message: 'Failed to start match' })
+      })
     })
 
     socket.on('disconnect', () => {
       manager.removeWaitingPlayer(socket.id)
+
+      // Broadcast lobby update after player leaves
+      const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+        ([_id, player]) => ({
+          socketId: player.socketId,
+          name: player.name,
+          joinedAt: player.joinedAt,
+        })
+      )
+      io.emit('lobby_updated', { players: allWaitingPlayers })
 
       const roomId = manager.getPlayerRoomId(socket.id)
       if (roomId) {

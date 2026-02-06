@@ -12,12 +12,13 @@ const privy = new PrivyClient({
 // Environment configuration
 const FAUCET_ADDRESS = process.env.NEXT_PUBLIC_FAUCET_ADDRESS as `0x${string}`
 const AUTHORIZATION_KEY = process.env.PRIVY_AUTHORIZATION_PRIVATE_KEY as string | undefined
-const AUTHORIZATION_KEY_ID = (process.env.PRIVY_AUTHORIZATION_KEY_ID || 'dosot9g1wi7fhmdv349o7tw3') as string
+const AUTHORIZATION_KEY_ID = (process.env.PRIVY_AUTHORIZATION_KEY_ID ||
+  'dosot9g1wi7fhmdv349o7tw3') as string
 
 // ABIs
 const FAUCET_ABI = parseAbi([
   'function claim() external',
-  'function claimTo(address recipient) external'
+  'function claimTo(address recipient) external',
 ])
 
 // Simple in-memory rate limiting (resets on server restart)
@@ -54,7 +55,7 @@ async function sendSponsoredTransaction(
   walletId: string,
   to: `0x${string}`,
   data: `0x${string}`
-): Promise<{ hash: string }> {
+): Promise<string> {
   const rawKey = AUTHORIZATION_KEY?.replace(/^wallet-auth:/, '').trim()
 
   const params = {
@@ -68,7 +69,20 @@ async function sendSponsoredTransaction(
     }),
   }
 
-  return await privy.wallets().ethereum().sendTransaction(walletId, params)
+  console.log('Sending sponsored transaction to:', to)
+
+  const result = await privy.wallets().ethereum().sendTransaction(walletId, params)
+
+  // Extract hash from various possible response structures
+  const hash =
+    (result as { hash?: string }).hash ||
+    (result as { user_operation_hash?: string }).user_operation_hash ||
+    (result as { transaction_hash?: string }).transaction_hash ||
+    (result as { transactionHash?: string }).transactionHash ||
+    (result as { transaction_id?: string }).transaction_id ||
+    ''
+
+  return hash
 }
 
 export async function POST(req: NextRequest) {
@@ -105,7 +119,7 @@ export async function POST(req: NextRequest) {
       args: [userWalletAddress as `0x${string}`],
     })
 
-    const claimResult = await sendSponsoredTransaction(
+    const claimTxHash = await sendSponsoredTransaction(
       sponsoredWalletId,
       FAUCET_ADDRESS,
       claimCallData as `0x${string}`
@@ -119,7 +133,7 @@ export async function POST(req: NextRequest) {
     userClaims.add(userId)
 
     return NextResponse.json({
-      claimTx: { hash: claimResult.hash },
+      claimTx: { hash: claimTxHash },
       userWalletAddress,
     })
   } catch (error) {

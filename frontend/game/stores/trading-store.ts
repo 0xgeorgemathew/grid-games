@@ -12,8 +12,12 @@ import type {
   RoundEndEvent,
   CoinType,
   PriceData,
+  LobbyPlayer,
+  LobbyPlayersEvent,
+  LobbyUpdatedEvent,
 } from '../types/trading'
 import type { Toast } from '@/components/ToastNotifications'
+import type { LeverageOption } from '@/lib/ens'
 
 // Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
 const DEBUG_FUNDS = typeof process !== 'undefined' && process.env?.DEBUG_FUNDS === 'true'
@@ -59,6 +63,13 @@ interface TradingState {
   isSceneReady: boolean // Phaser scene is ready to receive events
   socketCleanupFunctions: Array<() => void>
 
+  // Lobby state
+  lobbyPlayers: LobbyPlayer[]
+  isRefreshingLobby: boolean
+
+  // User leverage (from ENS)
+  userLeverage: LeverageOption | null // User's selected leverage for whale texture
+
   // Room/Players
   roomId: string | null
   localPlayerId: string | null
@@ -82,6 +93,7 @@ interface TradingState {
 
   // 2x multiplier state (whale power-up)
   whale2XExpiresAt: number | null // Timestamp when 2x expires for local player
+  whaleMultiplier: number // Active whale multiplier (from ENS)
 
   // Price feed
   priceSocket: WebSocket | null
@@ -120,6 +132,15 @@ interface TradingState {
   removeToast: (id: string) => void
   clearToasts: () => void
   playAgain: () => void
+
+  // Leverage actions
+  setUserLeverage: (leverage: LeverageOption) => void
+
+  // Lobby actions
+  getLobbyPlayers: () => void
+  joinWaitingPool: (playerName: string, walletAddress?: string) => void
+  leaveWaitingPool: () => void
+  selectOpponent: (opponentSocketId: string) => void
 }
 
 function getDamageForCoinType(coinType: CoinType): number {
@@ -218,6 +239,13 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   isPlayer1: false,
   players: [],
 
+  // User leverage
+  userLeverage: null,
+
+  // Lobby state
+  lobbyPlayers: [],
+  isRefreshingLobby: false,
+
   // Round state
   currentRound: 1,
   player1Wins: 0,
@@ -234,6 +262,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   // 2x multiplier state
   whale2XExpiresAt: null,
+  whaleMultiplier: 2, // Default to 2x
 
   // Price feed state
   priceSocket: null,
@@ -331,13 +360,16 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     socket.on(
       'whale_2x_activated',
-      (data: { playerId: string; playerName: string; durationMs: number }) => {
+      (data: { playerId: string; playerName: string; durationMs: number; multiplier: number }) => {
         const { localPlayerId } = get()
         const isLocalPlayer = data.playerId === localPlayerId
 
-        // Store 2x expiration if local player activated it
+        // Store 2x expiration and multiplier if local player activated it
         if (isLocalPlayer) {
-          set({ whale2XExpiresAt: Date.now() + data.durationMs })
+          set({
+            whale2XExpiresAt: Date.now() + data.durationMs,
+            whaleMultiplier: data.multiplier, // Store actual multiplier from ENS
+          })
         }
 
         // Forward to Phaser for visual feedback
@@ -349,6 +381,31 @@ export const useTradingStore = create<TradingState>((set, get) => ({
         }
       }
     )
+
+    socket.on('lobby_players', (players: LobbyPlayersEvent) => {
+      set({ lobbyPlayers: players, isRefreshingLobby: false })
+    })
+
+    socket.on('lobby_updated', (data: LobbyUpdatedEvent) => {
+      // Filter out self from the lobby list (defense in depth)
+      const { localPlayerId } = get()
+      const filteredPlayers = data.players.filter((p) => p.socketId !== localPlayerId)
+      set({ lobbyPlayers: filteredPlayers })
+    })
+
+    socket.on('joined_waiting_pool', () => {
+      // Successfully joined waiting pool
+    })
+
+    socket.on('already_in_pool', () => {
+      // Already in pool, no action needed
+    })
+
+    socket.on('error', (error: { message: string }) => {
+      console.error('[Socket] Server error:', error.message)
+      get().addToast({ message: error.message, type: 'error', duration: 5000 })
+      set({ isMatching: false })
+    })
 
     set({ socket, socketCleanupFunctions: newCleanupFunctions })
   },
@@ -754,6 +811,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       isMatching: false,
       latestSettlement: null,
       whale2XExpiresAt: null, // Clear 2x state
+      whaleMultiplier: 2, // Reset to default
       // Round state reset
       currentRound: 1,
       player1Wins: 0,
@@ -799,5 +857,48 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     set({ toasts: [] })
     get().resetGame()
     set({ isGameOver: false, gameOverData: null })
+  },
+
+  setUserLeverage: (leverage) => {
+    set({ userLeverage: leverage })
+  },
+
+  // Lobby actions
+  getLobbyPlayers: () => {
+    const { socket } = get()
+    if (!socket) return
+    set({ isRefreshingLobby: true })
+    socket.emit('get_lobby_players')
+    // Safety timeout in case server doesn't respond
+    setTimeout(() => set({ isRefreshingLobby: false }), 5000)
+  },
+
+  joinWaitingPool: (playerName: string, walletAddress?: string) => {
+    const { socket } = get()
+    if (!socket) return
+
+    // Use actual Phaser scene dimensions if available, otherwise window dimensions
+    const sceneWidth =
+      (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions?.width ||
+      window.innerWidth
+    const sceneHeight =
+      (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions?.height ||
+      window.innerHeight
+
+    socket.emit('join_waiting_pool', { playerName, sceneWidth, sceneHeight, walletAddress })
+  },
+
+  leaveWaitingPool: () => {
+    const { socket } = get()
+    if (!socket) return
+    socket.emit('leave_waiting_pool')
+  },
+
+  selectOpponent: (opponentSocketId: string) => {
+    const { socket } = get()
+    if (!socket) return
+    // Just emit select_opponent - we're already in the waiting pool from joinWaitingPool
+    socket.emit('select_opponent', { opponentSocketId })
+    set({ isMatching: true })
   },
 }))
