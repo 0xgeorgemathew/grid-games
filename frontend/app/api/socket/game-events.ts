@@ -1050,6 +1050,17 @@ async function createMatch(
   })
 
   manager.removeWaitingPlayer(playerId2)
+
+  // Broadcast lobby update after match is created
+  const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+    ([_id, player]) => ({
+      socketId: player.socketId,
+      name: player.name,
+      joinedAt: player.joinedAt,
+    })
+  )
+  io.emit('lobby_updated', { players: allWaitingPlayers })
+
   // Start game loop immediately - client's isSceneReady guard handles timing
   startGameLoop(io, manager, room)
 }
@@ -1408,6 +1419,31 @@ export function setupGameEvents(io: SocketIOServer): {
           const p1Height = sceneHeight || 800
           const p1Wallet = walletAddress
 
+          // ADD TO POOL FIRST (before checking for opponents)
+          // This ensures AUTO-MATCH players are visible in lobby briefly
+          manager.addWaitingPlayer(socket.id, validatedName)
+          const waitingPlayer = manager.getWaitingPlayer(socket.id)
+          if (waitingPlayer) {
+            if (sceneWidth && sceneHeight) {
+              waitingPlayer.sceneWidth = sceneWidth
+              waitingPlayer.sceneHeight = sceneHeight
+            }
+            if (walletAddress) {
+              waitingPlayer.walletAddress = walletAddress
+            }
+          }
+
+          // Broadcast lobby update (now includes self)
+          const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+            ([_id, player]) => ({
+              socketId: player.socketId,
+              name: player.name,
+              joinedAt: player.joinedAt,
+            })
+          )
+          io.emit('lobby_updated', { players: allWaitingPlayers })
+
+          // NOW CHECK FOR OPPONENT
           for (const [waitingId, waiting] of manager.getWaitingPlayers()) {
             if (waitingId !== socket.id) {
               const waitingSocket = io.of('/').sockets.get(waitingId)
@@ -1433,9 +1469,51 @@ export function setupGameEvents(io: SocketIOServer): {
                 ).catch((error) => {
                   console.error('[Match] Failed to create match:', error)
                 })
+
+                // Broadcast lobby update (both players removed after match)
+                const remainingPlayers = Array.from(manager.getWaitingPlayers().entries())
+                  .filter(([id]) => id !== socket.id && id !== waitingId)
+                  .map(([_id, player]) => ({
+                    socketId: player.socketId,
+                    name: player.name,
+                    joinedAt: player.joinedAt,
+                  }))
+                io.emit('lobby_updated', { players: remainingPlayers })
+
                 return
               }
             }
+          }
+
+          // No opponent found, already in pool from above
+          socket.emit('waiting_for_match')
+        } catch (error) {
+          socket.emit('error', { message: 'Failed to find match' })
+        }
+      }
+    )
+
+    // Join waiting pool without immediately matching (for lobby view)
+    socket.on(
+      'join_waiting_pool',
+      ({
+        playerName,
+        sceneWidth,
+        sceneHeight,
+        walletAddress,
+      }: {
+        playerName: string
+        sceneWidth?: number
+        sceneHeight?: number
+        walletAddress?: string
+      }) => {
+        try {
+          const validatedName = validatePlayerName(playerName)
+
+          // Check if already in waiting pool
+          if (manager.getWaitingPlayer(socket.id)) {
+            socket.emit('already_in_pool')
+            return
           }
 
           manager.addWaitingPlayer(socket.id, validatedName)
@@ -1449,12 +1527,38 @@ export function setupGameEvents(io: SocketIOServer): {
               waitingPlayer.walletAddress = walletAddress
             }
           }
-          socket.emit('waiting_for_match')
+
+          // Broadcast lobby update to all connected clients
+          const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+            ([_id, player]) => ({
+              socketId: player.socketId,
+              name: player.name,
+              joinedAt: player.joinedAt,
+            })
+          )
+          io.emit('lobby_updated', { players: allWaitingPlayers })
+
+          socket.emit('joined_waiting_pool')
         } catch (error) {
-          socket.emit('error', { message: 'Failed to find match' })
+          socket.emit('error', { message: 'Failed to join waiting pool' })
         }
       }
     )
+
+    // Leave waiting pool (when exiting lobby view)
+    socket.on('leave_waiting_pool', () => {
+      manager.removeWaitingPlayer(socket.id)
+
+      // Broadcast lobby update to all connected clients
+      const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+        ([_id, player]) => ({
+          socketId: player.socketId,
+          name: player.name,
+          joinedAt: player.joinedAt,
+        })
+      )
+      io.emit('lobby_updated', { players: allWaitingPlayers })
+    })
 
     socket.on(
       'slice_coin',
@@ -1476,8 +1580,70 @@ export function setupGameEvents(io: SocketIOServer): {
       }
     )
 
+    // Get list of waiting players for lobby
+    socket.on('get_lobby_players', () => {
+      const players = Array.from(manager.getWaitingPlayers().entries())
+        .filter(([id]) => id !== socket.id)
+        .map(([_id, player]) => ({
+          socketId: player.socketId,
+          name: player.name,
+          joinedAt: player.joinedAt,
+        }))
+      socket.emit('lobby_players', players)
+    })
+
+    // Manually select an opponent
+    socket.on('select_opponent', ({ opponentSocketId }: { opponentSocketId: string }) => {
+      const opponent = manager.getWaitingPlayer(opponentSocketId)
+      if (!opponent) {
+        socket.emit('error', { message: 'Opponent no longer available' })
+        return
+      }
+
+      const opponentSocket = io.of('/').sockets.get(opponentSocketId)
+      if (!opponentSocket?.connected) {
+        socket.emit('error', { message: 'Opponent disconnected' })
+        manager.removeWaitingPlayer(opponentSocketId)
+        return
+      }
+
+      const localPlayer = manager.getWaitingPlayer(socket.id)
+      if (!localPlayer) {
+        socket.emit('error', { message: 'You must join waiting pool first' })
+        return
+      }
+
+      createMatch(
+        io,
+        manager,
+        socket.id,
+        opponentSocketId,
+        localPlayer.name,
+        opponent.name,
+        localPlayer.walletAddress,
+        opponent.walletAddress,
+        localPlayer.sceneWidth || 500,
+        localPlayer.sceneHeight || 800,
+        opponent.sceneWidth || 500,
+        opponent.sceneHeight || 800
+      ).catch((error) => {
+        console.error('[Match] Failed to create selected match:', error)
+        socket.emit('error', { message: 'Failed to start match' })
+      })
+    })
+
     socket.on('disconnect', () => {
       manager.removeWaitingPlayer(socket.id)
+
+      // Broadcast lobby update after player leaves
+      const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
+        ([_id, player]) => ({
+          socketId: player.socketId,
+          name: player.name,
+          joinedAt: player.joinedAt,
+        })
+      )
+      io.emit('lobby_updated', { players: allWaitingPlayers })
 
       const roomId = manager.getPlayerRoomId(socket.id)
       if (roomId) {

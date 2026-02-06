@@ -153,3 +153,27 @@ export type PriceData = {
   tradeSide?: 'BUY' | 'SELL' // Trade direction
   tradeTime?: number // Trade timestamp (ms)
 }
+
+/**
+ * Lobby player for matchmaking selection
+ * Represents a waiting player available for challenge
+ */
+export type LobbyPlayer = {
+  socketId: string
+  name: string
+  joinedAt: number
+}
+
+/**
+ * Lobby players event from server
+ * Emitted when requesting the current list of waiting players
+ */
+export type LobbyPlayersEvent = LobbyPlayer[]
+
+/**
+ * Lobby updated event from server
+ * Broadcast when players join/leave the waiting pool
+ */
+export type LobbyUpdatedEvent = {
+  players: LobbyPlayer[]
+}

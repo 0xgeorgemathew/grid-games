@@ -24,11 +24,23 @@ type MatchState =
   | 'checking'
   | 'insufficient'
   | 'ready'
+  | 'lobby'
   | 'entering'
 
 export function MatchmakingScreen() {
   const { ready, authenticated, login, logout, user } = usePrivy()
-  const { isConnected, isMatching, findMatch, connect } = useTradingStore()
+  const {
+    isConnected,
+    isMatching,
+    findMatch,
+    connect,
+    lobbyPlayers,
+    isRefreshingLobby,
+    getLobbyPlayers,
+    joinWaitingPool,
+    leaveWaitingPool,
+    selectOpponent,
+  } = useTradingStore()
   const channelManager = getChannelManager()
 
   const [matchState, setMatchState] = useState<MatchState>('login')
@@ -89,6 +101,18 @@ export function MatchmakingScreen() {
       setUserLeverage('2x')
     }
   }, [ensLeverage, claimedUsername, setUserLeverage])
+
+  // Initial lobby fetch when entering lobby state
+  useEffect(() => {
+    if (matchState === 'lobby') {
+      // Join waiting pool first so we can be seen by others
+      const playerName = claimedUsername || user?.wallet?.address
+      if (playerName) {
+        joinWaitingPool(playerName, user?.wallet?.address)
+      }
+      getLobbyPlayers()
+    }
+  }, [matchState, joinWaitingPool, getLobbyPlayers, claimedUsername, user?.wallet])
 
   const handleClaimFaucet = async () => {
     if (!authenticated || !ready || !user?.wallet) {
@@ -202,6 +226,24 @@ export function MatchmakingScreen() {
     // Skip leverage setting and go to balance check
     checkBalance()
   }, [checkBalance])
+
+  const handleSelectOpponent = useCallback(
+    (opponentSocketId: string) => {
+      if (!isConnected || isMatching || !user?.wallet) return
+
+      setMatchState('entering')
+
+      channelManager.checkBalance(user.wallet.address).then((result) => {
+        if (!result.hasEnough) {
+          setUsdcBalance(result.formatted || '0')
+          setMatchState('insufficient')
+          return
+        }
+        selectOpponent(opponentSocketId)
+      })
+    },
+    [isConnected, isMatching, user?.wallet, selectOpponent, channelManager]
+  )
 
   if (!ready) {
     return (
@@ -321,7 +363,7 @@ export function MatchmakingScreen() {
                 />
                 <PlayerName
                   username={claimedUsername}
-                  className="text-cyan-300 text-2xl tracking-wider relative z-10"
+                  className="text-2xl tracking-wider relative z-10"
                 />
               </motion.div>
             </motion.div>
@@ -447,13 +489,27 @@ export function MatchmakingScreen() {
                   ✓ READY ({usdcBalance} USDC)
                   {selectedLeverage !== '5x' && ` • ${selectedLeverage} LEVERAGE`}
                 </p>
-                <ActionButton
-                  onClick={handleEnter}
-                  disabled={!isConnected || isMatching}
-                  color="cyan"
-                >
-                  {isMatching ? 'ENTERING...' : 'ENTER'}
-                </ActionButton>
+
+                <div className="flex flex-col gap-3">
+                  <ActionButton
+                    onClick={handleEnter}
+                    disabled={!isConnected || isMatching}
+                    color="cyan"
+                  >
+                    {isMatching ? 'ENTERING...' : 'AUTO-MATCH'}
+                  </ActionButton>
+                  <ActionButton
+                    onClick={() => {
+                      getLobbyPlayers()
+                      setMatchState('lobby')
+                    }}
+                    disabled={!isConnected}
+                    color="cyan"
+                  >
+                    SELECT OPPONENT
+                  </ActionButton>
+                </div>
+
                 <button
                   onClick={logout}
                   className="text-xs text-gray-500 hover:text-gray-400 transition-colors"
@@ -475,6 +531,74 @@ export function MatchmakingScreen() {
                 <p className="text-cyan-400 text-xs tracking-wider animate-pulse">
                   FINDING OPPONENT...
                 </p>
+              </motion.div>
+            )}
+
+            {matchState === 'lobby' && (
+              <motion.div
+                key="lobby"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.4 }}
+                className="flex flex-col items-center gap-4 w-full max-w-md"
+              >
+                <button
+                  onClick={() => {
+                    leaveWaitingPool()
+                    setMatchState('ready')
+                  }}
+                  className="text-cyan-400/60 hover:text-cyan-400 transition-colors text-xs"
+                >
+                  ← BACK
+                </button>
+
+                <p className="text-cyan-400/70 text-[10px] tracking-[0.25em]">
+                  AVAILABLE OPPONENTS
+                </p>
+
+                {lobbyPlayers.length === 0 ? (
+                  <p className="text-cyan-400/60 text-xs">NO PLAYERS WAITING</p>
+                ) : (
+                  <div className="flex flex-col gap-2 w-full">
+                    <AnimatePresence mode="popLayout">
+                      {lobbyPlayers.map((player) => (
+                        <motion.button
+                          key={player.socketId}
+                          onClick={() => handleSelectOpponent(player.socketId)}
+                          disabled={isMatching}
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          className="relative px-4 py-3 bg-black/40 border border-cyan-400/20 hover:border-cyan-400/40 rounded-lg overflow-hidden"
+                        >
+                          <motion.div
+                            className="absolute inset-0 rounded-lg"
+                            animate={{
+                              boxShadow: [
+                                '0 0 10px rgba(0,217,255,0.1)',
+                                '0 0 20px rgba(0,217,255,0.2)',
+                                '0 0 10px rgba(0,217,255,0.1)',
+                              ],
+                            }}
+                            transition={{ duration: 2, repeat: Infinity }}
+                          />
+                          <div className="relative z-10 flex items-center justify-center">
+                            <PlayerName username={player.name} className="text-sm" />
+                          </div>
+                        </motion.button>
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                )}
+
+                <ActionButton
+                  onClick={getLobbyPlayers}
+                  isLoading={isRefreshingLobby}
+                  disabled={isMatching}
+                  color="cyan"
+                >
+                  REFRESH
+                </ActionButton>
               </motion.div>
             )}
           </AnimatePresence>

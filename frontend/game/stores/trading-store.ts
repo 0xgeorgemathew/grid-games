@@ -12,6 +12,9 @@ import type {
   RoundEndEvent,
   CoinType,
   PriceData,
+  LobbyPlayer,
+  LobbyPlayersEvent,
+  LobbyUpdatedEvent,
 } from '../types/trading'
 import type { Toast } from '@/components/ToastNotifications'
 import type { LeverageOption } from '@/lib/ens'
@@ -59,6 +62,10 @@ interface TradingState {
   gameOverData: GameOverEvent | null
   isSceneReady: boolean // Phaser scene is ready to receive events
   socketCleanupFunctions: Array<() => void>
+
+  // Lobby state
+  lobbyPlayers: LobbyPlayer[]
+  isRefreshingLobby: boolean
 
   // User leverage (from ENS)
   userLeverage: LeverageOption | null // User's selected leverage for whale texture
@@ -128,6 +135,12 @@ interface TradingState {
 
   // Leverage actions
   setUserLeverage: (leverage: LeverageOption) => void
+
+  // Lobby actions
+  getLobbyPlayers: () => void
+  joinWaitingPool: (playerName: string, walletAddress?: string) => void
+  leaveWaitingPool: () => void
+  selectOpponent: (opponentSocketId: string) => void
 }
 
 function getDamageForCoinType(coinType: CoinType): number {
@@ -228,6 +241,10 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   // User leverage
   userLeverage: null,
+
+  // Lobby state
+  lobbyPlayers: [],
+  isRefreshingLobby: false,
 
   // Round state
   currentRound: 1,
@@ -364,6 +381,31 @@ export const useTradingStore = create<TradingState>((set, get) => ({
         }
       }
     )
+
+    socket.on('lobby_players', (players: LobbyPlayersEvent) => {
+      set({ lobbyPlayers: players, isRefreshingLobby: false })
+    })
+
+    socket.on('lobby_updated', (data: LobbyUpdatedEvent) => {
+      // Filter out self from the lobby list (defense in depth)
+      const { localPlayerId } = get()
+      const filteredPlayers = data.players.filter((p) => p.socketId !== localPlayerId)
+      set({ lobbyPlayers: filteredPlayers })
+    })
+
+    socket.on('joined_waiting_pool', () => {
+      // Successfully joined waiting pool
+    })
+
+    socket.on('already_in_pool', () => {
+      // Already in pool, no action needed
+    })
+
+    socket.on('error', (error: { message: string }) => {
+      console.error('[Socket] Server error:', error.message)
+      get().addToast({ message: error.message, type: 'error', duration: 5000 })
+      set({ isMatching: false })
+    })
 
     set({ socket, socketCleanupFunctions: newCleanupFunctions })
   },
@@ -819,5 +861,44 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
   setUserLeverage: (leverage) => {
     set({ userLeverage: leverage })
+  },
+
+  // Lobby actions
+  getLobbyPlayers: () => {
+    const { socket } = get()
+    if (!socket) return
+    set({ isRefreshingLobby: true })
+    socket.emit('get_lobby_players')
+    // Safety timeout in case server doesn't respond
+    setTimeout(() => set({ isRefreshingLobby: false }), 5000)
+  },
+
+  joinWaitingPool: (playerName: string, walletAddress?: string) => {
+    const { socket } = get()
+    if (!socket) return
+
+    // Use actual Phaser scene dimensions if available, otherwise window dimensions
+    const sceneWidth =
+      (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions?.width ||
+      window.innerWidth
+    const sceneHeight =
+      (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions?.height ||
+      window.innerHeight
+
+    socket.emit('join_waiting_pool', { playerName, sceneWidth, sceneHeight, walletAddress })
+  },
+
+  leaveWaitingPool: () => {
+    const { socket } = get()
+    if (!socket) return
+    socket.emit('leave_waiting_pool')
+  },
+
+  selectOpponent: (opponentSocketId: string) => {
+    const { socket } = get()
+    if (!socket) return
+    // Just emit select_opponent - we're already in the waiting pool from joinWaitingPool
+    socket.emit('select_opponent', { opponentSocketId })
+    set({ isMatching: true })
   },
 }))
