@@ -336,14 +336,18 @@ class GameRoom {
     // Check cache first
     if (this.playerLeverageCache.has(playerId)) {
       const cached = this.playerLeverageCache.get(playerId)!
-      console.log(`[GameRoom] Using cached leverage: playerId=${playerId.slice(0, 8)}, leverage=${cached}x`)
+      console.log(
+        `[GameRoom] Using cached leverage: playerId=${playerId.slice(0, 8)}, leverage=${cached}x`
+      )
       return cached
     }
 
     // Get wallet address from room
     const walletAddress = this.getWalletAddress(playerId)
     if (!walletAddress) {
-      console.log(`[GameRoom] No wallet address for player (using default 2x): playerId=${playerId.slice(0, 8)}`)
+      console.log(
+        `[GameRoom] No wallet address for player (using default 2x): playerId=${playerId.slice(0, 8)}`
+      )
       return 2 // Default to 2x
     }
 
