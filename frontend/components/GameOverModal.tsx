@@ -5,6 +5,8 @@ import { motion } from 'framer-motion'
 import { useTradingStore } from '@/game/stores/trading-store'
 import { cn } from '@/lib/utils'
 import { PlayerName } from '@/components/ens/PlayerName'
+import { useUpdatePlayerStats, useGetPlayerStats } from '@/hooks/useENS'
+import { usePrivy } from '@privy-io/react-auth'
 
 const GLOW_ANIMATION = {
   textShadow: [
@@ -18,6 +20,53 @@ const GLOW_ANIMATION = {
 export const GameOverModal = React.memo(function GameOverModal() {
   const { isGameOver, gameOverData, localPlayerId, playAgain, players } = useTradingStore()
   const [showModal, setShowModal] = React.useState(false)
+  const { user } = usePrivy()
+
+  // Stats update hooks
+  const { updateStats, isUpdating } = useUpdatePlayerStats()
+
+  // Get current stats from ENS (need to fetch to know current values)
+  // We'll derive the username from the wallet address using reverse ENS
+  const walletAddress = user?.wallet?.address as `0x${string}` | undefined
+  const [claimedUsername, setClaimedUsername] = React.useState<string | null>(null)
+
+  // Fetch username from ENS reverse lookup when game ends
+  React.useEffect(() => {
+    if (isGameOver && walletAddress && !claimedUsername) {
+      // Simple reverse ENS lookup to get username
+      fetch(`/api/ens?action=getName&address=${walletAddress}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.name) {
+            const label = data.name.split('.')[0]
+            setClaimedUsername(label)
+          }
+        })
+        .catch((err) => console.error('Failed to get username from ENS:', err))
+    }
+  }, [isGameOver, walletAddress, claimedUsername])
+
+  // Update stats when game over
+  React.useEffect(() => {
+    if (showModal && gameOverData && claimedUsername) {
+      const isWinner = gameOverData.winnerId === localPlayerId
+
+      // Fetch current stats first to calculate new values
+      fetch(`/api/ens?action=getStats&label=${claimedUsername}`)
+        .then((res) => res.json())
+        .then((data) => {
+          const currentTotalGames = data.totalGames ?? 0
+          const currentStreak = data.streak ?? 0
+
+          // Silent update - no UI blocking
+          updateStats(claimedUsername, {
+            totalGames: currentTotalGames + 1,
+            streak: isWinner ? currentStreak + 1 : 0,
+          }).catch(console.error)
+        })
+        .catch((err) => console.error('Failed to fetch current stats:', err))
+    }
+  }, [showModal, gameOverData, claimedUsername, localPlayerId, updateStats])
 
   // Delay showing modal to allow RoundEndFlash to finish
   React.useEffect(() => {
@@ -376,6 +425,17 @@ export const GameOverModal = React.memo(function GameOverModal() {
         >
           FINAL SCORE: {gameOverData.player1Wins} - {gameOverData.player2Wins}
         </motion.div>
+
+        {/* Syncing indicator */}
+        {isUpdating && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mb-4 text-[10px] text-cyan-400/60 tracking-wider"
+          >
+            SYNCING STATS TO ENS...
+          </motion.div>
+        )}
 
         {/* PLAY AGAIN Button - Tron Style */}
         <motion.button
