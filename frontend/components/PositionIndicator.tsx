@@ -274,7 +274,11 @@ export function PositionIndicator() {
                           'bg-purple-500/20 text-purple-400 border border-purple-500/30'
                       )}
                     >
-                      {order.coinType === 'whale' ? '🐋' : order.coinType === 'call' ? 'LONG' : 'SHORT'}
+                      {order.coinType === 'whale'
+                        ? '🐋'
+                        : order.coinType === 'call'
+                          ? 'LONG'
+                          : 'SHORT'}
                     </div>
                   </div>
                 </div>

@@ -22,7 +22,7 @@ export const GameOverModal = React.memo(function GameOverModal() {
   const isWinner = gameOverData.winnerId === localPlayerId
 
   // Helper to get round result from local player's perspective
-  const getRoundResult = (round: typeof gameOverData.rounds[0]) => {
+  const getRoundResult = (round: (typeof gameOverData.rounds)[0]) => {
     if (round.isTie) return { text: 'TIE', amount: 0, isWin: false, isLoss: false }
     if (round.winnerId === localPlayerId) {
       return { text: 'WON', amount: round.playerLost || 0, isWin: true, isLoss: false }
@@ -95,7 +95,11 @@ export const GameOverModal = React.memo(function GameOverModal() {
             {gameOverData.rounds.map((round, index) => {
               const result = getRoundResult(round)
               const amountText =
-                result.amount > 0 ? `+$${result.amount}` : result.amount < 0 ? `-$${Math.abs(result.amount)}` : ''
+                result.amount > 0
+                  ? `+$${result.amount}`
+                  : result.amount < 0
+                    ? `-$${Math.abs(result.amount)}`
+                    : ''
 
               return (
                 <motion.div

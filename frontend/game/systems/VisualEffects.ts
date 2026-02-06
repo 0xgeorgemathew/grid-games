@@ -135,7 +135,7 @@ export class VisualEffects {
     const config = COIN_CONFIG[coinType]
     let text: string
     let color: number = config.color // Widened type with 'let'
-    let fontSize = this.isMobile ? '28px' : '22px' // Smaller for longer text
+    let fontSize = this.isMobile ? '34px' : '28px' // Larger for prominence
 
     // Determine text based on coin type
     if (coinType === 'call') {
@@ -145,31 +145,34 @@ export class VisualEffects {
     } else if (coinType === 'gas') {
       text = 'PENALTY'
       color = 0xffd700 // Gold
-      fontSize = this.isMobile ? '32px' : '26px'
+      fontSize = this.isMobile ? '38px' : '32px'
     } else if (coinType === 'whale') {
       text = '2X'
       color = 0x39ff14 // Electric Lime (green)
-      fontSize = this.isMobile ? '48px' : '40px'
+      fontSize = this.isMobile ? '56px' : '48px'
     } else {
       // Fallback (shouldn't happen)
       text = '?'
-      fontSize = this.isMobile ? '48px' : '36px'
+      fontSize = this.isMobile ? '56px' : '44px'
     }
 
     const colorHex = '#' + color.toString(16).padStart(6, '0')
 
+    // Offset text upward to avoid overlap with explosion shards
+    const verticalOffset = coinType === 'whale' ? 60 : 45
+
     const textObj = this.scene.add
-      .text(x, y, text, {
+      .text(x, y - verticalOffset, text, {
         fontSize,
         fontStyle: 'bold',
         fontFamily: 'Arial, sans-serif',
         color: colorHex,
         stroke: '#000000',
-        strokeThickness: 6,
+        strokeThickness: 8,
         shadow: {
           offsetX: 0,
           offsetY: 0,
-          blur: 12,
+          blur: 20,
           color: colorHex,
           stroke: false,
           fill: true,
@@ -180,13 +183,13 @@ export class VisualEffects {
 
     this.sliceArrows.push(textObj)
 
-    // Slower fade - 2000ms instead of 800ms
+    // Slow fade - 3500ms for easy readability
     this.scene.tweens.add({
       targets: textObj,
-      y: y - 80,
+      y: y - verticalOffset - 100,
       alpha: 0,
-      duration: 2000,
-      ease: 'Power2',
+      duration: 3500,
+      ease: 'Power1',
       onComplete: () => {
         if (!this.isShutdown) {
           textObj.destroy()
@@ -299,7 +302,13 @@ export class VisualEffects {
   /**
    * Create split effect for sliced coins
    */
-  createSplitEffect(x: number, y: number, color: number, radius: number, coinType?: CoinType): void {
+  createSplitEffect(
+    x: number,
+    y: number,
+    color: number,
+    radius: number,
+    coinType?: CoinType
+  ): void {
     const pooled = this.getSplitEffectFromPool()
 
     const leftHalf = pooled?.left || this.scene.add.graphics()
@@ -410,8 +419,22 @@ export class VisualEffects {
       this.createElectricalArc(x, y, color)
     }
 
-    // Stronger bloom flash for all coins
-    this.scene.cameras.main.flash(100, (color >> 16) & 0xff, (color >> 8) & 0xff, color & 0xff, false)
+    // Tron-style impact flash: brief white burst followed by colored flash
+    // The white flash simulates the high-intensity "shatter" moment
+    this.scene.cameras.main.flash(50, 255, 255, 255, false) // Quick white burst
+    
+    // Followed by a subtle colored flash
+    this.scene.time.delayedCall(50, () => {
+      if (!this.isShutdown) {
+        this.scene.cameras.main.flash(
+          80,
+          (color >> 16) & 0xff,
+          (color >> 8) & 0xff,
+          color & 0xff,
+          false
+        )
+      }
+    })
   }
 
   /**

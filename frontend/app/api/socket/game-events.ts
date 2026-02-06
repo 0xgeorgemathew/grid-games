@@ -1059,7 +1059,12 @@ async function checkGameOver(io: SocketIOServer, manager: RoomManager, room: Gam
       player2Dollars: p2?.dollars || 10,
       player1Gained: p1Gained,
       player2Gained: p2Gained,
-      playerLost: winnerId === playerIds[0] ? Math.max(0, p1Gained) : winnerId === playerIds[1] ? Math.max(0, p2Gained) : undefined,
+      playerLost:
+        winnerId === playerIds[0]
+          ? Math.max(0, p1Gained)
+          : winnerId === playerIds[1]
+            ? Math.max(0, p2Gained)
+            : undefined,
     })
 
     // Settle Yellow channel before game over
@@ -1131,7 +1136,12 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
     player1Gained: p1Gained,
     player2Gained: p2Gained,
     // Amount the winner gained (positive value, equal to loser's loss in zero-sum)
-    playerLost: winnerId === playerIds[0] ? Math.max(0, p1Gained) : winnerId === playerIds[1] ? Math.max(0, p2Gained) : undefined,
+    playerLost:
+      winnerId === playerIds[0]
+        ? Math.max(0, p1Gained)
+        : winnerId === playerIds[1]
+          ? Math.max(0, p2Gained)
+          : undefined,
   })
 
   // Check if game should end
