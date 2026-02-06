@@ -99,7 +99,7 @@ interface TradingState {
   // Actions
   connect: () => void
   disconnect: () => void
-  findMatch: (playerName: string) => void
+  findMatch: (playerName: string, walletAddress?: string) => void
   spawnCoin: (coin: CoinSpawnEvent) => void
   sliceCoin: (coinId: string, coinType: CoinType, priceAtSlice: number) => void
   handleSlice: (slice: SliceEvent) => void
@@ -364,7 +364,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     set({ socket: null, isConnected: false })
   },
 
-  findMatch: (playerName: string) => {
+  findMatch: (playerName: string, walletAddress?: string) => {
     const { socket } = get()
 
     // Use actual Phaser scene dimensions if available, otherwise window dimensions
@@ -375,7 +375,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions?.height ||
       window.innerHeight
 
-    socket?.emit('find_match', { playerName, sceneWidth, sceneHeight })
+    socket?.emit('find_match', { playerName, sceneWidth, sceneHeight, walletAddress })
     set({ isMatching: true })
   },
 

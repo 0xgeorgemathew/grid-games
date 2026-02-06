@@ -119,8 +119,8 @@ export function MatchmakingScreen() {
       return
     }
 
-    // Proceed with matchmaking
-    findMatch(playerName)
+    // Proceed with matchmaking - pass wallet address for Yellow channel
+    findMatch(playerName, user.wallet.address)
   }
 
   if (!ready) {

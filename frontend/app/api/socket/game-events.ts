@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io'
 import { Socket } from 'socket.io'
 import { Player, RoundSummary } from '@/game/types/trading'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
+import { initializeNitrolite, createGameChannel, updateChannelState, settleChannel } from '@/lib/yellow/nitrolite-client'
 
 // Order settlement duration - time between slice and settlement (5 seconds)
 export const ORDER_SETTLEMENT_DURATION_MS = 5000
@@ -216,6 +217,7 @@ interface WaitingPlayer {
   joinedAt: number
   sceneWidth?: number
   sceneHeight?: number
+  walletAddress?: string
 }
 
 interface Coin {
@@ -275,6 +277,12 @@ class GameRoom {
   // Per-player 2X mode tracking (whale power-up)
   private whale2XActive = new Map<string, number>() // playerId -> expiration timestamp
   readonly WHALE_2X_DURATION = 10000 // 10 seconds
+
+  // Yellow Network state channel
+  channelId: string | null = null
+  channelStatus: 'INITIAL' | 'ACTIVE' | 'FINAL' = 'INITIAL'
+  player1Address: `0x${string}` | null = null
+  player2Address: `0x${string}` | null = null
 
   constructor(roomId: string) {
     this.id = roomId
@@ -756,23 +764,138 @@ function transferFunds(room: GameRoom, winnerId: string, loserId: string, amount
   if (loser) loser.dollars = Math.max(0, loser.dollars - amount)
 }
 
-function createMatch(
+// =============================================================================
+// Yellow Network State Channel Integration
+// =============================================================================
+
+// Create Yellow state channel for the game using Nitrolite SDK
+async function createYellowChannel(
+  room: GameRoom,
+  name1: string,
+  name2: string,
+  wallet1: string,
+  wallet2: string
+): Promise<void> {
+  try {
+    const channel = await createGameChannel({
+      player1Address: wallet1,
+      player2Address: wallet2,
+      player1Name: name1,
+      player2Name: name2,
+    })
+
+    room.channelId = channel.channelId
+    room.channelStatus = channel.status as 'INITIAL' | 'ACTIVE' | 'FINAL'
+
+    console.log('[Nitrolite] Channel created successfully:', {
+      channelId: channel.channelId,
+      participants: channel.participants,
+      allocations: channel.allocations,
+    })
+  } catch (error) {
+    // No mock fallback - throw to surface configuration issues
+    throw new Error(`[Nitrolite] Channel creation failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+// Update Yellow channel state after round ends using Nitrolite
+async function updateYellowChannel(room: GameRoom): Promise<void> {
+  if (!room.channelId || !room.player1Address || !room.player2Address) return
+
+  const playerIds = room.getPlayerIds()
+  const [p1Id, p2Id] = playerIds
+
+  const player1 = room.players.get(p1Id)
+  const player2 = room.players.get(p2Id)
+
+  if (!player1 || !player2) return
+
+  try {
+    await updateChannelState({
+      channelId: room.channelId,
+      player1Address: room.player1Address,
+      player2Address: room.player2Address,
+      player1Dollars: player1.dollars,
+      player2Dollars: player2.dollars,
+      version: room.currentRound,
+    })
+
+    room.channelStatus = 'ACTIVE'
+  } catch (error) {
+    console.error('[Nitrolite] State update failed:', error)
+  }
+}
+
+// Settle Yellow channel at game end using Nitrolite
+async function settleYellowChannel(room: GameRoom): Promise<{
+  channelId: string
+  player1Payout: string
+  player2Payout: string
+} | null> {
+  if (!room.channelId || !room.player1Address || !room.player2Address) return null
+
+  const playerIds = room.getPlayerIds()
+  const [p1Id, p2Id] = playerIds
+
+  const player1 = room.players.get(p1Id)
+  const player2 = room.players.get(p2Id)
+
+  if (!player1 || !player2) return null
+
+  try {
+    const result = await settleChannel({
+      channelId: room.channelId,
+      player1Address: room.player1Address,
+      player2Address: room.player2Address,
+      player1Dollars: player1.dollars,
+      player2Dollars: player2.dollars,
+    })
+
+    room.channelStatus = 'FINAL'
+
+    return {
+      channelId: room.channelId,
+      player1Payout: result.player1Payout,
+      player2Payout: result.player2Payout,
+    }
+  } catch (error) {
+    // No mock fallback - throw to surface configuration issues
+    throw new Error(`[Nitrolite] Settlement failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+async function createMatch(
   io: SocketIOServer,
   manager: RoomManager,
   playerId1: string,
   playerId2: string,
   name1: string,
   name2: string,
+  wallet1: string | undefined,
+  wallet2: string | undefined,
   sceneWidth1: number,
   sceneHeight1: number,
   sceneWidth2: number,
   sceneHeight2: number
-): void {
+): Promise<void> {
   const roomId = `room-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
   const room = manager.createRoom(roomId)
 
   room.addPlayer(playerId1, name1, sceneWidth1, sceneHeight1)
   room.addPlayer(playerId2, name2, sceneWidth2, sceneHeight2)
+
+  // Store wallet addresses for Yellow channel
+  if (wallet1 && wallet1.startsWith('0x')) {
+    room.player1Address = wallet1 as `0x${string}`
+  }
+  if (wallet2 && wallet2.startsWith('0x')) {
+    room.player2Address = wallet2 as `0x${string}`
+  }
+
+  // Create Yellow channel if both wallets present
+  if (wallet1 && wallet2) {
+    await createYellowChannel(room, name1, name2, wallet1, wallet2)
+  }
 
   manager.setPlayerRoom(playerId1, roomId)
   manager.setPlayerRoom(playerId2, roomId)
@@ -782,6 +905,7 @@ function createMatch(
 
   io.to(roomId).emit('match_found', {
     roomId,
+    channelId: room.channelId,
     players: [
       {
         id: playerId1,
@@ -892,7 +1016,7 @@ function handleSlice(
   room.trackTimeout(timeoutId)
 }
 
-function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
+async function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom): Promise<void> {
   // Knockout ends the game immediately (instant game over, not just round end)
   if (room.hasDeadPlayer()) {
     room.setClosing()
@@ -938,6 +1062,9 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       playerLost: winnerId === playerIds[0] ? Math.max(0, p1Gained) : winnerId === playerIds[1] ? Math.max(0, p2Gained) : undefined,
     })
 
+    // Settle Yellow channel before game over
+    const settlement = await settleYellowChannel(room)
+
     // Emit game_over with knockout reason
     const winner = room.players.get(winnerId || '')
     io.to(room.id).emit('game_over', {
@@ -947,6 +1074,7 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
       player1Wins: room.player1Wins,
       player2Wins: room.player2Wins,
       rounds: room.roundHistory,
+      yellowSettlement: settlement,
     })
 
     setTimeout(() => manager.deleteRoom(room.id), 1000)
@@ -957,7 +1085,7 @@ function checkGameOver(io: SocketIOServer, manager: RoomManager, room: GameRoom)
 // Round Management - End round and transition or end game
 // =============================================================================
 
-function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
+async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom): Promise<void> {
   // CRITICAL: Settle all pending orders before round ends
   for (const [orderId, order] of room.pendingOrders) {
     settleOrder(io, room, order)
@@ -976,6 +1104,9 @@ function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom): voi
     if (winnerId === playerIds[0]) room.player1Wins++
     else if (winnerId === playerIds[1]) room.player2Wins++
   }
+
+  // Update Yellow channel state after round
+  await updateYellowChannel(room)
 
   // Emit round_end event
   io.to(room.id).emit('round_end', {
@@ -1005,6 +1136,9 @@ function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom): voi
 
   // Check if game should end
   if (room.checkGameEndCondition()) {
+    // Settle Yellow channel before game over
+    const settlement = await settleYellowChannel(room)
+
     // Game over - emit final results
     const winner = room.getGameWinner()
     io.to(room.id).emit('game_over', {
@@ -1014,6 +1148,7 @@ function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom): voi
       player1Wins: room.player1Wins,
       player2Wins: room.player2Wins,
       rounds: room.roundHistory,
+      yellowSettlement: settlement,
     })
     setTimeout(() => manager.deleteRoom(room.id), 1000)
   } else {
@@ -1039,6 +1174,15 @@ export function setupGameEvents(io: SocketIOServer): {
   cleanup: () => void
   emergencyShutdown: () => void
 } {
+  // Initialize Nitrolite client for Yellow Network integration
+  try {
+    initializeNitrolite()
+    console.log('[Yellow] Nitrolite client initialized successfully')
+  } catch (error) {
+    console.error('[Yellow] Failed to initialize Nitrolite:', error)
+    console.warn('[Yellow] Continuing without Yellow integration - using mock mode')
+  }
+
   // Start price feed
   priceFeed.connect('btcusdt')
 
@@ -1069,10 +1213,12 @@ export function setupGameEvents(io: SocketIOServer): {
         playerName,
         sceneWidth,
         sceneHeight,
+        walletAddress,
       }: {
         playerName: string
         sceneWidth?: number
         sceneHeight?: number
+        walletAddress?: string
       }) => {
         try {
           const validatedName = validatePlayerName(playerName)
@@ -1080,6 +1226,7 @@ export function setupGameEvents(io: SocketIOServer): {
           // Default dimensions if not provided
           const p1Width = sceneWidth || 500
           const p1Height = sceneHeight || 800
+          const p1Wallet = walletAddress
 
           for (const [waitingId, waiting] of manager.getWaitingPlayers()) {
             if (waitingId !== socket.id) {
@@ -1087,7 +1234,9 @@ export function setupGameEvents(io: SocketIOServer): {
               if (waitingSocket?.connected && waitingSocket.id === waitingId) {
                 const p2Width = waiting.sceneWidth || 500
                 const p2Height = waiting.sceneHeight || 800
+                const p2Wallet = waiting.walletAddress
 
+                // Await async channel creation
                 createMatch(
                   io,
                   manager,
@@ -1095,11 +1244,15 @@ export function setupGameEvents(io: SocketIOServer): {
                   waitingId,
                   validatedName,
                   waiting.name,
+                  p1Wallet,
+                  p2Wallet,
                   p1Width,
                   p1Height,
                   p2Width,
                   p2Height
-                )
+                ).catch((error) => {
+                  console.error('[Match] Failed to create match:', error)
+                })
                 return
               }
             }
@@ -1107,9 +1260,14 @@ export function setupGameEvents(io: SocketIOServer): {
 
           manager.addWaitingPlayer(socket.id, validatedName)
           const waitingPlayer = manager.getWaitingPlayer(socket.id)
-          if (waitingPlayer && sceneWidth && sceneHeight) {
-            waitingPlayer.sceneWidth = sceneWidth
-            waitingPlayer.sceneHeight = sceneHeight
+          if (waitingPlayer) {
+            if (sceneWidth && sceneHeight) {
+              waitingPlayer.sceneWidth = sceneWidth
+              waitingPlayer.sceneHeight = sceneHeight
+            }
+            if (walletAddress) {
+              waitingPlayer.walletAddress = walletAddress
+            }
           }
           socket.emit('waiting_for_match')
         } catch (error) {
