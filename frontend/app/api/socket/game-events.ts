@@ -7,9 +7,6 @@ import { initializeNitrolite, createGameChannel, updateChannelState, settleChann
 // Order settlement duration - time between slice and settlement (5 seconds)
 export const ORDER_SETTLEMENT_DURATION_MS = 5000
 
-// Game economics - dollar amount transferred per settled order
-const STANDARD_DAMAGE = 0.1 // $0.1 per slice (regular or whale 2x = $0.2)
-
 // Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
 const DEBUG_FUNDS = process.env.DEBUG_FUNDS === 'true'
 
@@ -641,7 +638,7 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
     const isCorrect = order.coinType === 'call' ? priceChange > 0 : priceChange < 0
     // Use the multiplier stored at order creation time (not current 2x state)
     // This ensures orders placed during 2x window get 2x even if they settle after 2x expires
-    const impact = order.multiplier * STANDARD_DAMAGE
+    const impact = order.multiplier
 
     transferFunds(
       room,
