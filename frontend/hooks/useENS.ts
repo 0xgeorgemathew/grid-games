@@ -20,6 +20,8 @@ import {
   registryAbi,
   validateUsername,
   LEVERAGE_KEY,
+  TOTAL_GAMES_KEY,
+  STREAK_KEY,
   type LeverageOption,
 } from '@/lib/ens'
 
@@ -404,6 +406,149 @@ export function useSetLeverage() {
   )
 
   return { setLeverage, isSetting, error, txHash }
+}
+
+/**
+ * Hook to get player stats from ENS text records
+ */
+export function useGetPlayerStats(label: string | null) {
+  const [stats, setStats] = useState<{
+    totalGames: number | null
+    streak: number | null
+  }>({ totalGames: null, streak: null })
+  const [isLoading, setIsLoading] = useState(false)
+
+  const refresh = useCallback(async () => {
+    if (!label) {
+      setStats({ totalGames: null, streak: null })
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const registry = getRegistryContract()
+      const baseNode = await registry.baseNode()
+      const node = await registry.makeNode(baseNode, label.toLowerCase())
+
+      // Batch read both text records
+      const [totalGamesStr, streakStr] = await Promise.all([
+        registry.text(node, TOTAL_GAMES_KEY),
+        registry.text(node, STREAK_KEY),
+      ])
+
+      setStats({
+        totalGames: totalGamesStr ? parseInt(totalGamesStr, 10) : 0,
+        streak: streakStr ? parseInt(streakStr, 10) : 0,
+      })
+    } catch (err) {
+      console.error('Error getting player stats:', err)
+      setStats({ totalGames: 0, streak: 0 })
+    } finally {
+      setIsLoading(false)
+    }
+  }, [label])
+
+  useEffect(() => {
+    refresh()
+  }, [refresh])
+
+  return { stats, isLoading, refresh }
+}
+
+/**
+ * Hook to update player stats via CLIENT-SIDE transaction (silent/sponsored)
+ * Uses Privy useSendTransaction for gas sponsorship (same pattern as useSetLeverage)
+ */
+export function useUpdatePlayerStats() {
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const { user } = usePrivy()
+  const { wallets } = useWallets()
+  const { sendTransaction } = useSendTransaction({
+    onError: (err) => {
+      console.error('ENS update error:', err)
+      setIsUpdating(false)
+      setError(String(err))
+    },
+    onSuccess: () => {
+      setIsUpdating(false)
+    },
+  })
+
+  const updateStats = useCallback(
+    async (label: string, updates: {
+      totalGames?: number
+      streak?: number
+    }): Promise<boolean> => {
+      if (!user?.wallet?.address) {
+        setError('Please login first')
+        return false
+      }
+
+      const wallet = wallets.find((w) => w.address === user.wallet?.address) || wallets[0]
+      if (!wallet) {
+        setError('No wallet found')
+        return false
+      }
+
+      setIsUpdating(true)
+      setError(null)
+
+      try {
+        // Calculate node using ethers (same as useSetLeverage)
+        const registry = getRegistryContract()
+        const baseNode = await registry.baseNode()
+        const node = await registry.makeNode(baseNode, label.toLowerCase())
+
+        // Switch chain if needed
+        const chainId = Number(wallet.chainId.split(':')[1])
+        if (chainId !== baseSepolia.id) {
+          await wallet.switchChain(baseSepolia.id)
+        }
+
+        // Build and send individual setText calls sequentially
+        const records: Array<{ key: string; value: string }> = []
+        if (updates.totalGames !== undefined) {
+          records.push({ key: TOTAL_GAMES_KEY, value: String(updates.totalGames) })
+        }
+        if (updates.streak !== undefined) {
+          records.push({ key: STREAK_KEY, value: String(updates.streak) })
+        }
+
+        // Send each transaction with gas sponsorship
+        for (const { key, value } of records) {
+          const data = encodeFunctionData({
+            abi: registryAbi,
+            functionName: 'setText',
+            args: [node, key, value],
+          })
+
+          await sendTransaction(
+            {
+              to: L2_REGISTRY as Address,
+              data,
+              chainId: baseSepolia.id,
+            },
+            {
+              address: wallet.address as Address,
+              sponsor: true,
+            } as any
+          )
+        }
+
+        return true
+      } catch (err) {
+        console.error('Error updating stats:', err)
+        setIsUpdating(false)
+        setError(err instanceof Error ? err.message : 'Failed to update stats')
+        return false
+      }
+    },
+    [user, wallets, sendTransaction]
+  )
+
+  return { updateStats, isUpdating, error }
 }
 
 // Legacy export
