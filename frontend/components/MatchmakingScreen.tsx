@@ -46,14 +46,16 @@ export function MatchmakingScreen() {
     connect()
   }, [connect])
 
-  // Update match state based on auth
+  // Update match state based on auth - check balance immediately
   useEffect(() => {
-    if (authenticated) {
-      setMatchState((prev) => (prev === 'login' ? 'claim' : prev))
-    } else {
+    if (authenticated && user?.wallet) {
+      // Check balance on login to determine correct state
+      checkBalance()
+    } else if (!authenticated) {
       setMatchState('login')
     }
-  }, [authenticated])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authenticated, user?.wallet])
 
   const handleClaimFaucet = async () => {
     if (!authenticated || !ready || !user?.wallet) {
@@ -74,14 +76,34 @@ export function MatchmakingScreen() {
 
       const claimData = await claimResponse.json()
 
-      if (claimResponse.ok) {
-        // Check balance after claiming
-        await checkBalance()
+      if (claimResponse.ok && claimData.claimTx?.hash) {
+        setMatchState('checking')
+
+        // Poll for transaction confirmation + balance update
+        const maxRetries = 20
+        const delayMs = 1000
+
+        for (let i = 0; i < maxRetries; i++) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs))
+
+          const result = await channelManager.checkBalance(user.wallet.address)
+          setUsdcBalance(result.formatted || '0')
+
+          if (result.hasEnough) {
+            setMatchState('ready')
+            return
+          }
+        }
+
+        // If we still don't have enough after retries, show insufficient
+        setMatchState('insufficient')
       } else {
         alert('Claim failed: ' + (claimData.error || 'Unknown error'))
+        setIsClaiming(false)
       }
     } catch {
       alert('Something went wrong. Please try again.')
+      setIsClaiming(false)
     } finally {
       setIsClaiming(false)
     }
@@ -236,10 +258,10 @@ export function MatchmakingScreen() {
                 className="flex flex-col items-center gap-3"
               >
                 <p className="text-yellow-400 text-xs tracking-wider">
-                  BALANCE: {usdcBalance} USDC (NEED 1.0)
+                  BALANCE: {usdcBalance} USDC (NEED 10.0)
                 </p>
                 <ActionButton onClick={handleClaimFaucet} isLoading={isClaiming} color="green">
-                  {isClaiming ? 'CLAIMING...' : 'GET MORE USDC'}
+                  {isClaiming ? 'CLAIMING...' : 'CLAIM USDC'}
                 </ActionButton>
                 <button
                   onClick={checkBalance}
