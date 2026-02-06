@@ -172,6 +172,7 @@ export interface CreateGameChannelParams {
 
 export interface GameChannel {
   channelId: string
+  nonce: bigint
   status: 'INITIAL' | 'ACTIVE' | 'FINAL'
   participants: string[]
   allocations: Array<{
@@ -180,17 +181,33 @@ export interface GameChannel {
     amount: string
   }>
   version: number
+  initialState: State  // Server-signed initial state (per Nitrolite docs)
+}
+
+/**
+ * Generate a unique nonce for channel creation.
+ * Per Nitrolite docs: "nonce - a unique number to distinguish channels
+ * with the same participants and adjudicator"
+ *
+ * Using timestamp ensures Alice & Bob get a new channel ID each game.
+ */
+function generateNonce(): bigint {
+  return BigInt(Math.floor(Date.now() / 1000))
 }
 
 /**
  * Generate a channel ID for the game using Nitrolite's getChannelId function
+ *
+ * Channel ID = keccak256(participants, adjudicator, challenge, nonce, chainId)
+ * - Sorted addresses ensure determinism
+ * - Unique nonce ensures different channels for same participants
  */
 function generateChannelId(
   player1: Address,
   player2: Address,
   adjudicator: Address,
   challengeDuration: bigint,
-  nonce: bigint = BigInt(0)
+  nonce: bigint
 ): ChannelId {
   // Sort addresses for deterministic channel ID
   const sorted = [player1.toLowerCase() as Address, player2.toLowerCase() as Address].sort()
@@ -227,8 +244,13 @@ async function signState(channelId: ChannelId, state: UnsignedState): Promise<Si
 /**
  * Create a new Yellow state channel for the game
  *
- * This generates a real channel ID using Nitrolite's deterministic algorithm.
- * The actual on-chain channel creation will happen when players deposit.
+ * This follows the Nitrolite channel lifecycle:
+ * 1. Generate unique nonce for channel ID
+ * 2. Create initial state with INITIALIZE intent
+ * 3. Sign the initial state with server key
+ * 4. Return signed state for later verification
+ *
+ * Per Nitrolite docs: "Sign initial state" and "Return initial state + signature"
  */
 export async function createGameChannel(params: CreateGameChannelParams): Promise<GameChannel> {
   const { player1Address, player2Address, player1Name, player2Name } = params
@@ -237,34 +259,41 @@ export async function createGameChannel(params: CreateGameChannelParams): Promis
     throw new Error('Nitrolite not configured. Set YELLOW_SERVER_PRIVATE_KEY.')
   }
 
-  // Generate real channel ID using Nitrolite's getChannelId
+  // Sort addresses for deterministic ordering (required by Nitrolite)
+  const sorted = [player1Address.toLowerCase(), player2Address.toLowerCase()].sort() as [Address, Address]
+
+  // Generate unique nonce for this channel
+  // Per docs: "nonce - a unique number to distinguish channels with the same participants"
+  const nonce = generateNonce()
+
+  // Generate channel ID using Nitrolite's getChannelId
+  // Channel ID = keccak256(participants, adjudicator, challenge, nonce, chainId)
   const channelId = generateChannelId(
-    player1Address as Address,
-    player2Address as Address,
+    sorted[0],
+    sorted[1],
     YELLOW_CONFIG.addresses.adjudicator,
     YELLOW_CONFIG.challengeDuration,
-    BigInt(0) // nonce
+    nonce
   )
 
-  console.log('[Nitrolite] Channel created:', {
+  console.log('[Nitrolite] Channel ID generated:', {
     channelId,
-    player1: { name: player1Name, address: player1Address },
-    player2: { name: player2Name, address: player2Address },
+    nonce,
+    player1: { name: player1Name, address: sorted[0] },
+    player2: { name: player2Name, address: sorted[1] },
     stakeAmount: ENTRY_STAKE.toString(),
   })
 
-  // Create initial unsigned state
-  const sorted = [player1Address.toLowerCase(), player2Address.toLowerCase()].sort() as [Address, Address]
-
+  // Create initial state with INITIALIZE intent (per Nitrolite protocol)
   const initialState: UnsignedState = {
-    intent: StateIntent.INITIALIZE,
+    intent: StateIntent.INITIALIZE,  // 1 = INITIALIZE (replaces CHANOPEN magic number)
     version: BigInt(0),
     data: '0x' as Hex,
     allocations: [
       {
         destination: sorted[0],
         token: USDC_ADDRESS,
-        amount: ENTRY_STAKE,
+        amount: ENTRY_STAKE,  // 0.1 USDC each
       },
       {
         destination: sorted[1],
@@ -274,8 +303,27 @@ export async function createGameChannel(params: CreateGameChannelParams): Promis
     ],
   }
 
+  // Sign the initial state with server's private key
+  // Per Nitrolite docs: "Sign initial state" is required
+  const signature = await signState(channelId, initialState)
+
+  const signedInitialState: State = {
+    ...initialState,
+    sigs: [signature],
+  }
+
+  console.log('[Nitrolite] Initial state signed:', {
+    channelId,
+    signature,
+    allocations: [
+      { player: sorted[0], usdc: ENTRY_STAKE.toString() },
+      { player: sorted[1], usdc: ENTRY_STAKE.toString() },
+    ],
+  })
+
   return {
     channelId,
+    nonce,
     status: 'INITIAL',
     participants: sorted,
     allocations: [
@@ -291,6 +339,7 @@ export async function createGameChannel(params: CreateGameChannelParams): Promis
       },
     ],
     version: 0,
+    initialState: signedInitialState,  // Server-signed initial state
   }
 }
 
