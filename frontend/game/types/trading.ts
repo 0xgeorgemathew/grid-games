@@ -135,8 +135,8 @@ export type GameOverEvent = {
   winnerId: string
   winnerName: string
   reason?: 'time_limit' | 'knockout' | 'best_of_three_complete'
-  player1Wins?: number
-  player2Wins?: number
+  player1Wins: number
+  player2Wins: number
   rounds: RoundSummary[]
 }
 

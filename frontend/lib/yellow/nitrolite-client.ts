@@ -365,14 +365,12 @@ export async function updateChannelState(params: {
   }
 
   // Calculate payouts based on game dollars
-  const totalStake = ENTRY_STAKE * BigInt(2) // 0.2 USDC total
-  const totalDollars = player1Dollars + player2Dollars
+  // Since 1 game dollar = 1 USDC and total always = 20, use direct BigInt arithmetic
+  // No ratio needed - player's payout = their dollars directly
+  const totalDollars = BigInt(player1Dollars + player2Dollars)
+  const totalStake = ENTRY_STAKE * BigInt(2)
 
-  // Convert game dollars to USDC allocation (proportional)
-  const p1Ratio = totalDollars > 0 ? player1Dollars / totalDollars : 0.5
-  const p2Ratio = totalDollars > 0 ? player2Dollars / totalDollars : 0.5
-
-  const player1Payout = (totalStake * BigInt(Math.floor(p1Ratio * 1000))) / BigInt(1000)
+  const player1Payout = (BigInt(player1Dollars) * totalStake) / totalDollars
   const player2Payout = totalStake - player1Payout
 
   // Create updated state
@@ -434,20 +432,33 @@ export async function settleChannel(params: {
   player2Payout: string
   txData?: Hex
 }> {
-  const { player1Dollars, player2Dollars, channelId } = params
+  const { player1Dollars, player2Dollars, channelId, player1Address, player2Address } = params
+
+  console.log('[Nitrolite] settleChannel called with:', {
+    channelId,
+    player1Address,
+    player2Address,
+    player1Dollars,
+    player2Dollars,
+    totalDollars: player1Dollars + player2Dollars,
+  })
 
   if (!serverAccount) {
     throw new Error('Server account not initialized')
   }
 
+  // Since 1 game dollar = 1 USDC and total always = 20, use direct BigInt arithmetic
+  const totalDollars = BigInt(player1Dollars + player2Dollars)
   const totalStake = ENTRY_STAKE * BigInt(2)
-  const totalDollars = player1Dollars + player2Dollars
 
-  const p1Ratio = totalDollars > 0 ? player1Dollars / totalDollars : 0.5
-  const p2Ratio = totalDollars > 0 ? player2Dollars / totalDollars : 0.5
-
-  const player1Payout = (totalStake * BigInt(Math.floor(p1Ratio * 1000))) / BigInt(1000)
+  const player1Payout = (BigInt(player1Dollars) * totalStake) / totalDollars
   const player2Payout = totalStake - player1Payout
+
+  console.log('[Nitrolite] Calculated payouts:', {
+    player1Payout: player1Payout.toString(),
+    player2Payout: player2Payout.toString(),
+    totalPayout: (player1Payout + player2Payout).toString(),
+  })
 
   // Create final state
   const sorted = [

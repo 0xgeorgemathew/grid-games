@@ -1,4 +1,8 @@
 import { AUTO } from 'phaser'
+import { GAME_CONFIG } from './constants'
+
+// Re-export for convenience
+export { GAME_CONFIG }
 
 // Grid dimensions
 export interface GridConfig {

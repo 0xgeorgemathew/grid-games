@@ -139,18 +139,23 @@ function applyDamageToPlayer(players: Player[], playerId: string, damage: number
 }
 
 // ZERO-SUM: Transfer funds from loser to winner (loser capped at 0)
+// CRITICAL: Cap transfer at loser's available balance to enforce zero-sum (total always = 20)
 function transferFunds(
   players: Player[],
   winnerId: string,
   loserId: string,
   amount: number
 ): Player[] {
+  // Find loser to cap transfer at available balance (zero-sum enforcement)
+  const loser = players.find((p) => p.id === loserId)
+  const actualTransfer = Math.min(amount, loser?.dollars || 0)
+
   return players.map((p) => {
     if (p.id === winnerId) {
-      return { ...p, dollars: p.dollars + amount }
+      return { ...p, dollars: p.dollars + actualTransfer }
     }
     if (p.id === loserId) {
-      return { ...p, dollars: Math.max(0, p.dollars - amount) }
+      return { ...p, dollars: p.dollars - actualTransfer } // Goes to 0, never negative
     }
     return p
   })

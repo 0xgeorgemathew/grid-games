@@ -10,6 +10,7 @@ import { Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatPrice } from '@/lib/formatPrice'
+import { GAME_CONFIG } from '@/game/constants'
 import type { CryptoSymbol } from '@/game/stores/trading-store'
 import type { Player } from '@/game/types/trading'
 
@@ -163,7 +164,7 @@ const ConnectionStatusDot = React.memo(function ConnectionStatusDot({
 
 const PlayerHealthBar = React.memo(
   function PlayerHealthBar({ name, dollars, color, index, label }: PlayerHealthBarProps) {
-    const healthPercent = dollars / 10
+    const healthPercent = dollars / GAME_CONFIG.STARTING_CASH
     const healthColor = healthPercent > 0.6 ? 'green' : healthPercent > 0.3 ? 'yellow' : 'red'
 
     const isYou = label === 'YOU'
@@ -261,7 +262,7 @@ const RoundHeader = React.memo(function RoundHeader({
   const roundSeconds = Math.ceil(roundTimeRemaining / 1000)
   const timeClass = roundSeconds <= 10 ? 'text-red-400 animate-pulse' : 'text-white'
 
-  const roundDisplay = isSuddenDeath ? '⚡ FINAL ROUND' : `ROUND ${currentRound}`
+  const roundDisplay = isSuddenDeath ? '⚡ SUDDEN DEATH' : `ROUND ${currentRound}`
 
   // Perspective-aware win display: if isPlayer1, your wins = player1Wins; else your wins = player2Wins
   const yourWins = isPlayer1 ? player1Wins : player2Wins

@@ -4,9 +4,10 @@ import { Player, RoundSummary } from '@/game/types/trading'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 import { ENTRY_STAKE } from '@/lib/yellow/config'
 import { initializeNitrolite, createGameChannel, updateChannelState, settleChannel } from '@/lib/yellow/nitrolite-client'
+import { GAME_CONFIG } from '@/game/constants'
 
 // Order settlement duration - time between slice and settlement (5 seconds)
-export const ORDER_SETTLEMENT_DURATION_MS = 5000
+export const ORDER_SETTLEMENT_DURATION_MS = GAME_CONFIG.ORDER_SETTLEMENT_DURATION_MS
 
 // Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
 const DEBUG_FUNDS = process.env.DEBUG_FUNDS === 'true'
@@ -261,10 +262,10 @@ class GameRoom {
   currentRound: number = 1
   player1Wins: number = 0
   player2Wins: number = 0
-  player1CashAtRoundStart: number = 10
-  player2CashAtRoundStart: number = 10
+  player1CashAtRoundStart: number = GAME_CONFIG.STARTING_CASH
+  player2CashAtRoundStart: number = GAME_CONFIG.STARTING_CASH
   isSuddenDeath: boolean = false
-  readonly ROUND_DURATION = 30000 // 30 seconds
+  readonly ROUND_DURATION = GAME_CONFIG.ROUND_DURATION_MS // 30 seconds
 
   // Deterministic coin sequence
   private coinSequence: CoinSequence | null = null
@@ -317,13 +318,13 @@ class GameRoom {
   // Get player dollars by wallet address (for Yellow channel settlements)
   getDollarsByWalletAddress(walletAddress: string): number {
     const socketId = this.addressToSocketId.get(walletAddress.toLowerCase())
-    if (!socketId) return 10 // fallback to starting amount
+    if (!socketId) return GAME_CONFIG.STARTING_CASH // fallback to starting amount
     const player = this.players.get(socketId)
-    return player?.dollars ?? 10
+    return player?.dollars ?? GAME_CONFIG.STARTING_CASH
   }
 
   addPlayer(id: string, name: string, sceneWidth: number, sceneHeight: number): void {
-    this.players.set(id, { id, name, dollars: 10, score: 0, sceneWidth, sceneHeight })
+    this.players.set(id, { id, name, dollars: GAME_CONFIG.STARTING_CASH, score: 0, sceneWidth, sceneHeight })
   }
 
   removePlayer(id: string): void {
@@ -396,8 +397,8 @@ class GameRoom {
   // Track cash at round start for determining round winner by dollars gained
   startNewRound(): void {
     const playerIds = this.getPlayerIds()
-    this.player1CashAtRoundStart = this.players.get(playerIds[0])?.dollars || 10
-    this.player2CashAtRoundStart = this.players.get(playerIds[1])?.dollars || 10
+    this.player1CashAtRoundStart = this.players.get(playerIds[0])?.dollars || GAME_CONFIG.STARTING_CASH
+    this.player2CashAtRoundStart = this.players.get(playerIds[1])?.dollars || GAME_CONFIG.STARTING_CASH
   }
 
   // Determine round winner by cash gained (not absolute dollars)
@@ -416,13 +417,16 @@ class GameRoom {
     return { winnerId: null, isTie: true }
   }
 
-  // Check if game should end (2 wins or sudden-death winner)
+  // Check if game should end (2 wins OR 3 rounds played OR sudden-death winner)
   checkGameEndCondition(): boolean {
+    // CRITICAL: Best-of-three means max 3 rounds - game ends after Round 3
+    if (this.currentRound >= 3) return true
+
     if (this.isSuddenDeath) {
-      // Game ends if there's a winner (not a tie)
+      // In sudden death, game ends if there's a winner (not a tie)
       return this.player1Wins !== this.player2Wins
     }
-    // Best-of-three: 2 wins ends game
+    // Best-of-three: 2 wins ends game early
     return this.player1Wins === 2 || this.player2Wins === 2
   }
 
@@ -434,7 +438,12 @@ class GameRoom {
     if (this.player2Wins > this.player1Wins) {
       return this.players.get(this.getPlayerIds()[1])
     }
-    return undefined
+    // Tie-breaker: if wins are equal (e.g., 1-1 after 3 rounds), winner is player with more dollars
+    const playerIds = this.getPlayerIds()
+    const p1 = this.players.get(playerIds[0])
+    const p2 = this.players.get(playerIds[1])
+    if (!p1 || !p2) return undefined
+    return p1.dollars > p2.dollars ? p1 : p2.dollars > p1.dollars ? p2 : undefined
   }
 
   // Closing state management
@@ -768,8 +777,12 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
 function transferFunds(room: GameRoom, winnerId: string, loserId: string, amount: number): void {
   const winner = room.players.get(winnerId)
   const loser = room.players.get(loserId)
-  if (winner) winner.dollars += amount
-  if (loser) loser.dollars = Math.max(0, loser.dollars - amount)
+
+  // Cap transfer at loser's available balance (zero-sum: total always = 20)
+  const actualTransfer = Math.min(amount, loser?.dollars || 0)
+
+  if (winner) winner.dollars += actualTransfer
+  if (loser) loser.dollars -= actualTransfer  // Goes to 0, never negative
 }
 
 // =============================================================================
@@ -815,6 +828,16 @@ async function updateYellowChannel(room: GameRoom): Promise<void> {
   const player1Dollars = room.getDollarsByWalletAddress(room.player1Address)
   const player2Dollars = room.getDollarsByWalletAddress(room.player2Address)
 
+  console.log('[GameRoom] updateYellowChannel - player dollars:', {
+    channelId: room.channelId,
+    currentRound: room.currentRound,
+    player1Address: room.player1Address,
+    player2Address: room.player2Address,
+    player1Dollars,
+    player2Dollars,
+    allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({ id, name: p.name, dollars: p.dollars })),
+  })
+
   try {
     await updateChannelState({
       channelId: room.channelId,
@@ -843,6 +866,15 @@ async function settleYellowChannel(room: GameRoom): Promise<{
   // This ensures correct mapping regardless of Map iteration order
   const player1Dollars = room.getDollarsByWalletAddress(room.player1Address)
   const player2Dollars = room.getDollarsByWalletAddress(room.player2Address)
+
+  console.log('[GameRoom] settleYellowChannel - player dollars:', {
+    channelId: room.channelId,
+    player1Address: room.player1Address,
+    player2Address: room.player2Address,
+    player1Dollars,
+    player2Dollars,
+    allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({ id, name: p.name, dollars: p.dollars })),
+  })
 
   try {
     const result = await settleChannel({
@@ -914,7 +946,7 @@ async function createMatch(
       {
         id: playerId1,
         name: name1,
-        dollars: 10,
+        dollars: GAME_CONFIG.STARTING_CASH,
         score: 0,
         sceneWidth: sceneWidth1,
         sceneHeight: sceneHeight1,
@@ -922,7 +954,7 @@ async function createMatch(
       {
         id: playerId2,
         name: name2,
-        dollars: 10,
+        dollars: GAME_CONFIG.STARTING_CASH,
         score: 0,
         sceneWidth: sceneWidth2,
         sceneHeight: sceneHeight2,
@@ -935,13 +967,13 @@ async function createMatch(
   startGameLoop(io, manager, room)
 }
 
-function handleSlice(
+async function handleSlice(
   io: SocketIOServer,
   manager: RoomManager,
   room: GameRoom,
   playerId: string,
   data: { coinId: string; coinType: string; priceAtSlice: number }
-): void {
+): Promise<void> {
   room.removeCoin(data.coinId)
 
   // Handle gas immediately (penalty to slicer)
@@ -950,6 +982,11 @@ function handleSlice(
     transferFunds(room, playerIds.find((id) => id !== playerId)!, playerId, 1)
     room.tugOfWar += playerId === playerIds[0] ? 1 : -1
     io.to(room.id).emit('player_hit', { playerId, damage: 1, reason: 'gas' })
+
+    // CRITICAL: Check knockout immediately after gas penalty
+    if (room.hasDeadPlayer()) {
+      await checkGameOver(io, manager, room)
+    }
     return
   }
 
@@ -1039,8 +1076,8 @@ async function checkGameOver(io: SocketIOServer, manager: RoomManager, room: Gam
     // Emit round_end so clients see the updated win count
     const p1 = room.players.get(playerIds[0])
     const p2 = room.players.get(playerIds[1])
-    const p1Gained = (p1?.dollars || 10) - room.player1CashAtRoundStart
-    const p2Gained = (p2?.dollars || 10) - room.player2CashAtRoundStart
+    const p1Gained = (p1?.dollars || GAME_CONFIG.STARTING_CASH) - room.player1CashAtRoundStart
+    const p2Gained = (p2?.dollars || GAME_CONFIG.STARTING_CASH) - room.player2CashAtRoundStart
 
     io.to(room.id).emit('round_end', {
       roundNumber: room.currentRound,
@@ -1054,13 +1091,20 @@ async function checkGameOver(io: SocketIOServer, manager: RoomManager, room: Gam
       player2Gained: p2Gained,
     })
 
-    // CRITICAL: Record round summary before game_over (same as endRound)
-    room.roundHistory.push({
+    // CRITICAL FIX: Check if last recorded round has the same number as currentRound
+    // If so, we're in a NEW round that wasn't recorded yet - increment before recording
+    const lastRound = room.roundHistory[room.roundHistory.length - 1]
+    if (lastRound && lastRound.roundNumber === room.currentRound) {
+      room.currentRound++
+    }
+
+    // Record round summary before game_over (same as endRound)
+    const roundSummary = {
       roundNumber: room.currentRound,
       winnerId,
       isTie: false,
-      player1Dollars: p1?.dollars || 10,
-      player2Dollars: p2?.dollars || 10,
+      player1Dollars: p1?.dollars || GAME_CONFIG.STARTING_CASH,
+      player2Dollars: p2?.dollars || GAME_CONFIG.STARTING_CASH,
       player1Gained: p1Gained,
       player2Gained: p2Gained,
       playerLost:
@@ -1069,7 +1113,17 @@ async function checkGameOver(io: SocketIOServer, manager: RoomManager, room: Gam
           : winnerId === playerIds[1]
             ? Math.max(0, p2Gained)
             : undefined,
+    }
+
+    console.log('[Round History] KO Recording:', {
+      roundNumber: roundSummary.roundNumber,
+      player1Dollars: roundSummary.player1Dollars,
+      player2Dollars: roundSummary.player2Dollars,
+      total: roundSummary.player1Dollars + roundSummary.player2Dollars,
+      winnerId,
     })
+
+    room.roundHistory.push(roundSummary)
 
     // Settle Yellow channel before game over
     const settlement = await settleYellowChannel(room)
@@ -1100,13 +1154,19 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
     settleOrder(io, room, order)
   }
 
+  // CRITICAL: Check if knockout occurred during settlement - game ends immediately
+  if (room.hasDeadPlayer()) {
+    await checkGameOver(io, manager, room)
+    return
+  }
+
   const { winnerId, isTie } = room.getRoundWinner()
   const playerIds = room.getPlayerIds()
   const p1 = room.players.get(playerIds[0])
   const p2 = room.players.get(playerIds[1])
 
-  const p1Gained = (p1?.dollars || 10) - room.player1CashAtRoundStart
-  const p2Gained = (p2?.dollars || 10) - room.player2CashAtRoundStart
+  const p1Gained = (p1?.dollars || GAME_CONFIG.STARTING_CASH) - room.player1CashAtRoundStart
+  const p2Gained = (p2?.dollars || GAME_CONFIG.STARTING_CASH) - room.player2CashAtRoundStart
 
   // Track round wins (except during sudden death ties)
   if (!room.isSuddenDeath || !isTie) {
@@ -1131,12 +1191,12 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
   })
 
   // Record round summary for game over display
-  room.roundHistory.push({
+  const roundSummary = {
     roundNumber: room.currentRound,
     winnerId,
     isTie,
-    player1Dollars: p1?.dollars || 10,
-    player2Dollars: p2?.dollars || 10,
+    player1Dollars: p1?.dollars || GAME_CONFIG.STARTING_CASH,
+    player2Dollars: p2?.dollars || GAME_CONFIG.STARTING_CASH,
     player1Gained: p1Gained,
     player2Gained: p2Gained,
     // Amount the winner gained (positive value, equal to loser's loss in zero-sum)
@@ -1146,7 +1206,18 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
         : winnerId === playerIds[1]
           ? Math.max(0, p2Gained)
           : undefined,
+  }
+
+  console.log('[Round History] Recording:', {
+    roundNumber: roundSummary.roundNumber,
+    player1Dollars: roundSummary.player1Dollars,
+    player2Dollars: roundSummary.player2Dollars,
+    total: roundSummary.player1Dollars + roundSummary.player2Dollars,
+    winnerId,
+    isTie,
   })
+
+  room.roundHistory.push(roundSummary)
 
   // Check if game should end
   if (room.checkGameEndCondition()) {
@@ -1290,7 +1361,7 @@ export function setupGameEvents(io: SocketIOServer): {
       }
     )
 
-    socket.on('slice_coin', (data: { coinId: string; coinType: string; priceAtSlice: number }) => {
+    socket.on('slice_coin', async (data: { coinId: string; coinType: string; priceAtSlice: number }) => {
       try {
         const roomId = manager.getPlayerRoomId(socket.id)
         if (!roomId) return
@@ -1301,7 +1372,7 @@ export function setupGameEvents(io: SocketIOServer): {
           return
         }
 
-        handleSlice(io, manager, room, socket.id, data)
+        await handleSlice(io, manager, room, socket.id, data)
       } catch (error) {
         socket.emit('error', { message: 'Failed to slice coin' })
       }
