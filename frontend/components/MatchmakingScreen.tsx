@@ -10,7 +10,7 @@ import { ActionButton } from '@/components/ui/ActionButton'
 import { ClaimUsername } from '@/components/ens/ClaimUsername'
 import { SetLeverage } from '@/components/ens/SetLeverage'
 import { PlayerName } from '@/components/ens/PlayerName'
-import { useUserName, useGetLeverage } from '@/hooks/useENS'
+import { useUserName, useGetLeverage, useGetPlayerStats } from '@/hooks/useENS'
 import type { LeverageOption } from '@/lib/ens'
 
 const BOTTOM_DOTS_COUNT = 7
@@ -26,6 +26,7 @@ type MatchState =
   | 'ready'
   | 'lobby'
   | 'entering'
+  | 'profile'
 
 export function MatchmakingScreen() {
   const { ready, authenticated, login, logout, user } = usePrivy()
@@ -53,6 +54,9 @@ export function MatchmakingScreen() {
 
   // Get user's leverage from ENS
   const { leverage: ensLeverage } = useGetLeverage(claimedUsername)
+
+  // Get player stats from ENS
+  const { stats: playerStats } = useGetPlayerStats(claimedUsername)
 
   // Store actions
   const setUserLeverage = useTradingStore((state) => state.setUserLeverage)
@@ -322,7 +326,31 @@ export function MatchmakingScreen() {
                   PLAYING AS
                 </motion.p>
                 <motion.div className="h-3 w-px bg-cyan-400/30" />
-                {/* Larger, more visible settings button */}
+                {/* Profile stats button */}
+                <motion.button
+                  onClick={() => setMatchState('profile')}
+                  whileHover={{ scale: 1.15, rotate: 90 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="text-cyan-400/60 hover:text-cyan-400 transition-colors p-2 rounded-full hover:bg-cyan-900/30"
+                  title="View Profile Stats"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                  </svg>
+                </motion.button>
+                {/* Leverage settings button */}
                 <motion.button
                   onClick={() => setMatchState('setLeverage')}
                   whileHover={{ scale: 1.15, rotate: 90 }}
@@ -599,6 +627,79 @@ export function MatchmakingScreen() {
                 >
                   REFRESH
                 </ActionButton>
+              </motion.div>
+            )}
+
+            {matchState === 'profile' && (
+              <motion.div
+                key="profile"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.3 }}
+                className="glass-panel-vibrant rounded-2xl p-6 max-w-sm w-full mx-4 border border-cyan-400/20"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6">
+                  <motion.h3
+                    className="font-[family-name:var(--font-orbitron)] text-lg tracking-[0.2em] text-tron-cyan"
+                    animate={{
+                      textShadow: [
+                        '0 0 10px rgba(0,217,255,0.4)',
+                        '0 0 20px rgba(0,217,255,0.6)',
+                        '0 0 10px rgba(0,217,255,0.4)',
+                      ],
+                    }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  >
+                    PLAYER STATS
+                  </motion.h3>
+                  <button
+                    onClick={() => setMatchState('ready')}
+                    className="text-cyan-400/60 hover:text-cyan-400 transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Stats Grid */}
+                <div className="space-y-4">
+                  {/* Total Games */}
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-black/40 border border-cyan-400/20 rounded-lg p-4"
+                  >
+                    <p className="text-cyan-400/60 text-[10px] tracking-[0.2em] mb-1">TOTAL GAMES</p>
+                    <p className="font-[family-name:var(--font-orbitron)] text-2xl text-white">
+                      {playerStats?.totalGames ?? 0}
+                    </p>
+                  </motion.div>
+
+                  {/* Streak */}
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    className="bg-black/40 border border-cyan-400/20 rounded-lg p-4"
+                  >
+                    <p className="text-cyan-400/60 text-[10px] tracking-[0.2em] mb-1">WIN STREAK</p>
+                    <p className="font-[family-name:var(--font-orbitron)] text-2xl text-tron-cyan">
+                      {playerStats?.streak ?? 0}
+                      <span className="text-sm ml-1 text-cyan-400/60">🔥</span>
+                    </p>
+                  </motion.div>
+
+                  {/* Syncing indicator */}
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: [0.3, 0.6, 0.3] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="text-center text-[10px] text-cyan-400/50 tracking-wider"
+                  >
+                    SYNCED TO ENS • GRID.ETH
+                  </motion.div>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
