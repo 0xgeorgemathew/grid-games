@@ -200,12 +200,12 @@ export async function GET(req: NextRequest) {
 
       try {
         // @ts-ignore - viem ABI type compatibility
-        const name = await publicClient.readContract({
+        const name = (await publicClient.readContract({
           address: L2_REGISTRAR,
           abi: REGISTRAR_READ_ABI,
           functionName: 'getFullName',
           args: [address as `0x${string}`],
-        }) as string
+        })) as string
 
         return NextResponse.json({ name })
       } catch (err) {
@@ -224,20 +224,20 @@ export async function GET(req: NextRequest) {
       try {
         // Get base node and make subdomain node
         // @ts-ignore - viem ABI type compatibility
-        const baseNode = await publicClient.readContract({
+        const baseNode = (await publicClient.readContract({
           address: L2_REGISTRY,
           abi: REGISTRY_READ_ABI,
           functionName: 'baseNode',
           args: [],
-        }) as `0x${string}`
+        })) as `0x${string}`
 
         // @ts-ignore - viem ABI type compatibility
-        const node = await publicClient.readContract({
+        const node = (await publicClient.readContract({
           address: L2_REGISTRY,
           abi: REGISTRY_READ_ABI,
           functionName: 'makeNode',
           args: [baseNode, label.toLowerCase()],
-        }) as `0x${string}`
+        })) as `0x${string}`
 
         // Read both text records in parallel
         const [totalGamesStr, streakStr] = await Promise.all([
