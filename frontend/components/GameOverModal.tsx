@@ -73,7 +73,7 @@ export const GameOverModal = React.memo(function GameOverModal() {
     if (isGameOver && gameOverData) {
       const timer = setTimeout(() => {
         setShowModal(true)
-      }, 3500) // 3.5s delay (RoundEndFlash is 3s)
+      }, 7500) // 7.5s delay (RoundEndFlash is 7s)
       return () => clearTimeout(timer)
     } else {
       setShowModal(false)
@@ -83,6 +83,7 @@ export const GameOverModal = React.memo(function GameOverModal() {
   if (!showModal || !gameOverData) return null
 
   const isWinner = gameOverData.winnerId === localPlayerId
+  const isTie = gameOverData.winnerId === null
 
   // Helper to get round result from local player's perspective
   const getRoundResult = (round: (typeof gameOverData.rounds)[0]) => {
@@ -125,12 +126,12 @@ export const GameOverModal = React.memo(function GameOverModal() {
           <motion.h2
             className={cn(
               'font-[family-name:var(--font-orbitron)] text-4xl sm:text-5xl font-black tracking-[0.15em]',
-              isWinner ? 'text-tron-cyan' : 'text-tron-orange'
+              isTie ? 'text-white' : isWinner ? 'text-tron-cyan' : 'text-tron-orange'
             )}
             animate={isWinner ? GLOW_ANIMATION.textShadow : undefined}
             transition={GLOW_ANIMATION.transition}
           >
-            {isWinner ? 'VICTORY' : 'DEFEAT'}
+            {isTie ? "IT'S A TIE" : isWinner ? 'VICTORY' : 'DEFEAT'}
           </motion.h2>
           <div className="text-white/70 mt-2 text-sm tracking-[0.2em] flex items-center justify-center gap-2">
             {gameOverData.winnerName ? (
@@ -146,8 +147,19 @@ export const GameOverModal = React.memo(function GameOverModal() {
             ) : (
               <span>UNKNOWN</span>
             )}
-            <span>WINS THE GAME</span>
+            <span>{isTie ? 'GAME ENDED IN A TIE' : 'WINS THE GAME'}</span>
           </div>
+
+          {!isTie && gameOverData.reason === 'tie_break' && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="mt-2 text-xs text-tron-cyan tracking-[0.15em] font-[family-name:var(--font-orbitron)]"
+            >
+              TIE BREAK: HIGHER BALANCE WINS
+            </motion.div>
+          )}
         </motion.div>
 
         {/* ROUND SUMMARY - Vertical Stacked Text */}
