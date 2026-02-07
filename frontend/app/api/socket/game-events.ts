@@ -15,6 +15,14 @@ import { getLeverageForAddress } from '@/lib/ens'
 // Order settlement duration - time between slice and settlement (5 seconds)
 export const ORDER_SETTLEMENT_DURATION_MS = GAME_CONFIG.ORDER_SETTLEMENT_DURATION_MS
 
+// Price broadcast data for clients
+interface PriceBroadcastData {
+  price: number
+  change: number
+  changePercent: number
+  timestamp: number
+}
+
 // Debug logging control - set DEBUG_FUNDS=true in .env.local to enable
 const DEBUG_FUNDS = process.env.DEBUG_FUNDS === 'true'
 
@@ -134,10 +142,16 @@ class CoinSequence {
 class PriceFeedManager {
   private ws: WebSocket | null = null
   private latestPrice: number = DEFAULT_BTC_PRICE
+  private firstPrice: number = DEFAULT_BTC_PRICE
   private subscribers: Set<(price: number) => void> = new Set()
   private reconnectTimeout: NodeJS.Timeout | null = null
   private symbol: string = 'btcusdt'
   private isShutdown = false
+  private broadcastCallback: ((data: PriceBroadcastData) => void) | null = null
+
+  // Price broadcast data for clients
+  private lastBroadcastTime = 0
+  private readonly BROADCAST_THROTTLE_MS = 500
 
   connect(symbol: string = 'btcusdt'): void {
     // Exit if shutdown
@@ -163,9 +177,29 @@ class PriceFeedManager {
       const raw = JSON.parse(event.data.toString())
       const price = parseFloat(raw.p)
 
+      // Initialize firstPrice on first message
+      if (this.firstPrice === DEFAULT_BTC_PRICE) {
+        this.firstPrice = price
+      }
+
       // Update latest price
       this.latestPrice = price
       this.subscribers.forEach((cb) => cb(price))
+
+      // Throttled broadcast to clients (500ms)
+      const now = Date.now()
+      if (this.broadcastCallback && now - this.lastBroadcastTime >= this.BROADCAST_THROTTLE_MS) {
+        this.lastBroadcastTime = now
+        const change = price - this.firstPrice
+        const changePercent = (change / this.firstPrice) * 100
+
+        this.broadcastCallback({
+          price,
+          change,
+          changePercent,
+          timestamp: now,
+        })
+      }
     }
 
     this.ws.onerror = (error) => {
@@ -206,15 +240,25 @@ class PriceFeedManager {
 
     // Clear subscribers
     this.subscribers.clear()
+    this.broadcastCallback = null
   }
 
   getLatestPrice(): number {
     return this.latestPrice
   }
 
+  getFirstPrice(): number {
+    return this.firstPrice
+  }
+
   subscribe(callback: (price: number) => void): () => void {
     this.subscribers.add(callback)
     return () => this.subscribers.delete(callback)
+  }
+
+  // Set broadcast callback for Socket.IO price broadcasts to clients
+  setBroadcastCallback(callback: (data: PriceBroadcastData) => void): void {
+    this.broadcastCallback = callback
   }
 }
 
@@ -899,9 +943,14 @@ function spawnCoin(room: GameRoom): SpawnedCoin | null {
 // =============================================================================
 
 function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
-  // CRITICAL: Don't start game loop if room is closing or shut down
+  // CRITICAL: Don't start game loop if room is closing, shut down, or game is over
   // Prevents post-game-over game loop starts from queued round_ready events
-  if (room.isShutdown || room.getIsClosing()) {
+  if (
+    room.isShutdown ||
+    room.getIsClosing() ||
+    room.player1Wins >= 2 ||
+    room.player2Wins >= 2
+  ) {
     // console.log('[Game Loop] Rejected - room is closing or shut down', {
     //   roomId: room.id,
     //   round: room.currentRound,
@@ -1328,12 +1377,16 @@ async function handleSlice(
   // This ensures orders placed during 2x window get 2x even if they settle after 2x expires
   const multiplier = room.get2XMultiplier(playerId)
 
+  // CRITICAL: Use server price for order creation, ignore client value
+  // This prevents price manipulation and ensures single source of truth
+  const serverPrice = priceFeed.getLatestPrice()
+
   const order: PendingOrder = {
     id: `order-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
     playerId,
     playerName: room.players.get(playerId)?.name || 'Unknown',
     coinType: data.coinType,
-    priceAtOrder: data.priceAtSlice,
+    priceAtOrder: serverPrice, // Server price, not client-provided value
     settlesAt: Date.now() + ORDER_SETTLEMENT_DURATION_MS, // 5 seconds
     isPlayer1, // Stored at creation to avoid lookup issues at settlement
     multiplier, // Stored at creation - 2 if 2x was active when placed
@@ -1378,22 +1431,57 @@ async function checkGameOver(
     room.setClosing()
 
     // CRITICAL: Settle all pending orders first
-    for (const [orderId, order] of room.pendingOrders) {
+    for (const [_orderId, order] of room.pendingOrders) {
       settleOrder(io, room, order)
     }
 
-    // Determine round winner and increment win count
-    const { winnerId } = room.getRoundWinner()
+    // Get player IDs and references AFTER all settlements complete
     const playerIds = room.getPlayerIds()
+    const { winnerId } = room.getRoundWinner()
+    const p1 = room.players.get(playerIds[0])
+    const p2 = room.players.get(playerIds[1])
+
+    // Defensive: Verify zero-sum economy (total should always be $20)
+    const totalDollars = (p1?.dollars || 0) + (p2?.dollars || 0)
+    const expectedTotal = GAME_CONFIG.STARTING_CASH * 2 // 20
+
+    if (totalDollars !== expectedTotal) {
+      console.error('[checkGameOver] Dollar sum invalid after knockout settlement:', {
+        total: totalDollars,
+        expected: expectedTotal,
+        p1Dollars: p1?.dollars,
+        p2Dollars: p2?.dollars,
+        roundNumber: room.currentRound,
+      })
+    }
+
+    // Ensure knockout player is actually at $0
+    const knockoutPlayer = (p1?.dollars || 0) < (p2?.dollars || 0) ? p1 : p2
+    if (knockoutPlayer && knockoutPlayer.dollars !== 0) {
+      console.error('[checkGameOver] Knockout player has non-zero dollars:', {
+        playerId: knockoutPlayer.id,
+        dollars: knockoutPlayer.dollars,
+        roundNumber: room.currentRound,
+      })
+    }
+
+    console.log('[checkGameOver] Knockout settlement:', {
+      roundNumber: room.currentRound,
+      p1Dollars: p1?.dollars,
+      p2Dollars: p2?.dollars,
+      total: totalDollars,
+      winnerId,
+    })
+
+    // Increment win count
     if (winnerId === playerIds[0]) room.player1Wins++
     else if (winnerId === playerIds[1]) room.player2Wins++
 
-    // Emit round_end so clients see the updated win count
-    const p1 = room.players.get(playerIds[0])
-    const p2 = room.players.get(playerIds[1])
+    // Calculate gained amounts
     const p1Gained = (p1?.dollars || GAME_CONFIG.STARTING_CASH) - room.player1CashAtRoundStart
     const p2Gained = (p2?.dollars || GAME_CONFIG.STARTING_CASH) - room.player2CashAtRoundStart
 
+    // Emit round_end so clients see the updated win count
     io.to(room.id).emit('round_end', {
       roundNumber: room.currentRound,
       winnerId,
@@ -1404,6 +1492,7 @@ async function checkGameOver(
       player2Dollars: p2?.dollars,
       player1Gained: p1Gained,
       player2Gained: p2Gained,
+      isFinalRound: true, // Knockout always ends game
     })
 
     // Record round summary before game_over (same as endRound)
@@ -1503,6 +1592,7 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
     player2Dollars: p2?.dollars,
     player1Gained: p1Gained,
     player2Gained: p2Gained,
+    isFinalRound: room.checkGameEndCondition(), // Check if game will end after this round
   })
 
   // Record round summary for game over display
@@ -1609,6 +1699,11 @@ export function setupGameEvents(io: SocketIOServer): {
     console.error('[Yellow] Failed to initialize Nitrolite:', error)
     console.warn('[Yellow] Continuing without Yellow integration - using mock mode')
   }
+
+  // Set up price broadcast to all clients via Socket.IO (single source of truth)
+  priceFeed.setBroadcastCallback((data) => {
+    io.emit('btc_price', data)
+  })
 
   // Start price feed
   priceFeed.connect('btcusdt')
@@ -1830,9 +1925,15 @@ export function setupGameEvents(io: SocketIOServer): {
       const room = manager.getRoom(roomId)
       if (!room) return
 
-      // CRITICAL: Reject round_ready if game is over or round limit reached
+      // CRITICAL: Reject round_ready if game is over, round limit reached, or someone has 2 wins
       // Prevents post-game-over state leaks and rounds exceeding best-of-3
-      if (room.isShutdown || room.getIsClosing() || room.currentRound >= 3) {
+      if (
+        room.isShutdown ||
+        room.getIsClosing() ||
+        room.currentRound >= 3 ||
+        room.player1Wins >= 2 ||
+        room.player2Wins >= 2
+      ) {
         // console.log('[Round Ready] Rejected - game over or round limit', {
         //   roomId: room.id,
         //   round: room.currentRound,
