@@ -353,18 +353,18 @@ class GameRoom {
     // Check cache first
     if (this.playerLeverageCache.has(playerId)) {
       const cached = this.playerLeverageCache.get(playerId)!
-      console.log(
-        `[GameRoom] Using cached leverage: playerId=${playerId.slice(0, 8)}, leverage=${cached}x`
-      )
+      // console.log(
+      //   `[GameRoom] Using cached leverage: playerId=${playerId.slice(0, 8)}, leverage=${cached}x`
+      // )
       return cached
     }
 
     // Get wallet address from room
     const walletAddress = this.getWalletAddress(playerId)
     if (!walletAddress) {
-      console.log(
-        `[GameRoom] No wallet address for player (using default 2x): playerId=${playerId.slice(0, 8)}`
-      )
+      // console.log(
+      //   `[GameRoom] No wallet address for player (using default 2x): playerId=${playerId.slice(0, 8)}`
+      // )
       return 2 // Default to 2x
     }
 
@@ -372,9 +372,9 @@ class GameRoom {
     const leverage = await getLeverageForAddress(walletAddress)
     const finalLeverage = leverage || 2 // Default to 2x
 
-    console.log(
-      `[GameRoom] Loaded leverage from ENS: playerId=${playerId.slice(0, 8)}, address=${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}, leverage=${finalLeverage}x`
-    )
+    // console.log(
+    //   `[GameRoom] Loaded leverage from ENS: playerId=${playerId.slice(0, 8)}, address=${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}, leverage=${finalLeverage}x`
+    // )
 
     // Cache for future use
     this.playerLeverageCache.set(playerId, finalLeverage)
@@ -477,9 +477,9 @@ class GameRoom {
     // Prevent duplicate entries from same socket (defense in depth)
     // Single client sending round_ready twice should not trigger "both ready"
     if (this.clientsReady.has(socketId)) {
-      console.log('[GameRoom] Duplicate round_ready from socket, ignoring:', {
-        socketId: socketId.slice(0, 8),
-      })
+      // console.log('[GameRoom] Duplicate round_ready from socket, ignoring:', {
+      //   socketId: socketId.slice(0, 8),
+      // })
       return this.clientsReady.size === 2
     }
 
@@ -902,26 +902,26 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
   // CRITICAL: Don't start game loop if room is closing or shut down
   // Prevents post-game-over game loop starts from queued round_ready events
   if (room.isShutdown || room.getIsClosing()) {
-    console.log('[Game Loop] Rejected - room is closing or shut down', {
-      roomId: room.id,
-      round: room.currentRound,
-      isShutdown: room.isShutdown,
-      isClosing: room.getIsClosing(),
-    })
+    // console.log('[Game Loop] Rejected - room is closing or shut down', {
+    //   roomId: room.id,
+    //   round: room.currentRound,
+    //   isShutdown: room.isShutdown,
+    //   isClosing: room.getIsClosing(),
+    // })
     return
   }
 
   // Prevent duplicate game loops for the same round
   if (room.gameLoopActive) {
-    console.log('[Game Loop] Already active, skipping duplicate call')
+    // console.log('[Game Loop] Already active, skipping duplicate call')
     return
   }
 
-  console.log('[Game Loop] Starting game loop', {
-    roomId: room.id,
-    round: room.currentRound,
-    gameLoopActive: room.gameLoopActive,
-  })
+  // console.log('[Game Loop] Starting game loop', {
+  //   roomId: room.id,
+  //   round: room.currentRound,
+  //   gameLoopActive: room.gameLoopActive,
+  // })
 
   room.gameLoopActive = true
 
@@ -1021,23 +1021,23 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
 function startGameWhenClientsReady(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
   // Check if already both ready (race condition: clients ready before this function called)
   if (room.clientsReady.size === 2) {
-    console.log('[Game Loop] Both clients already ready, starting immediately')
+    // console.log('[Game Loop] Both clients already ready, starting immediately')
     startGameLoop(io, manager, room)
     return
   }
 
-  console.log('[Game Loop] Waiting for clients to be ready', {
-    roomId: room.id,
-    clientsReady: room.clientsReady.size,
-  })
+  // console.log('[Game Loop] Waiting for clients to be ready', {
+  //   roomId: room.id,
+  //   clientsReady: room.clientsReady.size,
+  // })
 
   // Wait up to 10 seconds for clients (fallback: start anyway)
   // This handles edge cases where a client crashes or has network issues
   const timeoutId = setTimeout(() => {
-    console.log('[Game Loop] Timeout waiting for clients, starting anyway', {
-      roomId: room.id,
-      clientsReady: room.clientsReady.size,
-    })
+    // console.log('[Game Loop] Timeout waiting for clients, starting anyway', {
+    //   roomId: room.id,
+    //   clientsReady: room.clientsReady.size,
+    // })
     startGameLoop(io, manager, room)
   }, 10000)
 
@@ -1108,19 +1108,19 @@ async function updateYellowChannel(room: GameRoom): Promise<void> {
   const player1Dollars = room.getDollarsByWalletAddress(room.player1Address)
   const player2Dollars = room.getDollarsByWalletAddress(room.player2Address)
 
-  console.log('[GameRoom] updateYellowChannel - player dollars:', {
-    channelId: room.channelId,
-    currentRound: room.currentRound,
-    player1Address: room.player1Address,
-    player2Address: room.player2Address,
-    player1Dollars,
-    player2Dollars,
-    allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({
-      id,
-      name: p.name,
-      dollars: p.dollars,
-    })),
-  })
+  // console.log('[GameRoom] updateYellowChannel - player dollars:', {
+  //   channelId: room.channelId,
+  //   currentRound: room.currentRound,
+  //   player1Address: room.player1Address,
+  //   player2Address: room.player2Address,
+  //   player1Dollars,
+  //   player2Dollars,
+  //   allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({
+  //     id,
+  //     name: p.name,
+  //     dollars: p.dollars,
+  //   })),
+  // })
 
   try {
     await updateChannelState({
@@ -1151,18 +1151,18 @@ async function settleYellowChannel(room: GameRoom): Promise<{
   const player1Dollars = room.getDollarsByWalletAddress(room.player1Address)
   const player2Dollars = room.getDollarsByWalletAddress(room.player2Address)
 
-  console.log('[GameRoom] settleYellowChannel - player dollars:', {
-    channelId: room.channelId,
-    player1Address: room.player1Address,
-    player2Address: room.player2Address,
-    player1Dollars,
-    player2Dollars,
-    allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({
-      id,
-      name: p.name,
-      dollars: p.dollars,
-    })),
-  })
+  // console.log('[GameRoom] settleYellowChannel - player dollars:', {
+  //   channelId: room.channelId,
+  //   player1Address: room.player1Address,
+  //   player2Address: room.player2Address,
+  //   player1Dollars,
+  //   player2Dollars,
+  //   allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({
+  //     id,
+  //     name: p.name,
+  //     dollars: p.dollars,
+  //   })),
+  // })
 
   try {
     const result = await settleChannel({
@@ -1423,13 +1423,13 @@ async function checkGameOver(
             : undefined,
     }
 
-    console.log('[Round History] KO Recording:', {
-      roundNumber: roundSummary.roundNumber,
-      player1Dollars: roundSummary.player1Dollars,
-      player2Dollars: roundSummary.player2Dollars,
-      total: roundSummary.player1Dollars + roundSummary.player2Dollars,
-      winnerId,
-    })
+    // console.log('[Round History] KO Recording:', {
+    //   roundNumber: roundSummary.roundNumber,
+    //   player1Dollars: roundSummary.player1Dollars,
+    //   player2Dollars: roundSummary.player2Dollars,
+    //   total: roundSummary.player1Dollars + roundSummary.player2Dollars,
+    //   winnerId,
+    // })
 
     room.roundHistory.push(roundSummary)
 
@@ -1523,14 +1523,14 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
           : undefined,
   }
 
-  console.log('[Round History] Recording:', {
-    roundNumber: roundSummary.roundNumber,
-    player1Dollars: roundSummary.player1Dollars,
-    player2Dollars: roundSummary.player2Dollars,
-    total: roundSummary.player1Dollars + roundSummary.player2Dollars,
-    winnerId,
-    isTie,
-  })
+  // console.log('[Round History] Recording:', {
+  //   roundNumber: roundSummary.roundNumber,
+  //   player1Dollars: roundSummary.player1Dollars,
+  //   player2Dollars: roundSummary.player2Dollars,
+  //   total: roundSummary.player1Dollars + roundSummary.player2Dollars,
+  //   winnerId,
+  //   isTie,
+  // })
 
   room.roundHistory.push(roundSummary)
 
@@ -1573,19 +1573,19 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
 
     // Wait for both clients to be ready for next round
     // This ensures both players see full 30 seconds (no lost time to overlay processing)
-    console.log('[Round Transition] Waiting for clients to be ready for next round', {
-      roomId: room.id,
-      nextRound: room.currentRound + 1, // Will be incremented in startGameLoop
-    })
+    // console.log('[Round Transition] Waiting for clients to be ready for next round', {
+    //   roomId: room.id,
+    //   nextRound: room.currentRound + 1, // Will be incremented in startGameLoop
+    // })
 
     // Wait up to 6 seconds for clients (fallback: start anyway)
     // Matches FLASH_DURATION (5s) + 1s buffer for smooth transitions
     const timeoutId = setTimeout(() => {
-      console.log('[Round Transition] Timeout waiting for clients, starting anyway', {
-        roomId: room.id,
-        round: room.currentRound,
-        clientsReady: room.clientsReady.size,
-      })
+      // console.log('[Round Transition] Timeout waiting for clients, starting anyway', {
+      //   roomId: room.id,
+      //   round: room.currentRound,
+      //   clientsReady: room.clientsReady.size,
+      // })
       startGameLoop(io, manager, room)
     }, 6000)
 
@@ -1804,20 +1804,20 @@ export function setupGameEvents(io: SocketIOServer): {
       const room = manager.getRoom(roomId)
       if (!room) return
 
-      console.log('[Client Ready]', {
-        roomId: room.id,
-        socketId: socket.id.slice(0, 8),
-        clientsReady: room.clientsReady.size + 1,
-      })
+      // console.log('[Client Ready]', {
+      //   roomId: room.id,
+      //   socketId: socket.id.slice(0, 8),
+      //   clientsReady: room.clientsReady.size + 1,
+      // })
 
       // Mark this client as ready
       const bothReady = room.markClientReady(socket.id)
 
       // If both clients are ready, start the game loop
       if (bothReady) {
-        console.log('[Game Loop] Both clients ready, starting game', {
-          roomId: room.id,
-        })
+        // console.log('[Game Loop] Both clients ready, starting game', {
+        //   roomId: room.id,
+        // })
         startGameLoop(io, manager, room)
       }
     })
@@ -1833,32 +1833,32 @@ export function setupGameEvents(io: SocketIOServer): {
       // CRITICAL: Reject round_ready if game is over or round limit reached
       // Prevents post-game-over state leaks and rounds exceeding best-of-3
       if (room.isShutdown || room.getIsClosing() || room.currentRound >= 3) {
-        console.log('[Round Ready] Rejected - game over or round limit', {
-          roomId: room.id,
-          round: room.currentRound,
-          isShutdown: room.isShutdown,
-          isClosing: room.getIsClosing(),
-          socketId: socket.id.slice(0, 8),
-        })
+        // console.log('[Round Ready] Rejected - game over or round limit', {
+        //   roomId: room.id,
+        //   round: room.currentRound,
+        //   isShutdown: room.isShutdown,
+        //   isClosing: room.getIsClosing(),
+        //   socketId: socket.id.slice(0, 8),
+        // })
         return
       }
 
-      console.log('[Round Ready]', {
-        roomId: room.id,
-        round: room.currentRound,
-        socketId: socket.id.slice(0, 8),
-        clientsReady: room.clientsReady.size + 1,
-      })
+      // console.log('[Round Ready]', {
+      //   roomId: room.id,
+      //   round: room.currentRound,
+      //   socketId: socket.id.slice(0, 8),
+      //   clientsReady: room.clientsReady.size + 1,
+      // })
 
       // Mark this client as ready for next round
       const bothReady = room.markClientReady(socket.id)
 
       // If both clients are ready, start the next round
       if (bothReady) {
-        console.log('[Game Loop] Both clients ready for next round, starting', {
-          roomId: room.id,
-          round: room.currentRound,
-        })
+        // console.log('[Game Loop] Both clients ready for next round, starting', {
+        //   roomId: room.id,
+        //   round: room.currentRound,
+        // })
         startGameLoop(io, manager, room)
       }
     })

@@ -668,7 +668,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     const { socket } = get()
     if (socket && socket.connected) {
       socket.emit('round_ready')
-      console.log('[Client] Emitted round_ready for next round')
+      // console.log('[Client] Emitted round_ready for next round')
     }
   },
 
