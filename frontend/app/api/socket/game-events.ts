@@ -87,9 +87,9 @@ class SeededRandom {
   }
 }
 
-// Pre-generated coin sequence per round
+// Pre-generated coin sequence per round (deterministic for both players)
 class CoinSequence {
-  private sequence: Array<'call' | 'put' | 'gas' | 'whale'> = []
+  private sequence: Array<{ type: 'call' | 'put' | 'gas' | 'whale'; xNormalized: number }> = []
   private index = 0
 
   constructor(durationMs: number, minIntervalMs: number, maxIntervalMs: number, seed: number) {
@@ -103,19 +103,27 @@ class CoinSequence {
       'whale',
     ]
 
-    const estimatedSpawns = Math.ceil(durationMs / minIntervalMs) + 5
+    const estimatedSpawns = Math.ceil(durationMs / minIntervalMs) + 10 // Extra for burst spawns
     for (let i = 0; i < estimatedSpawns; i++) {
-      this.sequence.push(types[rng.nextInt(0, types.length - 1)])
+      this.sequence.push({
+        type: types[rng.nextInt(0, types.length - 1)],
+        xNormalized: 0.15 + rng.next() * 0.7, // 15%-85% screen width (avoid edges)
+      })
     }
   }
 
-  next(): 'call' | 'put' | 'gas' | 'whale' | null {
+  next(): { type: 'call' | 'put' | 'gas' | 'whale'; xNormalized: number } | null {
     if (this.index >= this.sequence.length) return null
     return this.sequence[this.index++]
   }
 
   hasNext(): boolean {
     return this.index < this.sequence.length
+  }
+
+  peek(): { type: 'call' | 'put' | 'gas' | 'whale'; xNormalized: number } | null {
+    if (this.index >= this.sequence.length) return null
+    return this.sequence[this.index]
   }
 }
 
@@ -265,7 +273,7 @@ class GameRoom {
   readonly GAME_DURATION = 180000 // 3 minutes (legacy, not used in round-based play)
 
   // Round-based game state
-  currentRound: number = 1
+  currentRound: number = 0 // Starts at 0, startNewRound() increments to 1 before first round
   player1Wins: number = 0
   player2Wins: number = 0
   player1CashAtRoundStart: number = GAME_CONFIG.STARTING_CASH
@@ -294,6 +302,15 @@ class GameRoom {
   player2Address: `0x${string}` | null = null
   // Track which socket ID corresponds to which wallet address
   addressToSocketId: Map<string, string> = new Map()
+
+  // Client ready tracking - both clients must be ready before game starts
+  clientsReady = new Set<string>()
+
+  // Track if game loop is active (prevents duplicate startGameLoop calls)
+  gameLoopActive = false
+
+  // Round timeout tracker (for cleanup)
+  roundTimeout: NodeJS.Timeout | null = null
 
   constructor(roomId: string) {
     this.id = roomId
@@ -447,6 +464,32 @@ class GameRoom {
     this.timeouts.forEach(clearTimeout)
     this.intervals.clear()
     this.timeouts.clear()
+
+    // Clear round timeout
+    if (this.roundTimeout) {
+      clearTimeout(this.roundTimeout)
+      this.roundTimeout = null
+    }
+  }
+
+  // Mark client as ready and return if both clients are ready
+  markClientReady(socketId: string): boolean {
+    // Prevent duplicate entries from same socket (defense in depth)
+    // Single client sending round_ready twice should not trigger "both ready"
+    if (this.clientsReady.has(socketId)) {
+      console.log('[GameRoom] Duplicate round_ready from socket, ignoring:', {
+        socketId: socketId.slice(0, 8),
+      })
+      return this.clientsReady.size === 2
+    }
+
+    this.clientsReady.add(socketId)
+    return this.clientsReady.size === 2
+  }
+
+  // Reset client ready state for next round
+  resetClientsReady(): void {
+    this.clientsReady.clear()
   }
 
   // Find winner (highest dollars, or first if tied)
@@ -469,11 +512,28 @@ class GameRoom {
 
   // Track cash at round start for determining round winner by dollars gained
   startNewRound(): void {
+    // Increment round at START (simplifies logic, prevents edge cases)
+    this.currentRound++
+
     const playerIds = this.getPlayerIds()
-    this.player1CashAtRoundStart =
-      this.players.get(playerIds[0])?.dollars || GAME_CONFIG.STARTING_CASH
-    this.player2CashAtRoundStart =
-      this.players.get(playerIds[1])?.dollars || GAME_CONFIG.STARTING_CASH
+    const p1 = this.players.get(playerIds[0])
+    const p2 = this.players.get(playerIds[1])
+
+    // Validate zero-sum economy (defensive logging)
+    if (p1 && p2) {
+      const total = p1.dollars + p2.dollars
+      if (total !== GAME_CONFIG.STARTING_CASH * 2) {
+        console.error('[GameRoom] Cash validation failed:', {
+          total,
+          expected: GAME_CONFIG.STARTING_CASH * 2,
+          p1: p1.dollars,
+          p2: p2.dollars,
+        })
+      }
+    }
+
+    this.player1CashAtRoundStart = p1?.dollars || GAME_CONFIG.STARTING_CASH
+    this.player2CashAtRoundStart = p2?.dollars || GAME_CONFIG.STARTING_CASH
   }
 
   // Determine round winner by cash gained (not absolute dollars)
@@ -487,38 +547,59 @@ class GameRoom {
     const p1Gained = p1.dollars - this.player1CashAtRoundStart
     const p2Gained = p2.dollars - this.player2CashAtRoundStart
 
+    // 1. Direct positive gain (Standard Zero-Sum Win)
+    if (p1Gained > 0 && p2Gained <= 0) return { winnerId: playerIds[0], isTie: false }
+    if (p2Gained > 0 && p1Gained <= 0) return { winnerId: playerIds[1], isTie: false }
+
+    // 2. Relative performance (needed if both lost money due to gas or external factors)
+    // The player who lost LESS money performed better
     if (p1Gained > p2Gained) return { winnerId: playerIds[0], isTie: false }
     if (p2Gained > p1Gained) return { winnerId: playerIds[1], isTie: false }
+
+    // 3. Exact tie
     return { winnerId: null, isTie: true }
   }
 
   // Check if game should end (2 wins OR 3 rounds played OR sudden-death winner)
   checkGameEndCondition(): boolean {
-    // CRITICAL: Best-of-three means max 3 rounds - game ends after Round 3
-    if (this.currentRound >= 3) return true
-
+    // CRITICAL: Check sudden death FIRST (before round count)
+    // In sudden death, max 3 rounds (round 3 is the final tiebreaker)
+    // End if: someone wins OR we've reached round 3 (hard limit)
     if (this.isSuddenDeath) {
-      // In sudden death, game ends if there's a winner (not a tie)
-      return this.player1Wins !== this.player2Wins
+      return this.player1Wins !== this.player2Wins || this.currentRound >= 3
     }
+
     // Best-of-three: 2 wins ends game early
-    return this.player1Wins === 2 || this.player2Wins === 2
+    if (this.player1Wins === 2 || this.player2Wins === 2) return true
+
+    // Game ends after 3 rounds (max)
+    return this.currentRound >= 3
   }
 
   // Determine overall game winner
-  getGameWinner(): Player | undefined {
-    if (this.player1Wins > this.player2Wins) {
-      return this.players.get(this.getPlayerIds()[0])
-    }
-    if (this.player2Wins > this.player1Wins) {
-      return this.players.get(this.getPlayerIds()[1])
-    }
-    // Tie-breaker: if wins are equal (e.g., 1-1 after 3 rounds), winner is player with more dollars
+  // Returns winner logic: First by wins, then by total dollars (Tie-Break)
+  getGameWinner(): { winner: Player | undefined; reason: 'wins' | 'dollars' | 'knockout' } {
     const playerIds = this.getPlayerIds()
     const p1 = this.players.get(playerIds[0])
     const p2 = this.players.get(playerIds[1])
-    if (!p1 || !p2) return undefined
-    return p1.dollars > p2.dollars ? p1 : p2.dollars > p1.dollars ? p2 : undefined
+
+    if (!p1 || !p2) return { winner: undefined, reason: 'wins' }
+
+    // 1. Primary Win Condition: Most Round Wins
+    if (this.player1Wins > this.player2Wins) {
+      return { winner: p1, reason: 'wins' }
+    }
+    if (this.player2Wins > this.player1Wins) {
+      return { winner: p2, reason: 'wins' }
+    }
+
+    // 2. Tie-Breaker: Total Dollars
+    // If wins are equal (e.g. 1-1 after 3 rounds), player with most money wins
+    if (p1.dollars > p2.dollars) return { winner: p1, reason: 'dollars' }
+    if (p2.dollars > p1.dollars) return { winner: p2, reason: 'dollars' }
+
+    // Complete draw (unlikely in money game unless exact same trades)
+    return { winner: undefined, reason: 'wins' }
   }
 
   // Closing state management
@@ -530,15 +611,36 @@ class GameRoom {
     this.isClosing = true
   }
 
-  // Fruit Ninja-style spawn rate
-  getSpawnInterval(): { minMs: number; maxMs: number } {
-    return { minMs: 2000, maxMs: 3000 }
+  // Wave-based spawn intensity (Fruit Ninja escalation)
+  // Returns spawn interval and burst chance based on elapsed time in round
+  getSpawnInterval(elapsedMs: number = 0): { minMs: number; maxMs: number; burstChance: number } {
+    // Wave configuration: warmup → ramp → intensity → climax
+    const waves = [
+      { endMs: 10000, intervalMs: { min: 1200, max: 1800 }, burstChance: 0.1 }, // Warmup: faster starts with small burst chance
+      { endMs: 20000, intervalMs: { min: 1400, max: 1800 }, burstChance: 0.15 }, // Ramp: occasional doubles
+      { endMs: 27000, intervalMs: { min: 1000, max: 1400 }, burstChance: 0.25 }, // Intensity: more doubles
+      { endMs: 30000, intervalMs: { min: 700, max: 1100 }, burstChance: 0.4 }, // Climax: burst mode!
+    ]
+
+    for (const wave of waves) {
+      if (elapsedMs < wave.endMs) {
+        return {
+          minMs: wave.intervalMs.min,
+          maxMs: wave.intervalMs.max,
+          burstChance: wave.burstChance,
+        }
+      }
+    }
+
+    // Final wave fallback
+    const last = waves[waves.length - 1]
+    return { minMs: last.intervalMs.min, maxMs: last.intervalMs.max, burstChance: last.burstChance }
   }
 
   // Initialize deterministic coin sequence for this round
   initCoinSequence(): void {
     const seed = this.hashString(`${this.id}-round${this.currentRound}`)
-    const spawnConfig = this.getSpawnInterval()
+    const spawnConfig = this.getSpawnInterval(0) // Use initial spawn config for estimation
     this.coinSequence = new CoinSequence(
       this.ROUND_DURATION,
       spawnConfig.minMs,
@@ -558,9 +660,14 @@ class GameRoom {
     return Math.abs(hash)
   }
 
-  // Get next coin type from deterministic sequence
-  getNextCoinType(): 'call' | 'put' | 'gas' | 'whale' | null {
+  // Get next coin from deterministic sequence (includes type + xNormalized)
+  getNextCoinData(): { type: 'call' | 'put' | 'gas' | 'whale'; xNormalized: number } | null {
     return this.coinSequence?.next() ?? null
+  }
+
+  // Peek at next coin without consuming it from the sequence
+  peekNextCoinData(): { type: 'call' | 'put' | 'gas' | 'whale'; xNormalized: number } | null {
+    return this.coinSequence?.peek() ?? null
   }
 }
 
@@ -735,7 +842,7 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
     // This ensures orders placed during 2x window get 2x even if they settle after 2x expires
     const impact = order.multiplier
 
-    transferFunds(
+    const actualTransfer = transferFunds(
       room,
       isCorrect ? order.playerId : playerIds.find((id) => id !== order.playerId)!,
       isCorrect ? playerIds.find((id) => id !== order.playerId)! : order.playerId,
@@ -753,7 +860,7 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
       isCorrect,
       priceAtOrder: order.priceAtOrder,
       finalPrice: finalPrice,
-      amountTransferred: impact,
+      amountTransferred: actualTransfer,
     })
   } finally {
     settlementGuard.release(order.id)
@@ -764,20 +871,26 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
 // Game Logic - Coin Spawning
 // =============================================================================
 
-function spawnCoin(room: GameRoom): Coin | null {
-  const coinType = room.getNextCoinType()
-  if (!coinType) return null
+interface SpawnedCoin {
+  id: string
+  type: 'call' | 'put' | 'gas' | 'whale'
+  xNormalized: number
+}
+
+function spawnCoin(room: GameRoom): SpawnedCoin | null {
+  const coinData = room.getNextCoinData()
+  if (!coinData) return null
 
   const coinId = `coin-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 
-  const coin: Coin = {
+  const coin: SpawnedCoin = {
     id: coinId,
-    type: coinType,
-    x: 0,
-    y: 0,
+    type: coinData.type,
+    xNormalized: coinData.xNormalized,
   }
 
-  room.addCoin(coin)
+  // Add to room's coin tracking (legacy compat - x/y not used)
+  room.addCoin({ id: coinId, type: coinData.type, x: 0, y: 0 })
   return coin
 }
 
@@ -786,47 +899,101 @@ function spawnCoin(room: GameRoom): Coin | null {
 // =============================================================================
 
 function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
+  // CRITICAL: Don't start game loop if room is closing or shut down
+  // Prevents post-game-over game loop starts from queued round_ready events
+  if (room.isShutdown || room.getIsClosing()) {
+    console.log('[Game Loop] Rejected - room is closing or shut down', {
+      roomId: room.id,
+      round: room.currentRound,
+      isShutdown: room.isShutdown,
+      isClosing: room.getIsClosing(),
+    })
+    return
+  }
+
+  // Prevent duplicate game loops for the same round
+  if (room.gameLoopActive) {
+    console.log('[Game Loop] Already active, skipping duplicate call')
+    return
+  }
+
+  console.log('[Game Loop] Starting game loop', {
+    roomId: room.id,
+    round: room.currentRound,
+    gameLoopActive: room.gameLoopActive,
+  })
+
+  room.gameLoopActive = true
+
   // Initialize deterministic coin sequence
   room.initCoinSequence()
 
   // Initialize round state and emit round_start event
   room.startNewRound()
+  const roundStartTime = Date.now()
+
   io.to(room.id).emit('round_start', {
     roundNumber: room.currentRound,
     isSuddenDeath: room.isSuddenDeath,
     durationMs: room.ROUND_DURATION,
   })
 
-  const emitCoinSpawn = (coin: Coin) => {
-    for (const [playerId, player] of room.players) {
-      const spawnX = Math.random() * player.sceneWidth
-      const spawnY = player.sceneHeight + 100
-
-      io.to(playerId).emit('coin_spawn', {
-        coinId: coin.id,
-        coinType: coin.type,
-        x: spawnX,
-        y: spawnY,
-      })
-    }
+  // Room broadcast (single emit, not per-player) - both players get same xNormalized
+  const emitCoinSpawn = (coin: SpawnedCoin) => {
+    io.to(room.id).emit('coin_spawn', {
+      coinId: coin.id,
+      coinType: coin.type,
+      xNormalized: coin.xNormalized,
+    })
   }
 
-  // Helper function to spawn coin with randomized delay
+  // Helper function to spawn coin with wave-based delay and burst spawns
   const scheduleNextSpawn = () => {
-    // Stop if room no longer exists or has fewer than 2 players
-    if (!manager.hasRoom(room.id) || room.players.size < 2) {
+    // Stop if room no longer exists, has fewer than 2 players, or is shutting down
+    if (!manager.hasRoom(room.id) || room.players.size < 2 || room.isShutdown) {
       return
     }
 
-    const spawnConfig = room.getSpawnInterval()
+    const elapsedMs = Date.now() - roundStartTime
+    const spawnConfig = room.getSpawnInterval(elapsedMs)
 
-    // Single coin spawn (no burst)
-    const coin = spawnCoin(room)
-    if (!coin) return // Sequence exhausted
+    // Determine burst count (1-3 coins) based on wave's burstChance
+    const rng = Math.random()
+    let burstCount = 1
+    if (rng < spawnConfig.burstChance) {
+      burstCount = rng < spawnConfig.burstChance * 0.3 ? 3 : 2 // 30% of bursts are triples
+    }
 
-    emitCoinSpawn(coin)
+    // CRITICAL: Pre-check sequence has enough coins for the full burst
+    // Use peek() to check without consuming from the sequence
+    let actualBurstCount = burstCount
+    for (let i = 0; i < burstCount; i++) {
+      if (!room.peekNextCoinData()) {
+        actualBurstCount = i
+        break
+      }
+    }
 
-    // Schedule next spawn
+    // Spawn burst with 100ms stagger for Fruit Ninja feel
+    for (let i = 0; i < actualBurstCount; i++) {
+      const coin = spawnCoin(room)
+      if (!coin) return // Should never happen due to pre-check above
+
+      // Stagger burst spawns by 100ms each
+      if (i === 0) {
+        emitCoinSpawn(coin)
+      } else {
+        const staggerTimeout = setTimeout(() => {
+          // Double-check room state before delayed emit (prevents race conditions)
+          // Pattern: Guards prevent operations on deleted rooms during async callbacks
+          if (room.isShutdown || !manager.hasRoom(room.id)) return
+          emitCoinSpawn(coin)
+        }, i * 100)
+        room.trackTimeout(staggerTimeout)
+      }
+    }
+
+    // Schedule next spawn based on wave config
     const nextDelay =
       Math.floor(Math.random() * (spawnConfig.maxMs - spawnConfig.minMs + 1)) + spawnConfig.minMs
     const timeoutId = setTimeout(scheduleNextSpawn, nextDelay)
@@ -836,12 +1003,45 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
   // Start first spawn immediately
   scheduleNextSpawn()
 
+  // Clear any existing round timeout (defensive)
+  if (room.roundTimeout) {
+    clearTimeout(room.roundTimeout)
+  }
+
   // End ROUND after ROUND_DURATION (not full game)
-  const roundTimeout = setTimeout(() => {
+  room.roundTimeout = setTimeout(() => {
     endRound(io, manager, room)
   }, room.ROUND_DURATION)
 
-  room.trackTimeout(roundTimeout)
+  room.trackTimeout(room.roundTimeout)
+}
+
+// Wait for both clients to be ready before starting game loop (first round only)
+// This ensures both players see the full 30-second timer
+function startGameWhenClientsReady(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
+  // Check if already both ready (race condition: clients ready before this function called)
+  if (room.clientsReady.size === 2) {
+    console.log('[Game Loop] Both clients already ready, starting immediately')
+    startGameLoop(io, manager, room)
+    return
+  }
+
+  console.log('[Game Loop] Waiting for clients to be ready', {
+    roomId: room.id,
+    clientsReady: room.clientsReady.size,
+  })
+
+  // Wait up to 10 seconds for clients (fallback: start anyway)
+  // This handles edge cases where a client crashes or has network issues
+  const timeoutId = setTimeout(() => {
+    console.log('[Game Loop] Timeout waiting for clients, starting anyway', {
+      roomId: room.id,
+      clientsReady: room.clientsReady.size,
+    })
+    startGameLoop(io, manager, room)
+  }, 10000)
+
+  room.trackTimeout(timeoutId)
 }
 
 // =============================================================================
@@ -849,7 +1049,8 @@ function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom)
 // =============================================================================
 
 // Fund transfer helper - zero-sum with $0 floor
-function transferFunds(room: GameRoom, winnerId: string, loserId: string, amount: number): void {
+// Returns the actual amount transferred (capped at loser's balance)
+function transferFunds(room: GameRoom, winnerId: string, loserId: string, amount: number): number {
   const winner = room.players.get(winnerId)
   const loser = room.players.get(loserId)
 
@@ -858,6 +1059,8 @@ function transferFunds(room: GameRoom, winnerId: string, loserId: string, amount
 
   if (winner) winner.dollars += actualTransfer
   if (loser) loser.dollars -= actualTransfer // Goes to 0, never negative
+
+  return actualTransfer
 }
 
 // =============================================================================
@@ -1061,8 +1264,9 @@ async function createMatch(
   )
   io.emit('lobby_updated', { players: allWaitingPlayers })
 
-  // Start game loop immediately - client's isSceneReady guard handles timing
-  startGameLoop(io, manager, room)
+  // Wait for both clients to be ready before starting (syncs timer)
+  // This ensures both players see the full 30-second countdown
+  startGameWhenClientsReady(io, manager, room)
 }
 
 async function handleSlice(
@@ -1077,9 +1281,14 @@ async function handleSlice(
   // Handle gas immediately (penalty to slicer)
   if (data.coinType === 'gas') {
     const playerIds = room.getPlayerIds()
-    transferFunds(room, playerIds.find((id) => id !== playerId)!, playerId, 1)
+    const actualTransfer = transferFunds(
+      room,
+      playerIds.find((id) => id !== playerId)!,
+      playerId,
+      1
+    )
     room.tugOfWar += playerId === playerIds[0] ? 1 : -1
-    io.to(room.id).emit('player_hit', { playerId, damage: 1, reason: 'gas' })
+    io.to(room.id).emit('player_hit', { playerId, damage: actualTransfer, reason: 'gas' })
 
     // CRITICAL: Check knockout immediately after gas penalty
     if (room.hasDeadPlayer()) {
@@ -1197,13 +1406,6 @@ async function checkGameOver(
       player2Gained: p2Gained,
     })
 
-    // CRITICAL FIX: Check if last recorded round has the same number as currentRound
-    // If so, we're in a NEW round that wasn't recorded yet - increment before recording
-    const lastRound = room.roundHistory[room.roundHistory.length - 1]
-    if (lastRound && lastRound.roundNumber === room.currentRound) {
-      room.currentRound++
-    }
-
     // Record round summary before game_over (same as endRound)
     const roundSummary = {
       roundNumber: room.currentRound,
@@ -1246,6 +1448,10 @@ async function checkGameOver(
       yellowSettlement: settlement,
     })
 
+    // CRITICAL: Clear clientsReady to prevent post-game-over round_ready events
+    // Guards in round_ready handler also block, but this ensures clean state
+    room.resetClientsReady()
+
     setTimeout(() => manager.deleteRoom(room.id), 1000)
   }
 }
@@ -1255,6 +1461,9 @@ async function checkGameOver(
 // =============================================================================
 
 async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom): Promise<void> {
+  // Mark game loop as no longer active
+  room.gameLoopActive = false
+
   // CRITICAL: Settle all pending orders before round ends
   for (const [orderId, order] of room.pendingOrders) {
     settleOrder(io, room, order)
@@ -1327,33 +1536,60 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
 
   // Check if game should end
   if (room.checkGameEndCondition()) {
+    // CRITICAL: Mark room as closing to prevent post-game-over round_ready events
+    room.setClosing()
+
     // Settle Yellow channel before game over
     const settlement = await settleYellowChannel(room)
 
     // Game over - emit final results
-    const winner = room.getGameWinner()
+    const { winner, reason } = room.getGameWinner()
     io.to(room.id).emit('game_over', {
       winnerId: winner?.id,
       winnerName: winner?.name,
-      reason: 'best_of_three_complete' as const,
+      reason: reason === 'dollars' ? 'tie_break' : 'best_of_three_complete',
       player1Wins: room.player1Wins,
       player2Wins: room.player2Wins,
       rounds: room.roundHistory,
       yellowSettlement: settlement,
     })
+
+    // CRITICAL: Clear clientsReady to prevent post-game-over round_ready events
+    // Guards in round_ready handler also block, but this ensures clean state
+    room.resetClientsReady()
+
     setTimeout(() => manager.deleteRoom(room.id), 1000)
   } else {
-    // Start next round after brief delay
-    room.currentRound++
+    // Reset client ready state for next round
+    room.resetClientsReady()
+
     // Enable sudden death if tied 1-1 entering round 3
-    if (room.currentRound === 3 && room.player1Wins === 1 && room.player2Wins === 1) {
+    // We check currentRound here (before increment) in startGameLoop
+    if (room.currentRound === 2 && room.player1Wins === 1 && room.player2Wins === 1) {
       room.isSuddenDeath = true
     }
-    room.startNewRound()
+    // NOTE: startNewRound() is called in startGameLoop() when clients are ready
+    // This prevents double-incrementation which was skipping rounds
 
-    setTimeout(() => {
+    // Wait for both clients to be ready for next round
+    // This ensures both players see full 30 seconds (no lost time to overlay processing)
+    console.log('[Round Transition] Waiting for clients to be ready for next round', {
+      roomId: room.id,
+      nextRound: room.currentRound + 1, // Will be incremented in startGameLoop
+    })
+
+    // Wait up to 6 seconds for clients (fallback: start anyway)
+    // Matches FLASH_DURATION (5s) + 1s buffer for smooth transitions
+    const timeoutId = setTimeout(() => {
+      console.log('[Round Transition] Timeout waiting for clients, starting anyway', {
+        roomId: room.id,
+        round: room.currentRound,
+        clientsReady: room.clientsReady.size,
+      })
       startGameLoop(io, manager, room)
-    }, 3000) // 3 second intermission
+    }, 6000)
+
+    room.trackTimeout(timeoutId)
   }
 }
 
@@ -1558,6 +1794,73 @@ export function setupGameEvents(io: SocketIOServer): {
         })
       )
       io.emit('lobby_updated', { players: allWaitingPlayers })
+    })
+
+    // Client signals Phaser scene is ready (syncs timer for both players)
+    socket.on('scene_ready', () => {
+      const roomId = manager.getPlayerRoomId(socket.id)
+      if (!roomId) return
+
+      const room = manager.getRoom(roomId)
+      if (!room) return
+
+      console.log('[Client Ready]', {
+        roomId: room.id,
+        socketId: socket.id.slice(0, 8),
+        clientsReady: room.clientsReady.size + 1,
+      })
+
+      // Mark this client as ready
+      const bothReady = room.markClientReady(socket.id)
+
+      // If both clients are ready, start the game loop
+      if (bothReady) {
+        console.log('[Game Loop] Both clients ready, starting game', {
+          roomId: room.id,
+        })
+        startGameLoop(io, manager, room)
+      }
+    })
+
+    // Client signals ready for next round (after round end overlay)
+    socket.on('round_ready', () => {
+      const roomId = manager.getPlayerRoomId(socket.id)
+      if (!roomId) return
+
+      const room = manager.getRoom(roomId)
+      if (!room) return
+
+      // CRITICAL: Reject round_ready if game is over or round limit reached
+      // Prevents post-game-over state leaks and rounds exceeding best-of-3
+      if (room.isShutdown || room.getIsClosing() || room.currentRound >= 3) {
+        console.log('[Round Ready] Rejected - game over or round limit', {
+          roomId: room.id,
+          round: room.currentRound,
+          isShutdown: room.isShutdown,
+          isClosing: room.getIsClosing(),
+          socketId: socket.id.slice(0, 8),
+        })
+        return
+      }
+
+      console.log('[Round Ready]', {
+        roomId: room.id,
+        round: room.currentRound,
+        socketId: socket.id.slice(0, 8),
+        clientsReady: room.clientsReady.size + 1,
+      })
+
+      // Mark this client as ready for next round
+      const bothReady = room.markClientReady(socket.id)
+
+      // If both clients are ready, start the next round
+      if (bothReady) {
+        console.log('[Game Loop] Both clients ready for next round, starting', {
+          roomId: room.id,
+          round: room.currentRound,
+        })
+        startGameLoop(io, manager, room)
+      }
     })
 
     socket.on(
