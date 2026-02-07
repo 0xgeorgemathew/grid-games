@@ -448,7 +448,7 @@ export class TradingScene extends Scene {
       const config = COIN_CONFIG[type]
 
       // Hitbox: 85% of visual size, accounting for mobile scale (matching Token.spawn())
-      const mobileScale = this.isMobile ? 1.3 : 1
+      const mobileScale = this.isMobile ? 0.7 : 1
       const hitboxRadius = config.radius * 0.85 * mobileScale * (config.hitboxMultiplier ?? 1.0)
       this.collisionCircle.setTo(tokenObj.x, tokenObj.y, hitboxRadius)
 
@@ -591,14 +591,8 @@ export class TradingScene extends Scene {
     this.visualEffects.createDirectionalArrow(coin.x, coin.y, type)
     this.visualEffects.createSplitEffect(coin.x, coin.y, config.color, config.radius, type)
 
-    if (type === 'gas') {
-      store.sliceCoin(coinId, type, 0)
-      this.removeCoin(coinId)
-      return
-    }
-
-    const currentPrice = store.priceData?.price ?? DEFAULT_BTC_PRICE
-    store.sliceCoin(coinId, type, currentPrice)
+    // Server uses its own price feed for order creation (single source of truth)
+    store.sliceCoin(coinId, type)
 
     if (type === 'whale') {
       this.cameras.main.shake(200, 0.015)
