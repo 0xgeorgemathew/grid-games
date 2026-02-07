@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress'
 import { HowToPlayModal } from '@/components/HowToPlayModal'
 import { SettlementFlash } from '@/components/SettlementFlash'
 import { CountUp } from '@/components/CountUp'
-import { Info } from 'lucide-react'
+import { Info, Volume2, VolumeX } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatPrice } from '@/lib/formatPrice'
@@ -354,6 +354,8 @@ export const GameHUD = React.memo(function GameHUD() {
     isSuddenDeath,
     roundTimeRemaining,
     whale2XExpiresAt,
+    isSoundMuted,
+    toggleSound,
   } = useTradingStore()
 
   const [showHowToPlay, setShowHowToPlay] = useState(false)
@@ -456,6 +458,18 @@ export const GameHUD = React.memo(function GameHUD() {
                   className="w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center hover:bg-tron-cyan/10 rounded transition-colors pointer-events-auto shrink-0"
                 >
                   <Info className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-tron-cyan" />
+                </button>
+
+                <button
+                  onClick={() => toggleSound()}
+                  className="w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center hover:bg-tron-cyan/10 rounded transition-colors pointer-events-auto shrink-0"
+                  title={isSoundMuted ? 'Unmute sounds' : 'Mute sounds'}
+                >
+                  {isSoundMuted ? (
+                    <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-tron-orange" />
+                  ) : (
+                    <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-tron-cyan" />
+                  )}
                 </button>
               </motion.div>
             </motion.div>

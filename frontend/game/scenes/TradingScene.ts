@@ -10,6 +10,7 @@ import { CoinRenderer, COIN_CONFIG } from '../systems/CoinRenderer'
 import { SpatialGrid } from '../systems/SpatialGrid'
 import { VisualEffects } from '../systems/VisualEffects'
 import { BladeRenderer } from '../systems/BladeRenderer'
+import { AudioManager } from '../systems/AudioManager'
 
 // =============================================================================
 // Visual Configuration
@@ -18,7 +19,7 @@ import { BladeRenderer } from '../systems/BladeRenderer'
 const GRID_CONFIG = {
   color: 0x00f3ff,
   bgColor: 0x0a0a0a,
-  size: 60,
+  size: 51,
 } as const
 
 // Re-export COIN_CONFIG for external use
@@ -42,6 +43,7 @@ export class TradingScene extends Scene {
   private spatialGrid!: SpatialGrid
   private visualEffects!: VisualEffects
   private bladeRenderer!: BladeRenderer
+  private audio!: AudioManager
 
   // State
   private isShutdown = false
@@ -58,6 +60,12 @@ export class TradingScene extends Scene {
     this.eventEmitter = new Phaser.Events.EventEmitter()
   }
 
+  preload(): void {
+    // Preload audio assets
+    this.audio = new AudioManager(this)
+    this.audio.preload()
+  }
+
   create(): void {
     this.isMobile = this.sys.game.device.os.android || this.sys.game.device.os.iOS
     this.physics.world.setBounds(0, 0, this.cameras.main.width, this.cameras.main.height)
@@ -72,6 +80,7 @@ export class TradingScene extends Scene {
     this.spatialGrid = new SpatialGrid()
     this.visualEffects = new VisualEffects(this, this.isMobile)
     this.bladeRenderer = new BladeRenderer(this, this.isMobile)
+    this.audio.create()
 
     // Create vignette background texture once
     this.createVignetteBackground()
@@ -124,9 +133,18 @@ export class TradingScene extends Scene {
     this.eventEmitter.on('coin_spawn', this.handleCoinSpawn.bind(this))
     this.eventEmitter.on('opponent_slice', this.handleOpponentSlice.bind(this))
     this.eventEmitter.on('whale_2x_activated', this.handleWhale2XActivated.bind(this))
+    this.eventEmitter.on('sound_muted', (muted: boolean) => {
+      this.audio.setMuted(muted)
+    })
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.bladeRenderer.updateBladePath(pointer.x, pointer.y)
+      // Play swipe sound only on fast, deliberate swipes (not normal mouse movement)
+      const velocity = this.bladeRenderer.getBladeVelocity()
+      const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y)
+      if (speed > 25) {
+        this.audio.playSwipe()
+      }
     })
 
     this.input.on('pointerup', () => this.bladeRenderer.clearBladePath())
@@ -336,6 +354,7 @@ export class TradingScene extends Scene {
     this.visualEffects.setShutdown(true)
     this.visualEffects.destroy()
     this.bladeRenderer.destroy()
+    this.audio.destroy()
 
     this.scale.off('resize')
 
@@ -488,6 +507,9 @@ export class TradingScene extends Scene {
     const type = coin.getData('type') as CoinType
     const config = COIN_CONFIG[type]
     const store = useTradingStore.getState()
+
+    // Play slice SFX (boom) when slicing a coin
+    this.audio.playSlice()
 
     this.particles.emitSlice(coin.x, coin.y, config.color, 20)
     this.visualEffects.createDirectionalArrow(coin.x, coin.y, type)
