@@ -95,6 +95,9 @@ interface TradingState {
   whale2XExpiresAt: number | null // Timestamp when 2x expires for local player
   whaleMultiplier: number // Active whale multiplier (from ENS)
 
+  // Audio state
+  isSoundMuted: boolean
+
   // Price feed
   priceSocket: WebSocket | null
   priceReconnectTimer: NodeJS.Timeout | null // Track reconnection timer for cleanup
@@ -135,6 +138,9 @@ interface TradingState {
 
   // Leverage actions
   setUserLeverage: (leverage: LeverageOption) => void
+
+  // Audio actions
+  toggleSound: () => void
 
   // Lobby actions
   getLobbyPlayers: () => void
@@ -263,6 +269,9 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   // 2x multiplier state
   whale2XExpiresAt: null,
   whaleMultiplier: 2, // Default to 2x
+
+  // Audio state
+  isSoundMuted: false,
 
   // Price feed state
   priceSocket: null,
@@ -474,7 +483,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   handleSettlement: (settlement) => {
-    const { isPlayer1, players, pendingOrders, tugOfWar, activeOrders } = get()
+    const { isPlayer1, players, pendingOrders, tugOfWar, activeOrders, localPlayerId } = get()
     // Use the actual amount transferred from server (includes 2x multiplier)
     const amount = settlement.amountTransferred ?? getDamageForCoinType(settlement.coinType)
 
@@ -900,5 +909,15 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     // Just emit select_opponent - we're already in the waiting pool from joinWaitingPool
     socket.emit('select_opponent', { opponentSocketId })
     set({ isMatching: true })
+  },
+
+  toggleSound: () => {
+    const { isSoundMuted } = get()
+    const newMutedState = !isSoundMuted
+    set({ isSoundMuted: newMutedState })
+    // Notify Phaser scene via bridge
+    if (window.phaserEvents) {
+      window.phaserEvents.emit('sound_muted', newMutedState)
+    }
   },
 }))
