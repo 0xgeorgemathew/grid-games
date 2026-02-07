@@ -49,10 +49,11 @@ export class TradingScene extends Scene {
   private isShutdown = false
   private isMobile = false
   private eventEmitter: Phaser.Events.EventEmitter
-  private userLeverage: string = '2x' // User's leverage for whale texture
 
-  // Sound state
-  private suppressSwipeUntil = 0 // Timestamp until which swipe is blocked
+  // Audio rate limiting
+  private lastSwipeTime = 0
+  private readonly SWIPE_COOLDOWN = 120 // ms (~8 swipes/second)
+  private userLeverage: string = '2x' // User's leverage for whale texture
 
   // Window visibility handlers for cleanup
   private visibilityChangeHandler?: () => void
@@ -141,19 +142,36 @@ export class TradingScene extends Scene {
       this.audio.setMuted(muted)
     })
 
+    // Listen for Phaser's built-in unlocked event (fires when unlock succeeds)
+    // Phaser handles iOS Safari's synchronous resume() requirement internally
+    this.sound.on('unlocked', () => {
+      console.log('[Phaser] Audio unlocked successfully')
+      this.audio.setUnlocked(true)
+    })
+
+    // Listen for unlock requests from React UI (still use window.phaserEvents bridge)
+    // Required for mobile browsers that start AudioContext in suspended state
+    this.eventEmitter.on('unlock_audio', () => {
+      // Call Phaser's built-in unlock (handles iOS Safari correctly)
+      this.sound.unlock()
+    })
+
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.bladeRenderer.updateBladePath(pointer.x, pointer.y)
 
-      // Don't play swipe sound if suppressed (after slicing)
-      const now = this.time.now
-      if (now < this.suppressSwipeUntil) return
+      // Play swipe sound on movement using Phaser's built-in smoothed velocity
+      // pointer.velocity is automatically calculated each frame with motionFactor smoothing
+      const speed = pointer.velocity.length()
 
-      // Play swipe sound only on fast, deliberate swipes (not normal mouse movement)
-      const velocity = this.bladeRenderer.getBladeVelocity()
-      const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y)
-      if (speed > 45) {
-        // Higher threshold = only actual swipes
+      // Skip idle movements (below threshold)
+      const MIN_SPEED = 15
+      if (speed < MIN_SPEED) return
+
+      // Rate-limited swipe: only play if cooldown has elapsed
+      const now = this.time.now
+      if (now - this.lastSwipeTime > this.SWIPE_COOLDOWN) {
         this.audio.playSwipe()
+        this.lastSwipeTime = now
       }
     })
 
@@ -188,7 +206,7 @@ export class TradingScene extends Scene {
     if (tradingStore.socket && tradingStore.socket.connected && !tradingStore.hasEmittedReady) {
       tradingStore.socket.emit('scene_ready')
       tradingStore.hasEmittedReady = true
-      console.log('[Phaser] Scene ready, emitted scene_ready to server')
+      // console.log('[Phaser] Scene ready, emitted scene_ready to server')
     }
 
     const updateDimensions = () => {
@@ -565,9 +583,9 @@ export class TradingScene extends Scene {
     const config = COIN_CONFIG[type]
     const store = useTradingStore.getState()
 
-    // Allow swipe sound to play immediately before slice sound
-    this.suppressSwipeUntil = 0
-    this.audio.playSlice()
+    // Play slice sound at coin position for stereo panning
+    const screenWidth = this.cameras.main.width
+    this.audio.playSliceAt(coin.x, screenWidth)
 
     this.particles.emitSlice(coin.x, coin.y, config.color, 20)
     this.visualEffects.createDirectionalArrow(coin.x, coin.y, type)
@@ -589,7 +607,7 @@ export class TradingScene extends Scene {
     this.removeCoin(coinId)
   }
 
-  private handleWhale2XActivated(data: {
+  private handleWhale2XActivated(_data: {
     playerId: string
     playerName: string
     durationMs: number
