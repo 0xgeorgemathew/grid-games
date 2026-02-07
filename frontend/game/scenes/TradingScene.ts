@@ -1,6 +1,6 @@
 import { Scene, GameObjects, Geom, Physics } from 'phaser'
 import { useTradingStore, type PhaserEventBridge } from '../stores/trading-store'
-import type { CoinType } from '../types/trading'
+import type { CoinType, CoinSpawnEvent } from '../types/trading'
 import { Token } from '../objects/Token'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 
@@ -50,6 +50,9 @@ export class TradingScene extends Scene {
   private isMobile = false
   private eventEmitter: Phaser.Events.EventEmitter
   private userLeverage: string = '2x' // User's leverage for whale texture
+
+  // Sound state
+  private suppressSwipeUntil = 0 // Timestamp until which swipe is blocked
 
   // Window visibility handlers for cleanup
   private visibilityChangeHandler?: () => void
@@ -133,16 +136,23 @@ export class TradingScene extends Scene {
     this.eventEmitter.on('coin_spawn', this.handleCoinSpawn.bind(this))
     this.eventEmitter.on('opponent_slice', this.handleOpponentSlice.bind(this))
     this.eventEmitter.on('whale_2x_activated', this.handleWhale2XActivated.bind(this))
+    this.eventEmitter.on('clear_coins', this.cleanupCoins.bind(this))
     this.eventEmitter.on('sound_muted', (muted: boolean) => {
       this.audio.setMuted(muted)
     })
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.bladeRenderer.updateBladePath(pointer.x, pointer.y)
+
+      // Don't play swipe sound if suppressed (after slicing)
+      const now = this.time.now
+      if (now < this.suppressSwipeUntil) return
+
       // Play swipe sound only on fast, deliberate swipes (not normal mouse movement)
       const velocity = this.bladeRenderer.getBladeVelocity()
       const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y)
-      if (speed > 25) {
+      if (speed > 45) {
+        // Higher threshold = only actual swipes
         this.audio.playSwipe()
       }
     })
@@ -171,6 +181,15 @@ export class TradingScene extends Scene {
       useTradingStore.getState().isSceneReady = ready
     }
     ;(window as unknown as { setSceneReady?: (ready: boolean) => void }).setSceneReady?.(true)
+
+    // Emit scene_ready to server after Phaser initialization completes
+    // This ensures the server waits for both clients before starting the game loop
+    const tradingStore = useTradingStore.getState()
+    if (tradingStore.socket && tradingStore.socket.connected && !tradingStore.hasEmittedReady) {
+      tradingStore.socket.emit('scene_ready')
+      tradingStore.hasEmittedReady = true
+      console.log('[Phaser] Scene ready, emitted scene_ready to server')
+    }
 
     const updateDimensions = () => {
       if (!this.isCameraAvailable()) return
@@ -305,7 +324,10 @@ export class TradingScene extends Scene {
         this.spatialGrid.removeCoinFromGrid(coinId, gridX, gridY)
         t.setActive(false)
         t.setVisible(false)
-        if (t.body) t.body.stop()
+        // CRITICAL: Disable physics body to prevent memory leaks
+        if (t.body) {
+          this.physics.world.disableBody(t.body)
+        }
         return
       }
 
@@ -375,6 +397,8 @@ export class TradingScene extends Scene {
     }
 
     this.tokenPool.clear(true, true)
+    // Remove all event listeners before destroying the event emitter
+    this.eventEmitter.removeAllListeners()
     this.eventEmitter.destroy()
     this.spatialGrid.clear()
 
@@ -466,18 +490,51 @@ export class TradingScene extends Scene {
     }
   }
 
-  private handleCoinSpawn(data: {
-    coinId: string
-    coinType: CoinType
-    x: number
-    y: number
-  }): void {
+  private cleanupCoins(): void {
+    // Guard: Check shutdown state and required systems
+    if (!this.tokenPool || this.isShutdown) return
+
+    // Immediately deactivate and hide all active tokens
+    this.tokenPool.getChildren().forEach((child) => {
+      const token = child as Token
+
+      // Double-check guard: Token may be deactivated during iteration
+      if (!token.active) return
+
+      token.setActive(false)
+      token.setVisible(false)
+
+      // CRITICAL: Disable physics body (not just stop) to prevent memory leaks
+      if (token.body) {
+        this.physics.world.disableBody(token.body)
+      }
+
+      // Remove from spatial grid using tracked position
+      const coinId = token.getData('id')
+      if (coinId && this.spatialGrid) {
+        const gridX = (token.getData('gridX') as number) ?? token.x
+        const gridY = (token.getData('gridY') as number) ?? token.y
+        this.spatialGrid.removeCoinFromGrid(coinId, gridX, gridY)
+      }
+    })
+
+    // Force clear spatial grid backup
+    if (this.spatialGrid) {
+      this.spatialGrid.clear()
+    }
+  }
+
+  private handleCoinSpawn(data: CoinSpawnEvent): void {
     if (this.isShutdown || !this.tokenPool) return
 
     const config = COIN_CONFIG[data.coinType]
     if (!config) return
 
-    const token = this.tokenPool.get(data.x, data.y) as Token
+    // Convert normalized position to screen coordinates (with defensive bounds check)
+    const spawnX = Math.max(0, Math.min(1, data.xNormalized)) * this.cameras.main.width
+    const spawnY = this.cameras.main.height + 100 // Bottom toss
+
+    const token = this.tokenPool.get(spawnX, spawnY) as Token
     if (!token) return
 
     if (token.body && token.body.enable) {
@@ -488,7 +545,7 @@ export class TradingScene extends Scene {
     const textureKey =
       data.coinType === 'whale' ? `texture_whale_${this.userLeverage}` : `texture_${data.coinType}`
 
-    token.spawn(data.x, data.y, data.coinType, data.coinId, config, this.isMobile, textureKey)
+    token.spawn(spawnX, spawnY, data.coinType, data.coinId, config, this.isMobile, textureKey)
 
     token.setData('gridX', token.x)
     token.setData('gridY', token.y)
@@ -508,7 +565,8 @@ export class TradingScene extends Scene {
     const config = COIN_CONFIG[type]
     const store = useTradingStore.getState()
 
-    // Play slice SFX (boom) when slicing a coin
+    // Allow swipe sound to play immediately before slice sound
+    this.suppressSwipeUntil = 0
     this.audio.playSlice()
 
     this.particles.emitSlice(coin.x, coin.y, config.color, 20)

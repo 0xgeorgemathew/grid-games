@@ -46,12 +46,12 @@ export type Player = {
 /**
  * Coin spawn event from server
  * Emitted when a new coin appears in the game
+ * Uses normalized X position (0.0-1.0) for deterministic sync between players
  */
 export type CoinSpawnEvent = {
   coinId: string
   coinType: CoinType
-  x: number
-  y: number
+  xNormalized: number // 0.0 to 1.0 (relative screen position, synced between players)
 }
 
 /**
@@ -134,7 +134,7 @@ export type RoundEndEvent = {
 export type GameOverEvent = {
   winnerId: string
   winnerName: string
-  reason?: 'time_limit' | 'knockout' | 'best_of_three_complete'
+  reason?: 'time_limit' | 'knockout' | 'best_of_three_complete' | 'tie_break'
   player1Wins: number
   player2Wins: number
   rounds: RoundSummary[]

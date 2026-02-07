@@ -10,6 +10,7 @@ import type {
   GameOverEvent,
   RoundStartEvent,
   RoundEndEvent,
+  RoundSummary,
   CoinType,
   PriceData,
   LobbyPlayer,
@@ -83,6 +84,8 @@ interface TradingState {
   isSuddenDeath: boolean // Final round mode (tied 1-1 entering round 3)
   roundTimeRemaining: number
   roundTimerInterval: number | null
+  hasEmittedReady: boolean // Track if we've emitted scene_ready (once per game session)
+  roundHistory: RoundSummary[] // Client-side round history for in-game stats
 
   // Game state
   tugOfWar: number
@@ -253,12 +256,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   isRefreshingLobby: false,
 
   // Round state
-  currentRound: 1,
+  currentRound: 0,
   player1Wins: 0,
   player2Wins: 0,
   isSuddenDeath: false,
   roundTimeRemaining: 100000,
   roundTimerInterval: null,
+  hasEmittedReady: false,
+  roundHistory: [] as RoundSummary[],
 
   tugOfWar: 0,
   activeOrders: new Map(),
@@ -589,12 +594,28 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   handleRoundEnd: (data) => {
-    const { roundTimerInterval } = get()
+    const { roundTimerInterval, roundHistory } = get()
 
     // Clear round timer
     if (roundTimerInterval) {
       clearInterval(roundTimerInterval)
       set({ roundTimerInterval: null })
+    }
+
+    // Build round summary for client-side tracking
+    const p1Gained = data.player1Gained
+    const p2Gained = data.player2Gained
+    const winnerGained = data.isTie ? 0 : Math.max(p1Gained, p2Gained)
+
+    const roundSummary: RoundSummary = {
+      roundNumber: data.roundNumber,
+      winnerId: data.winnerId,
+      isTie: data.isTie,
+      player1Dollars: data.player1Dollars,
+      player2Dollars: data.player2Dollars,
+      player1Gained: p1Gained,
+      player2Gained: p2Gained,
+      playerLost: winnerGained,
     }
 
     set({
@@ -603,6 +624,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       // CRITICAL: Clear order maps to prevent stale state
       activeOrders: new Map(),
       pendingOrders: new Map(),
+      roundHistory: [...roundHistory, roundSummary],
     })
 
     // Emit custom event for RoundEndFlash component
@@ -618,30 +640,21 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       })
     )
 
-    // Show round end notification
-    const { localPlayerId, players } = get()
-    const localPlayer = players.find((p) => p.id === localPlayerId)
-    const opponent = players.find((p) => p.id !== localPlayerId)
-    const playerIds = players.map((p) => p.id)
-
-    // Determine if local player won the round
-    let roundResult = ''
-    if (data.isTie) {
-      roundResult = `Round ${data.roundNumber} TIED!`
-    } else {
-      const winnerId = data.winnerId
-      const winnerName = winnerId === localPlayerId ? 'You' : opponent?.name || 'Opponent'
-      roundResult = `Round ${data.roundNumber}: ${winnerName} WIN!`
+    // Clear coins from Phaser scene
+    if (window.phaserEvents) {
+      window.phaserEvents.emit('clear_coins')
     }
 
-    const winsDisplay = `Score: ${data.player1Wins}-${data.player2Wins}`
-    get().addToast({
-      message: `${roundResult} ${winsDisplay}`,
-      type: data.isTie ? 'info' : 'success',
-      duration: 4000,
-    })
+    // TOAST REMOVED: Redundant with RoundEndFlash and caused UI overlap
+    // TOAST REMOVED: Redundant with RoundEndFlash and caused UI overlap
 
     // Update player dollars from server
+    const { players } = get()
+    // Need playerIds to map correctly - assuming players order matches or using explicit IDs if available
+    // But data has player1Dollars and player2Dollars. We need to know who is who.
+    // The previous code used playerIds[0] and [1].
+    const playerIds = players.map((p) => p.id)
+
     const newPlayers = players.map((p) => {
       if (p.id === playerIds[0]) return { ...p, dollars: data.player1Dollars }
       if (p.id === playerIds[1]) return { ...p, dollars: data.player2Dollars }
@@ -649,9 +662,22 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     })
 
     set({ players: newPlayers })
+
+    // Emit round_ready to signal we're ready for next round
+    // This ensures the server waits until the round end overlay is processed
+    const { socket } = get()
+    if (socket && socket.connected) {
+      socket.emit('round_ready')
+      console.log('[Client] Emitted round_ready for next round')
+    }
   },
 
   handleGameOver: (data) => {
+    // Clear coins immediately on game over
+    if (window.phaserEvents) {
+      window.phaserEvents.emit('clear_coins')
+    }
+
     const { localPlayerId } = get()
     const isWinner = data.winnerId === localPlayerId
     get().addToast({
@@ -822,12 +848,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       whale2XExpiresAt: null, // Clear 2x state
       whaleMultiplier: 2, // Reset to default
       // Round state reset
-      currentRound: 1,
+      currentRound: 0,
       player1Wins: 0,
       player2Wins: 0,
       isSuddenDeath: false,
       roundTimeRemaining: 100000,
       roundTimerInterval: null,
+      hasEmittedReady: false, // Reset ready flag for next game
+      roundHistory: [], // Clear round history
     })
   },
 
