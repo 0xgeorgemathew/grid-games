@@ -8,8 +8,7 @@
     "start": "NODE_ENV=production bun server.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "types": "tsc --noEmit",
-    "audio:create": "bun scripts/create-audio-sprites.ts"
+    "types": "tsc --noEmit"
   },
   "dependencies": {
     "@ensdomains/ensjs": "^4.2.2",
@@ -41,8 +40,6 @@
   },
   "devDependencies": {
     "@eslint/compat": "^2.0.2",
-    "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -51,7 +48,6 @@
     "@types/three": "^0.182.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
-    "fluent-ffmpeg": "^2.1.3",
     "prettier": "^3.4.2",
     "tailwindcss": "^4",
     "typescript": "^5"
