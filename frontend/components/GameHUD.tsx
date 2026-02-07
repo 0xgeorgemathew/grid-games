@@ -461,7 +461,13 @@ export const GameHUD = React.memo(function GameHUD() {
                 </button>
 
                 <button
-                  onClick={() => toggleSound()}
+                  onClick={() => {
+                    // Unlock audio on toggle click (fallback if matchmaking bypassed)
+                    if (typeof window !== 'undefined' && (window as any).phaserEvents) {
+                      ;(window as any).phaserEvents.emit('unlock_audio')
+                    }
+                    toggleSound()
+                  }}
                   className="w-7 h-7 sm:w-6 sm:h-6 flex items-center justify-center hover:bg-tron-cyan/10 rounded transition-colors pointer-events-auto shrink-0"
                   title={isSoundMuted ? 'Unmute sounds' : 'Mute sounds'}
                 >

@@ -194,6 +194,12 @@ export function MatchmakingScreen() {
 
     setMatchState('entering')
 
+    // CRITICAL: Unlock mobile audio before entering game
+    // Mobile browsers require user gesture to resume AudioContext
+    if (typeof window !== 'undefined' && (window as any).phaserEvents) {
+      ;(window as any).phaserEvents.emit('unlock_audio')
+    }
+
     // Final balance check before entering
     const balanceResult = await channelManager.checkBalance(user.wallet.address)
     if (!balanceResult.hasEnough) {
