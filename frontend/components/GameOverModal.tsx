@@ -68,12 +68,15 @@ export const GameOverModal = React.memo(function GameOverModal() {
     }
   }, [showModal, gameOverData, claimedUsername, localPlayerId, updateStats])
 
-  // Delay showing modal to allow RoundEndFlash to finish
+  // Delay showing modal - short for knockouts (immediate game over), longer for time limit wins
+  // For knockouts, show immediately since we skip RoundEndFlash
+  // For time limit/game completion wins, allow brief delay for round end processing
   React.useEffect(() => {
     if (isGameOver && gameOverData) {
+      const delayMs = gameOverData.reason === 'knockout' ? 100 : 7500
       const timer = setTimeout(() => {
         setShowModal(true)
-      }, 7500) // 7.5s delay (RoundEndFlash is 7s)
+      }, delayMs)
       return () => clearTimeout(timer)
     } else {
       setShowModal(false)

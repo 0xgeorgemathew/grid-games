@@ -11,7 +11,7 @@ import { formatPrice } from '@/lib/formatPrice'
 const ORDER_SETTLEMENT_DURATION_MS = 5000 // 5 seconds
 
 export function PositionIndicator() {
-  const { activeOrders, localPlayerId, pendingOrders, whale2XExpiresAt, whaleMultiplier } =
+  const { activeOrders, localPlayerId, pendingOrders, whale2XActivatedAt, whale2XExpiresAt, whaleMultiplier, priceData } =
     useTradingStore()
   const [now, setNow] = useState(() => Date.now())
 
@@ -51,10 +51,14 @@ export function PositionIndicator() {
             const amount = order.coinType === 'whale' ? 2 : 1
 
             // Check if order was placed during 2x multiplier window
-            // Order settlesAt timestamp is when it was placed + 10s
-            // If 2x was active when order was placed, show 2X badge
+            // Order settlesAt timestamp is when it was placed + 5s
+            // The order has 2X if it was placed AFTER whale activation but BEFORE expiry
             const orderPlacedAt = order.settlesAt - ORDER_SETTLEMENT_DURATION_MS
-            const was2XActive = whale2XExpiresAt && orderPlacedAt < whale2XExpiresAt
+            const was2XActive =
+              whale2XActivatedAt !== null &&
+              whale2XExpiresAt !== null &&
+              orderPlacedAt >= whale2XActivatedAt &&
+              orderPlacedAt < whale2XExpiresAt
 
             // Border and glow styles based on state
             const borderStyle = isTimedOut
@@ -64,6 +68,12 @@ export function PositionIndicator() {
                   ? 'border-2 border-green-500/60 shadow-[0_0_18px_rgba(74,222,128,0.35)]'
                   : 'border-2 border-red-500/60 shadow-[0_0_18px_rgba(248,113,113,0.35)]'
                 : 'border border-tron-cyan/30'
+
+            // Calculate P&L for pending orders
+            const pnl = !settled && !isTimedOut && priceData
+              ? ((priceData.price - order.priceAtOrder) / order.priceAtOrder) * 100
+              : null
+            const isInProfit = pnl !== null && ((isCall && pnl > 0) || (!isCall && pnl < 0))
 
             return (
               <motion.div
@@ -136,14 +146,46 @@ export function PositionIndicator() {
                       )}
                     </motion.div>
 
-                    {/* Entry price */}
+                    {/* Entry price with current price comparison */}
                     <div className="flex flex-col">
                       <span className="text-[9px] text-tron-white-dim uppercase tracking-wider">
                         Entry
                       </span>
-                      <span className="text-sm font-mono font-bold text-tron-cyan drop-shadow-[0_0_6px_rgba(0,243,255,0.5)]">
-                        ${formatPrice(order.priceAtOrder)}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-mono font-bold text-tron-cyan drop-shadow-[0_0_6px_rgba(0,243,255,0.5)]">
+                          ${formatPrice(order.priceAtOrder)}
+                        </span>
+                        {/* Current price comparison for pending orders */}
+                        {!settled && !isTimedOut && priceData && (
+                          <>
+                            <motion.span
+                              className={cn(
+                                'text-[10px] font-mono font-medium',
+                                isInProfit ? 'text-green-400' : pnl !== null && pnl !== 0 ? 'text-red-400' : 'text-tron-white-dim'
+                              )}
+                              animate={
+                                isInProfit
+                                  ? {
+                                      scale: [1, 1.05, 1],
+                                      opacity: [1, 0.8, 1],
+                                    }
+                                  : {}
+                              }
+                              transition={{ duration: 1, repeat: Infinity }}
+                            >
+                              {isInProfit ? '↑' : pnl !== null && pnl !== 0 ? '↓' : '→'}
+                            </motion.span>
+                            <span
+                              className={cn(
+                                'text-xs font-mono',
+                                isInProfit ? 'text-green-400' : pnl !== null && pnl !== 0 ? 'text-red-400' : 'text-tron-white-dim'
+                              )}
+                            >
+                              ${formatPrice(priceData.price)}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
 
