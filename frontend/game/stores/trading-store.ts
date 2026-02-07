@@ -47,12 +47,6 @@ const WHALE_DAMAGE = 2
 const TUG_OF_WAR_MIN = -100
 const TUG_OF_WAR_MAX = 100
 
-// Binance WebSocket configuration
-const BINANCE_WS_URL = 'wss://stream.binance.com:9443/ws'
-const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
-  btcusdt: 'BTC/USD',
-}
-
 interface TradingState {
   // Connection
   socket: Socket | null
@@ -95,6 +89,7 @@ interface TradingState {
   toasts: Toast[] // Toast notifications
 
   // 2x multiplier state (whale power-up)
+  whale2XActivatedAt: number | null // Timestamp when 2x was activated for local player
   whale2XExpiresAt: number | null // Timestamp when 2x expires for local player
   whaleMultiplier: number // Active whale multiplier (from ENS)
 
@@ -119,7 +114,7 @@ interface TradingState {
   disconnect: () => void
   findMatch: (playerName: string, walletAddress?: string) => void
   spawnCoin: (coin: CoinSpawnEvent) => void
-  sliceCoin: (coinId: string, coinType: CoinType, priceAtSlice: number) => void
+  sliceCoin: (coinId: string, coinType: CoinType) => void
   handleSlice: (slice: SliceEvent) => void
   handleOrderPlaced: (order: OrderPlacedEvent) => void
   handleSettlement: (settlement: SettlementEvent) => void
@@ -260,7 +255,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   player1Wins: 0,
   player2Wins: 0,
   isSuddenDeath: false,
-  roundTimeRemaining: 100000,
+  roundTimeRemaining: 0, // Initialize to 0 - actual value set by round_start event
   roundTimerInterval: null,
   hasEmittedReady: false,
   roundHistory: [] as RoundSummary[],
@@ -272,6 +267,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   toasts: [],
 
   // 2x multiplier state
+  whale2XActivatedAt: null,
   whale2XExpiresAt: null,
   whaleMultiplier: 2, // Default to 2x
 
@@ -312,6 +308,37 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
       newCleanupFunctions.push(() => clearInterval(cleanupInterval))
     })
+
+    // Listen for price broadcasts from server (single source of truth)
+    socket.on(
+      'btc_price',
+      (data: { price: number; change: number; changePercent: number; timestamp: number }) => {
+        const { firstPrice: currentFirstPrice } = get()
+
+        // Initialize firstPrice on first price broadcast
+        if (!currentFirstPrice && data.price > 0) {
+          set({ firstPrice: data.price, isPriceConnected: true, priceError: null })
+          return
+        }
+
+        if (!currentFirstPrice) return
+
+        set({
+          priceData: {
+            symbol: 'BTC',
+            price: data.price,
+            change: data.change,
+            changePercent: data.changePercent,
+            tradeSize: 0,
+            tradeSide: 'BUY',
+            tradeTime: data.timestamp,
+          },
+          lastPriceUpdate: data.timestamp,
+          isPriceConnected: true,
+          priceError: null,
+        })
+      }
+    )
 
     socket.on('disconnect', () => {
       set({ isConnected: false })
@@ -378,10 +405,12 @@ export const useTradingStore = create<TradingState>((set, get) => ({
         const { localPlayerId } = get()
         const isLocalPlayer = data.playerId === localPlayerId
 
-        // Store 2x expiration and multiplier if local player activated it
+        // Store 2x activation time, expiration and multiplier if local player activated it
         if (isLocalPlayer) {
+          const now = Date.now()
           set({
-            whale2XExpiresAt: Date.now() + data.durationMs,
+            whale2XActivatedAt: now, // Track when whale was activated
+            whale2XExpiresAt: now + data.durationMs,
             whaleMultiplier: data.multiplier, // Store actual multiplier from ENS
           })
         }
@@ -461,14 +490,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     }
   },
 
-  sliceCoin: (coinId, coinType, priceAtSlice) => {
+  sliceCoin: (coinId, coinType) => {
     const { socket, localPlayerId } = get()
     if (!socket || !localPlayerId) return
 
+    // Server uses its own price feed for order creation (single source of truth)
     socket.emit('slice_coin', {
       coinId,
       coinType,
-      priceAtSlice,
     })
   },
 
@@ -627,18 +656,21 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       roundHistory: [...roundHistory, roundSummary],
     })
 
-    // Emit custom event for RoundEndFlash component
-    window.dispatchEvent(
-      new CustomEvent('round_end_flash', {
-        detail: {
-          roundNumber: data.roundNumber,
-          winnerId: data.winnerId,
-          isTie: data.isTie,
-          player1Gained: data.player1Gained,
-          player2Gained: data.player2Gained,
-        },
-      })
-    )
+    // Emit custom event for RoundEndFlash component ONLY for intermediate rounds
+    // Skip for final rounds (game over) to show GameOverModal immediately
+    if (!data.isFinalRound) {
+      window.dispatchEvent(
+        new CustomEvent('round_end_flash', {
+          detail: {
+            roundNumber: data.roundNumber,
+            winnerId: data.winnerId,
+            isTie: data.isTie,
+            player1Gained: data.player1Gained,
+            player2Gained: data.player2Gained,
+          },
+        })
+      )
+    }
 
     // Clear coins from Phaser scene
     if (window.phaserEvents) {
@@ -663,12 +695,14 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     set({ players: newPlayers })
 
-    // Emit round_ready to signal we're ready for next round
-    // This ensures the server waits until the round end overlay is processed
-    const { socket } = get()
-    if (socket && socket.connected) {
-      socket.emit('round_ready')
-      // console.log('[Client] Emitted round_ready for next round')
+    // Emit round_ready to signal we're ready for next round ONLY if game continues
+    // Skip for final rounds (game over) to prevent post-game-over round starts
+    if (!data.isFinalRound) {
+      const { socket } = get()
+      if (socket && socket.connected) {
+        socket.emit('round_ready')
+        // console.log('[Client] Emitted round_ready for next round')
+      }
     }
   },
 
@@ -715,120 +749,15 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   connectPriceFeed: (symbol: CryptoSymbol) => {
-    const { priceSocket, priceReconnectTimer, reconnectAttempts, maxReconnectAttempts } = get()
-
-    if (priceReconnectTimer) {
-      clearTimeout(priceReconnectTimer)
-      set({ priceReconnectTimer: null })
-    }
-
-    if (priceSocket) {
-      priceSocket.onclose = null
-      priceSocket.close()
-    }
-
-    set({ selectedCrypto: symbol, isPriceConnected: false, priceData: null, priceError: null })
-
-    try {
-      const ws = new WebSocket(`${BINANCE_WS_URL}/${symbol}@aggTrade`)
-      let lastPriceUpdate = 0
-      const PRICE_THROTTLE_MS = 500
-
-      ws.onopen = () => {
-        set({ isPriceConnected: true, priceSocket: ws, reconnectAttempts: 0, priceError: null })
-      }
-
-      ws.onmessage = (event) => {
-        const raw = JSON.parse(event.data)
-        const trade = {
-          price: parseFloat(raw.p),
-          size: parseFloat(raw.q),
-          side: raw.m ? ('SELL' as const) : ('BUY' as const),
-          timestamp: raw.T,
-        }
-
-        const { firstPrice: currentFirstPrice } = get()
-
-        if (!currentFirstPrice && trade.price > 0) {
-          set({ firstPrice: trade.price })
-          return
-        }
-
-        if (!currentFirstPrice) return
-
-        const change = trade.price - currentFirstPrice
-        const changePercent = (change / currentFirstPrice) * 100
-
-        const now = Date.now()
-        if (now - lastPriceUpdate < PRICE_THROTTLE_MS) return
-
-        lastPriceUpdate = now
-
-        set({
-          priceData: {
-            symbol: symbol.toUpperCase(),
-            price: trade.price,
-            change,
-            changePercent,
-            tradeSize: trade.size,
-            tradeSide: trade.side,
-            tradeTime: trade.timestamp,
-          },
-          lastPriceUpdate: now,
-        })
-      }
-
-      ws.onerror = () => {
-        set({
-          isPriceConnected: false,
-          priceError: `Connection failed (${reconnectAttempts + 1}/${maxReconnectAttempts})`,
-        })
-      }
-
-      ws.onclose = () => {
-        set({ isPriceConnected: false, priceSocket: null })
-
-        const timerId = setTimeout(() => {
-          const {
-            selectedCrypto: currentSymbol,
-            isPlaying,
-            reconnectAttempts: currentAttempts,
-            maxReconnectAttempts: maxAttempts,
-          } = get()
-
-          if (isPlaying && currentAttempts < maxAttempts) {
-            set({ reconnectAttempts: currentAttempts + 1 })
-            get().connectPriceFeed(currentSymbol)
-          } else if (currentAttempts >= maxAttempts) {
-            set({ priceError: 'Max retries reached. Manual reconnect required.' })
-          }
-        }, 1)
-
-        set({ priceReconnectTimer: timerId as unknown as NodeJS.Timeout })
-      }
-    } catch (error) {
-      set({ isPriceConnected: false, priceError: 'Connection failed' })
-    }
+    // Price now comes from server via Socket.IO broadcasts (single source of truth)
+    // No direct WebSocket connection needed
+    set({ selectedCrypto: symbol })
   },
 
   disconnectPriceFeed: () => {
-    const { priceSocket, priceReconnectTimer } = get()
-
-    // Clear reconnection timer
-    if (priceReconnectTimer) {
-      clearTimeout(priceReconnectTimer)
-      set({ priceReconnectTimer: null })
-    }
-
-    // Close WebSocket
-    if (priceSocket) {
-      // Clear onclose handler to prevent reconnection trigger
-      priceSocket.onclose = null
-      priceSocket.onerror = null
-      priceSocket.onmessage = null
-      priceSocket.close()
-      set({ priceSocket: null, isPriceConnected: false, priceData: null })
-    }
+    // Price now comes from server via Socket.IO broadcasts (single source of truth)
+    // No WebSocket to clean up - just clear state
+    set({ priceData: null, isPriceConnected: false, firstPrice: null })
   },
 
   resetGame: () => {
@@ -845,6 +774,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       isPlaying: false,
       isMatching: false,
       latestSettlement: null,
+      whale2XActivatedAt: null, // Clear 2x activation time
       whale2XExpiresAt: null, // Clear 2x state
       whaleMultiplier: 2, // Reset to default
       // Round state reset
@@ -852,7 +782,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       player1Wins: 0,
       player2Wins: 0,
       isSuddenDeath: false,
-      roundTimeRemaining: 100000,
+      roundTimeRemaining: 0, // Reset to 0 instead of 100000
       roundTimerInterval: null,
       hasEmittedReady: false, // Reset ready flag for next game
       roundHistory: [], // Clear round history
