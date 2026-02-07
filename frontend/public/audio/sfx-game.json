@@ -2,13 +2,12 @@
   "spritemap": {
     "swipe": {
       "start": 0,
-      "end": 0.416
+      "end": 0.497778
     },
     "slice": {
-      "start": 0.516,
-      "end": 1.206
+      "start": 0.497778,
+      "end": 1.046463
     }
   },
-  "resources": ["sfx-game.mp3"],
-  "url": "sfx-game.mp3"
+  "resources": ["sfx-game.mp3", "sfx-game.wav"]
 }

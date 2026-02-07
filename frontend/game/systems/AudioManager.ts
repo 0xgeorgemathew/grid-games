@@ -19,8 +19,11 @@ export class AudioManager {
   preload(): void {
     if (this.isLoaded) return
 
-    // Load single audio sprite for all game sounds
-    this.scene.load.audioSprite('sfx-game', 'audio/sfx-game.json', ['audio/sfx-game.mp3'])
+    // Load audio sprite with MP3 and WAV fallback
+    this.scene.load.audioSprite('sfx-game', 'audio/sfx-game.json', [
+      'audio/sfx-game.mp3',
+      'audio/sfx-game.wav',
+    ])
   }
 
   create(): void {
@@ -42,7 +45,7 @@ export class AudioManager {
 
     this.lastSwipeTime = now
     try {
-      this.gameSfx.play('swipe', { volume: 0.6 })
+      this.gameSfx.play('swipe', { volume: 0.4 })
     } catch (error) {
       console.warn('[AudioManager] Failed to play swipe sound:', error)
     }
@@ -52,7 +55,7 @@ export class AudioManager {
     if (this.isMuted || !this.isLoaded || !this.gameSfx) return
 
     try {
-      this.gameSfx.play('slice', { volume: 1 })
+      this.gameSfx.play('slice', { volume: 0.5 })
     } catch (error) {
       console.warn('[AudioManager] Failed to play slice sound:', error)
     }
