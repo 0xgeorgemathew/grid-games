@@ -1,0 +1,14 @@
+{
+  "spritemap": {
+    "swipe": {
+      "start": 0,
+      "end": 0.416
+    },
+    "slice": {
+      "start": 0.516,
+      "end": 1.206
+    }
+  },
+  "resources": ["sfx-game.mp3"],
+  "url": "sfx-game.mp3"
+}
