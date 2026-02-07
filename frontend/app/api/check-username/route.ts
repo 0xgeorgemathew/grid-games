@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       // Call getFullName for reverse resolution
       const fullName = await contract.getFullName(walletAddress)
 
-      console.log(`getFullName(${walletAddress}) = "${fullName}"`)
+      // console.log(`getFullName(${walletAddress}) = "${fullName}"`)
 
       if (fullName && fullName.length > 0) {
         // Extract label from "player1.grid.eth" → "player1"

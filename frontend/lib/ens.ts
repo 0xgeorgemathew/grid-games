@@ -210,9 +210,9 @@ export async function getLeverageForAddress(address: string): Promise<number | u
     })) as string
 
     if (!leverageStr) {
-      console.log(
-        `[ENS] No leverage set in ENS (using default 2x): address=${address.slice(0, 6)}...${address.slice(-4)}, name=${name}`
-      )
+      // console.log(
+      //   `[ENS] No leverage set in ENS (using default 2x): address=${address.slice(0, 6)}...${address.slice(-4)}, name=${name}`
+      // )
       return undefined
     }
 
@@ -220,9 +220,9 @@ export async function getLeverageForAddress(address: string): Promise<number | u
     const value = parseInt(leverageStr.replace('x', ''), 10)
     const finalLeverage = [1, 2, 5, 10, 20].includes(value) ? value : 2
 
-    console.log(
-      `[ENS] Leverage fetched successfully: address=${address.slice(0, 6)}...${address.slice(-4)}, name=${name}, leverage=${finalLeverage}x`
-    )
+    // console.log(
+    //   `[ENS] Leverage fetched successfully: address=${address.slice(0, 6)}...${address.slice(-4)}, name=${name}, leverage=${finalLeverage}x`
+    // )
 
     return finalLeverage
   } catch (error) {

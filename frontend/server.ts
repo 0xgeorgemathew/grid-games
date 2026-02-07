@@ -27,13 +27,13 @@ app.prepare().then(() => {
       process.exit(1)
     })
     .listen(port, hostname, () => {
-      console.log(`> Ready on http://${hostname}:${port}`)
-      console.log('> Socket.IO server attached')
+      // console.log(`> Ready on http://${hostname}:${port}`)
+      // console.log('> Socket.IO server attached')
     })
 
   // Graceful shutdown - settle pending orders before closing
   const shutdown = (signal: string) => {
-    console.log(`\n${signal} received, shutting down gracefully...`)
+    // console.log(`\n${signal} received, shutting down gracefully...`)
 
     // First, settle all pending orders in active games
     if (emergencyShutdown) {
@@ -45,7 +45,7 @@ app.prepare().then(() => {
 
     // Finally close HTTP server
     httpServer.close(() => {
-      console.log('> Server closed')
+      // console.log('> Server closed')
       process.exit(0)
     })
 

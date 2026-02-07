@@ -69,7 +69,7 @@ async function sendSponsoredTransaction(
     }),
   }
 
-  console.log('Sending sponsored transaction to:', to)
+  // console.log('Sending sponsored transaction to:', to)
 
   const result = await privy.wallets().ethereum().sendTransaction(walletId, params)
 

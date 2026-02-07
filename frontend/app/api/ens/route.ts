@@ -162,11 +162,11 @@ async function sendSponsoredTransaction(
     }),
   }
 
-  console.log('Sending sponsored transaction to:', to)
+  // console.log('Sending sponsored transaction to:', to)
 
   const result = await privy.wallets().ethereum().sendTransaction(walletId, params)
 
-  console.log('Privy sendTransaction result:', JSON.stringify(result, null, 2))
+  // console.log('Privy sendTransaction result:', JSON.stringify(result, null, 2))
 
   // Extract hash from various possible response structures
   // Sponsored transactions use ERC-4337, so user_operation_hash is the identifier

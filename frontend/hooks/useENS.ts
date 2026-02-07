@@ -310,7 +310,7 @@ export function useSetLeverage() {
       setError(String(err))
     },
     onSuccess: (res) => {
-      console.log('Transaction success:', res)
+      // console.log('Transaction success:', res)
       setIsProcessing(false)
     },
   })
