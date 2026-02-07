@@ -125,6 +125,7 @@ export type RoundEndEvent = {
   player2Dollars: number
   player1Gained: number
   player2Gained: number
+  isFinalRound: boolean // true if this round end triggers game over (no more rounds)
 }
 
 /**
@@ -138,6 +139,7 @@ export type GameOverEvent = {
   player1Wins: number
   player2Wins: number
   rounds: RoundSummary[]
+  yellowSettlement?: { id: string; amount: number } // Yellow channel settlement data
 }
 
 /**

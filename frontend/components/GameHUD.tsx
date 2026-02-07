@@ -1,15 +1,13 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useTradingStore } from '@/game/stores/trading-store'
-import { Progress } from '@/components/ui/progress'
 import { HowToPlayModal } from '@/components/HowToPlayModal'
 import { SettlementFlash } from '@/components/SettlementFlash'
 import { CountUp } from '@/components/CountUp'
-import { Info, Volume2, VolumeX } from 'lucide-react'
+import { Info, Volume2, VolumeX, Wifi } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
-import { formatPrice } from '@/lib/formatPrice'
 import { GAME_CONFIG } from '@/game/constants'
 import type { CryptoSymbol } from '@/game/stores/trading-store'
 import type { Player } from '@/game/types/trading'
@@ -23,11 +21,6 @@ const CRYPTO_SYMBOLS: Record<CryptoSymbol, string> = {
 function formatTime(seconds: number): string {
   return seconds.toString()
 }
-
-const PULSE_ANIMATION = {
-  opacity: [0.3, 0.6, 0.3] as number[],
-  transition: { duration: 2, repeat: Infinity },
-} as const
 
 // 2X Multiplier Badge - Small inline badge for use in headers
 const Multiplier2XBadge = React.memo(function Multiplier2XBadge() {
@@ -163,7 +156,7 @@ const ConnectionStatusDot = React.memo(function ConnectionStatusDot({
 })
 
 const PlayerHealthBar = React.memo(
-  function PlayerHealthBar({ name, dollars, color, index, label }: PlayerHealthBarProps) {
+  function PlayerHealthBar({ name, dollars, label }: PlayerHealthBarProps) {
     const healthPercent = dollars / GAME_CONFIG.STARTING_CASH
     const healthColor = healthPercent > 0.6 ? 'green' : healthPercent > 0.3 ? 'yellow' : 'red'
 
@@ -240,8 +233,6 @@ const PlayerHealthBar = React.memo(
   (prevProps, nextProps) => {
     return (
       prevProps.dollars === nextProps.dollars &&
-      prevProps.color === nextProps.color &&
-      prevProps.index === nextProps.index &&
       prevProps.label === nextProps.label &&
       prevProps.name === nextProps.name
     )
@@ -337,6 +328,45 @@ const RoundHeader = React.memo(function RoundHeader({
   )
 })
 
+// Price Loading State - Cyberpunk aesthetic
+const PriceLoadingState = React.memo(function PriceLoadingState() {
+  return (
+    <div className="flex items-center gap-3">
+      {/* Animated loading ring */}
+      <div className="relative">
+        <motion.div
+          className="w-8 h-8 rounded-full border-2 border-tron-cyan/30 border-t-tron-cyan"
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+        />
+        <motion.div
+          className="absolute inset-0 w-8 h-8 rounded-full border-2 border-transparent border-r-tron-orange/50"
+          animate={{ rotate: -360 }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+        />
+      </div>
+
+      {/* Loading text with glitch effect */}
+      <div className="flex flex-col">
+        <motion.span
+          className="text-xs font-mono text-tron-cyan tracking-widest"
+          animate={{ opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+        >
+          CONNECTING TO PRICE FEED
+        </motion.span>
+        <motion.span
+          className="text-[10px] text-tron-white-dim font-mono"
+          animate={{ opacity: [0.3, 0.7, 0.3] }}
+          transition={{ duration: 2, repeat: Infinity, delay: 0.5 }}
+        >
+          AWAITING LIVE BTC DATA
+        </motion.span>
+      </div>
+    </div>
+  )
+})
+
 export const GameHUD = React.memo(function GameHUD() {
   const {
     players,
@@ -353,28 +383,116 @@ export const GameHUD = React.memo(function GameHUD() {
     player2Wins,
     isSuddenDeath,
     roundTimeRemaining,
-    whale2XExpiresAt,
     isSoundMuted,
     toggleSound,
   } = useTradingStore()
 
   const [showHowToPlay, setShowHowToPlay] = useState(false)
+  const hasAttemptedConnectionRef = useRef(false)
 
+  // Start price connection as soon as component mounts (don't wait for isPlaying)
   useEffect(() => {
-    if (isPlaying && !isPriceConnected) {
+    if (!hasAttemptedConnectionRef.current && !isPriceConnected) {
       connectPriceFeed(selectedCrypto)
+      hasAttemptedConnectionRef.current = true
     }
-  }, [isPlaying, isPriceConnected, selectedCrypto, connectPriceFeed])
+  }, [isPriceConnected, selectedCrypto, connectPriceFeed])
 
   const { color: priceColor, glow: priceGlow } = getPriceColor(priceData?.changePercent ?? 0)
 
   const localPlayer = players.find((p) => p.id === localPlayerId)
   const opponent = players.find((p) => p.id !== localPlayerId)
 
+  // Game is ready to show when price is connected, game is playing, AND round has started
+  const isGameReady = isPriceConnected && priceData !== null && isPlaying && currentRound > 0
+  const isShowingLoading = !isPriceConnected || priceData === null
+
   return (
     <>
       <SettlementFlash />
       <HowToPlayModal isOpen={showHowToPlay} onClose={() => setShowHowToPlay(false)} />
+
+      {/* Price Feed Loading Overlay - Blocks game visually until price is ready */}
+      <AnimatePresence>
+        {isPlaying && isShowingLoading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm pointer-events-none"
+          >
+            <div className="text-center">
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ delay: 0.2 }}
+                className="glass-panel-vibrant rounded-2xl p-8 border border-tron-cyan/30"
+                style={{
+                  boxShadow: '0 0 40px rgba(0,243,255,0.2), inset 0 0 40px rgba(0,243,255,0.05)',
+                }}
+              >
+                {/* Cyberpunk loading indicator */}
+                <div className="flex flex-col items-center gap-6">
+                  {/* Dual spinning rings */}
+                  <div className="relative w-20 h-20">
+                    <motion.div
+                      className="absolute inset-0 rounded-full border-4 border-tron-cyan/20 border-t-tron-cyan"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                    />
+                    <motion.div
+                      className="absolute inset-2 rounded-full border-4 border-transparent border-r-tron-orange/30"
+                      animate={{ rotate: -360 }}
+                      transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+                    />
+                    <motion.div
+                      className="absolute inset-4 rounded-full border-4 border-tron-cyan/10 border-b-tron-cyan/50"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+                    />
+
+                    {/* Center icon */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Wifi className="w-6 h-6 text-tron-cyan animate-pulse" />
+                    </div>
+                  </div>
+
+                  {/* Loading text */}
+                  <div className="space-y-2">
+                    <motion.h2
+                      className="text-xl font-black text-tron-cyan tracking-widest"
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                    >
+                      INITIALIZING MARKET DATA
+                    </motion.h2>
+                    <motion.p
+                      className="text-sm text-tron-white-dim font-mono"
+                      animate={{ opacity: [0.3, 0.7, 0.3] }}
+                      transition={{ duration: 2, repeat: Infinity, delay: 0.5 }}
+                    >
+                      Connecting to real-time BTC price feed...
+                    </motion.p>
+                  </div>
+
+                  {/* Status indicators */}
+                  <div className="flex items-center gap-4 text-xs font-mono">
+                    <motion.div
+                      className="flex items-center gap-2 text-tron-cyan/60"
+                      animate={{ opacity: [0.4, 0.8, 0.4] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    >
+                      <div className="w-2 h-2 rounded-full bg-tron-cyan animate-pulse" />
+                      <span>ESTABLISHING CONNECTION</span>
+                    </motion.div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <motion.div
         className="absolute top-0 left-0 right-0 z-10 p-1.5 sm:p-2 lg:p-3 pointer-events-none"
         variants={containerVariants}
@@ -444,13 +562,7 @@ export const GameHUD = React.memo(function GameHUD() {
                     </motion.span>
                   </div>
                 ) : (
-                  <motion.span
-                    animate={{ opacity: [0.3, 0.7, 0.3] }}
-                    transition={{ duration: 1, repeat: Infinity }}
-                    className="text-sm text-tron-white-dim animate-pulse"
-                  >
-                    Connecting...
-                  </motion.span>
+                  <PriceLoadingState />
                 )}
 
                 <button
@@ -486,8 +598,8 @@ export const GameHUD = React.memo(function GameHUD() {
               transition={{ duration: 2, repeat: Infinity }}
             />
 
-            {/* Main Game Area - When playing */}
-            {isPlaying && (
+            {/* Main Game Area - Only show when price is ready AND game is playing */}
+            {isGameReady && (
               <>
                 {/* Round Header - NEW */}
                 <RoundHeader
