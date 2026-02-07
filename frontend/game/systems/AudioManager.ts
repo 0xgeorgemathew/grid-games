@@ -9,8 +9,9 @@ export class AudioManager {
   private gameSfx: AudioSpriteSound | null = null
   private isMuted: boolean = false
   private isLoaded: boolean = false
-  private lastSwipeTime: number = 0
-  private readonly SWIPE_THROTTLE_MS = 150 // Minimum time between swipe sounds
+  private currentSwipeSound: any = null
+  private swipeDuckTween: Phaser.Tweens.Tween | null = null
+  private isUnlocked: boolean = false
 
   constructor(scene: Scene) {
     this.scene = scene
@@ -37,15 +38,23 @@ export class AudioManager {
     }
   }
 
+  /**
+   * Set unlocked state from Phaser's built-in unlock mechanism.
+   * Phaser handles the user gesture chain correctly for both Android and iOS.
+   */
+  setUnlocked(unlocked: boolean): void {
+    this.isUnlocked = unlocked
+  }
+
   playSwipe(): void {
     if (this.isMuted || !this.isLoaded || !this.gameSfx) return
 
-    const now = this.scene.time.now
-    if (now - this.lastSwipeTime < this.SWIPE_THROTTLE_MS) return
-
-    this.lastSwipeTime = now
     try {
-      this.gameSfx.play('swipe', { volume: 0.4 })
+      const played = this.gameSfx.play('swipe', { volume: 0.5 })
+      if (played) {
+        // Track the most recent swipe sound for ducking
+        this.currentSwipeSound = this.gameSfx
+      }
     } catch (error) {
       console.warn('[AudioManager] Failed to play swipe sound:', error)
     }
@@ -61,6 +70,44 @@ export class AudioManager {
     }
   }
 
+  playSliceAt(x: number, screenWidth: number): void {
+    if (this.isMuted || !this.isLoaded || !this.gameSfx) return
+
+    try {
+      // Duck any ongoing swipe sound
+      this.duckSwipe()
+
+      // Calculate pan: -1 (left) to +1 (right) based on screen position
+      const pan = (x / screenWidth - 0.5) * 2
+
+      this.gameSfx.play('slice', {
+        volume: 0.6, // Slightly louder for impact
+        pan // -1 (left) to +1 (right)
+      })
+    } catch (error) {
+      console.warn('[AudioManager] Failed to play positional slice sound:', error)
+    }
+  }
+
+  private duckSwipe(): void {
+    if (!this.currentSwipeSound) return
+
+    // Kill any existing duck tween to prevent conflicts
+    this.swipeDuckTween?.stop()
+
+    // Fade down to 30% volume over 50ms, hold, then fade back up
+    this.swipeDuckTween = this.scene.tweens.add({
+      targets: this.currentSwipeSound,
+      volume: 0.15, // 30% of 0.5 = 0.15
+      duration: 50,
+      yoyo: true,
+      hold: 80, // Stay ducked for 80ms
+      onComplete: () => {
+        this.currentSwipeSound = null
+      }
+    })
+  }
+
   setMuted(muted: boolean): void {
     this.isMuted = muted
     this.scene.sound.mute = muted
@@ -71,6 +118,9 @@ export class AudioManager {
   }
 
   destroy(): void {
+    this.swipeDuckTween?.stop()
+    this.swipeDuckTween = null
+    this.currentSwipeSound = null
     this.gameSfx?.destroy()
     this.gameSfx = null
     this.isLoaded = false
