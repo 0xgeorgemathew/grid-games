@@ -658,7 +658,15 @@ export function MatchmakingScreen() {
                     onClick={() => setMatchState('ready')}
                     className="text-cyan-400/60 hover:text-cyan-400 transition-colors"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <line x1="18" y1="6" x2="6" y2="18"></line>
                       <line x1="6" y1="6" x2="18" y2="18"></line>
                     </svg>
@@ -672,7 +680,9 @@ export function MatchmakingScreen() {
                     whileHover={{ scale: 1.02 }}
                     className="bg-black/40 border border-cyan-400/20 rounded-lg p-4"
                   >
-                    <p className="text-cyan-400/60 text-[10px] tracking-[0.2em] mb-1">TOTAL GAMES</p>
+                    <p className="text-cyan-400/60 text-[10px] tracking-[0.2em] mb-1">
+                      TOTAL GAMES
+                    </p>
                     <p className="font-[family-name:var(--font-orbitron)] text-2xl text-white">
                       {playerStats?.totalGames ?? 0}
                     </p>

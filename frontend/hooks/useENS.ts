@@ -477,10 +477,13 @@ export function useUpdatePlayerStats() {
   })
 
   const updateStats = useCallback(
-    async (label: string, updates: {
-      totalGames?: number
-      streak?: number
-    }): Promise<boolean> => {
+    async (
+      label: string,
+      updates: {
+        totalGames?: number
+        streak?: number
+      }
+    ): Promise<boolean> => {
       if (!user?.wallet?.address) {
         setError('Please login first')
         return false
