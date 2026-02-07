@@ -1,0 +1,135 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   GPU-Accelerated Animations for MatchmakingScreen
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Replaces CPU-bound Framer Motion animations with GPU-accelerated CSS.
+   Uses transform, opacity, and filter (drop-shadow) which run on compositor.
+
+   Performance benefits:
+   - textShadow → filter: drop-shadow (GPU-accelerated)
+   - radial-gradient animation → opacity animation (no re-paint)
+   - boxShadow animation → transform: scale (GPU-accelerated)
+   - All animations use will-change hints for browser optimization
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   1. TEXT GLOW ANIMATIONS (GPU-accelerated via filter: drop-shadow)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Main GRID title glow - 2s duration, matching original */
+@keyframes glow-pulse-grid {
+  0%,
+  100% {
+    opacity: 0.6;
+    filter: drop-shadow(0 0 16px rgba(0, 217, 255, 0.4));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 32px rgba(0, 217, 255, 0.8));
+  }
+}
+
+.glow-text-grid {
+  animation: glow-pulse-grid 2s ease-in-out infinite;
+  will-change: opacity, filter;
+  contain: layout style paint;
+}
+
+/* PLAYING AS label glow - 2s duration, subtle */
+@keyframes glow-pulse-label {
+  0%,
+  100% {
+    opacity: 0.7;
+    filter: drop-shadow(0 0 4px rgba(0, 243, 255, 0.2));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 8px rgba(0, 243, 255, 0.4));
+  }
+}
+
+.glow-text-label {
+  animation: glow-pulse-label 2s ease-in-out infinite;
+  will-change: opacity, filter;
+  contain: layout style paint;
+}
+
+/* PLAYER STATS header glow - 2s duration */
+@keyframes glow-pulse-stats {
+  0%,
+  100% {
+    opacity: 0.7;
+    filter: drop-shadow(0 0 8px rgba(0, 217, 255, 0.4));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 16px rgba(0, 217, 255, 0.6));
+  }
+}
+
+.glow-text-stats {
+  animation: glow-pulse-stats 2s ease-in-out infinite;
+  will-change: opacity, filter;
+  contain: layout style paint;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   2. BACKGROUND GLOW ANIMATIONS (GPU-accelerated via opacity)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Username background glow - 3s duration, matching original */
+@keyframes background-glow-username {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.glow-background-username {
+  /* Static radial gradient, opacity animated */
+  background: radial-gradient(ellipse at center, rgba(0, 243, 255, 1) 0%, transparent 70%);
+  animation: background-glow-username 3s ease-in-out infinite;
+  will-change: opacity;
+  contain: layout style paint;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3. SCALE PULSE ANIMATIONS (GPU-accelerated via transform)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Lobby player buttons - 2s duration, subtle scale + static shadow */
+@keyframes scale-pulse-button {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+.scale-pulse-button {
+  /* Static shadow instead of animated */
+  box-shadow: 0 0 15px rgba(0, 217, 255, 0.15);
+  animation: scale-pulse-button 2s ease-in-out infinite;
+  will-change: transform;
+  contain: layout style paint;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   4. UTILITY CLASSES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* General GPU acceleration hint for animated elements */
+.gpu-accelerated {
+  will-change: transform, opacity, filter;
+  contain: layout style paint;
+}
+
+/* Contain paint for elements that don't affect layout */
+.contain-paint {
+  contain: layout style paint;
+}
