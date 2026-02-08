@@ -78,11 +78,24 @@ Skill("superpowers:systematic-debugging") → root cause
 → Skill("commit-commands:commit")
 ```
 
+### ENS Feature Development
+
+```
+Skill("superpowers:writing-plans") → design ENS text record schema
+→ Update frontend/lib/ens.ts (contract addresses, ABIs)
+→ Add hooks to frontend/hooks/useENS.ts
+→ Create UI components in frontend/components/ens/
+→ Skill("superpowers:verification-before-completion")
+→ Skill("commit-commands:commit")
+```
+
 ## Integration Points
 
 | Context | Superpower | Follow-up |
 |---------|-----------|-----------|
 | New game feature | `brainstorming` → `game-component` | `game-logic-reviewer` agent |
+| ENS feature | `writing-plans` → `executing-plans` | Type checking, contract verification |
+| Yellow channel | `systematic-debugging` → `executing-plans` | L2 integration testing |
 | Contract changes | `writing-plans` | `web3-auditor` agent |
 | Multi-file changes | `dispatching-parallel-agents` | Parallel code-reviewers |
 | Before merging | `verification-before-completion` | `requesting-code-review` |

@@ -61,6 +61,8 @@
 | **Grid Games Custom** |||
 | `game-logic-reviewer` | Phaser/Socket.IO multiplayer issues | Review → Report memory leaks, race conditions, performance |
 | `web3-auditor` | Contract security/gas | Review → Report reentrancy, access control, optimization |
+| `ens-integration` | ENS L2 operations, text records | Review → Report reverse lookup, batch updates, gas optimization |
+| `yellow-channels` | Nitrolite integration, state channels | Review → Report channel creation, state signing, settlements |
 
 ### Custom Agent Usage
 
