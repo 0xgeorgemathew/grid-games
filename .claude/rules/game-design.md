@@ -66,16 +66,16 @@ All players see the **same coin types in the same sequence** regardless of devic
 
 | Type | Spawn Rate | Symbol | Effect | Transfer |
 |------|------------|--------|--------|----------|
-| Call | 33% (2/6) | ▲ | BTC price goes UP | $1 (×2 with whale) |
-| Put | 33% (2/6) | ▼ | BTC price goes DOWN | $1 (×2 with whale) |
+| Call | 33% (2/6) | ▲ | BTC price goes UP | $1 (×leverage) |
+| Put | 33% (2/6) | ▼ | BTC price goes DOWN | $1 (×leverage) |
 | Gas | 17% (1/6) | ⚡ | Immediate penalty | $1 (slicer to opponent) |
-| Whale | 17% (1/6) | ★ | 2X power-up for 10s | No transfer |
+| Whale | 17% (1/6) | ★ | Leverage power-up (×player's ENS leverage) | No transfer |
 
 ## Mechanics
 
 ### Settlement
 
-Orders settle 5 seconds after slicing using the latest BTC price from Binance WebSocket feed. Gas and Whale coins settle immediately (Gas applies penalty, Whale activates 2X mode).
+Orders settle 5 seconds after slicing using the latest BTC price from Binance WebSocket feed. Gas and Whale coins settle immediately (Gas applies penalty, Whale activates player's leverage multiplier).
 
 ```typescript
 const priceChange = (finalPrice - order.priceAtOrder) / order.priceAtOrder
@@ -85,9 +85,11 @@ const isCorrect = order.coinType === 'call' ? priceChange > 0
   : false
 
 const baseImpact = 1
-const multiplier = room.get2XMultiplier(order.playerId) // 2 if whale active, 1 otherwise
+const multiplier = room.getLeverageForPlayer(order.playerId) // From ENS: 1, 2, 5, 10, or 20
 const impact = baseImpact * multiplier
 ```
+
+**Note:** Multiplier fetched from player's ENS text record (`games.grid.leverage`). Default is 1x if not set. Whale coin activates player's leverage multiplier for the next settlement.
 
 ### Zero-Sum Transfer
 
@@ -134,21 +136,24 @@ if (data.coinType === 'gas') {
 }
 ```
 
-**Whale (★):** Activates 2X mode for slicing player. Lasts 10 seconds. All call/put orders settled during this time have 2x transfer amount. Does not create a pending order (activates immediately).
+**Whale (★):** Activates player's leverage multiplier based on their ENS text record. Multiplier applies to next call/put settlement (not time-based). Does not create a pending order - activates immediately.
 
 ```typescript
 if (data.coinType === 'whale') {
-  room.activateWhale2X(playerId)
+  const leverage = room.getLeverageForPlayer(playerId) // From ENS: 2, 5, 10, or 20
+  room.activateWhaleMultiplier(playerId, leverage)
 
-  io.to(room.id).emit('whale_2x_activated', {
+  io.to(room.id).emit('whale_multiplier_activated', {
     playerId,
     playerName: room.players.get(playerId)?.name || 'Unknown',
-    durationMs: room.WHALE_2X_DURATION,
+    multiplier: leverage,
   })
 
   return // Whale doesn't create an order
 }
 ```
+
+**Leverage Options:** 1x (default), 2x, 5x, 10x, 20x - set by player via ENS text record (`games.grid.leverage`).
 
 ## Game Flow
 
@@ -221,9 +226,12 @@ function checkBestOfThreeComplete(room: GameRoom): boolean {
 
 ## Implementation Files
 
-- `frontend/app/api/socket/game-events.ts` - Server-side logic (settlement, spawning, game loop)
-- `frontend/game/stores/trading-store.ts` - Client state (orders, settlements, tug-of-war)
-- `frontend/game/scenes/TradingScene.ts` - Phaser scene (rendering, input)
+- `frontend/app/api/socket/game-events.ts` - Server-side logic (settlement, spawning, game loop) - 2,155 lines
+- `frontend/game/stores/trading-store.ts` - Client state (orders, settlements, tug-of-war) - 887 lines
+- `frontend/game/scenes/TradingScene.ts` - Phaser scene (rendering, input) - 614 lines
+- `frontend/game/systems/` - Extracted game systems (CoinRenderer, BladeRenderer, ParticleSystem, VisualEffects, AudioManager)
+- `frontend/lib/ens.ts` - ENS integration (leverage fetching, stats)
+- `frontend/lib/yellow/` - Yellow/Nitrolite payment channels
 
 ## See Also
 
