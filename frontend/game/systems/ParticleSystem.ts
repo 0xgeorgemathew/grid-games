@@ -67,19 +67,19 @@ export class ParticleSystem {
   emitSlice(x: number, y: number, color: number, count: number = 20): void {
     // Emit geometric shards
     const shardCount = Math.min(count, 15) // Reduced for subtlety
-    
+
     for (let i = 0; i < shardCount; i++) {
       if (this.shardParticles.length >= this.MAX_SHARDS) break
 
       const angle = Math.random() * Math.PI * 2
       // Initial burst speed - fast shatter phase
       const speed = 80 + Math.random() * 180
-      
+
       // Mix of shard types - more triangles, some voxels
-      const shardType = Math.random() < 0.6 ? 0 : (Math.random() < 0.5 ? 1 : 2)
-      
+      const shardType = Math.random() < 0.6 ? 0 : Math.random() < 0.5 ? 1 : 2
+
       // Smaller fragments for subtlety
-      const baseSize = shardType === 0 ? (4 + Math.random() * 5) : (3 + Math.random() * 3)
+      const baseSize = shardType === 0 ? 4 + Math.random() * 5 : 3 + Math.random() * 3
 
       this.shardParticles.push({
         x,
@@ -132,18 +132,18 @@ export class ParticleSystem {
 
   private updateShards(delta: number): void {
     const dt = delta / 1000
-    
+
     for (let i = this.shardParticles.length - 1; i >= 0; i--) {
       const p = this.shardParticles[i]
       const lifeRatio = p.life / p.maxLife
-      
+
       // Phase transitions based on life
       if (lifeRatio < 0.3) {
         p.phase = 2 // Evaporate phase
       } else if (lifeRatio < 0.6) {
         p.phase = 1 // Float phase
       }
-      
+
       // Physics based on phase
       if (p.phase === 0) {
         // Shatter phase: fast movement, light gravity
@@ -162,7 +162,7 @@ export class ParticleSystem {
         p.vy -= 40 * dt // Float up faster
         p.size *= 0.97 // Shrink (cuboid decay)
       }
-      
+
       p.x += p.vx * dt
       p.y += p.vy * dt
       p.rotation += p.rotationSpeed * dt
@@ -181,7 +181,7 @@ export class ParticleSystem {
       const lifeRatio = p.life / p.maxLife
       const alpha = Math.min(1, lifeRatio * 1.5) * 0.9
       const size = p.size
-      
+
       // Draw based on shard type
       if (p.shardType === 0) {
         // Triangle shard
@@ -196,7 +196,14 @@ export class ParticleSystem {
     }
   }
 
-  private drawTriangle(x: number, y: number, size: number, rotation: number, color: number, alpha: number): void {
+  private drawTriangle(
+    x: number,
+    y: number,
+    size: number,
+    rotation: number,
+    color: number,
+    alpha: number
+  ): void {
     // Outer glow triangle
     this.shardGraphics.fillStyle(color, alpha * 0.4)
     this.shardGraphics.beginPath()
@@ -209,7 +216,7 @@ export class ParticleSystem {
     }
     this.shardGraphics.closePath()
     this.shardGraphics.fillPath()
-    
+
     // Main triangle (colored)
     this.shardGraphics.fillStyle(color, alpha * 0.8)
     this.shardGraphics.beginPath()
@@ -222,7 +229,7 @@ export class ParticleSystem {
     }
     this.shardGraphics.closePath()
     this.shardGraphics.fillPath()
-    
+
     // White core highlight
     this.shardGraphics.fillStyle(0xffffff, alpha * 0.9)
     this.shardGraphics.beginPath()
@@ -237,11 +244,18 @@ export class ParticleSystem {
     this.shardGraphics.fillPath()
   }
 
-  private drawVoxel(x: number, y: number, size: number, rotation: number, color: number, alpha: number): void {
+  private drawVoxel(
+    x: number,
+    y: number,
+    size: number,
+    rotation: number,
+    color: number,
+    alpha: number
+  ): void {
     // Rotated square (diamond shape when rotated 45deg)
     const cos = Math.cos(rotation)
     const sin = Math.sin(rotation)
-    
+
     // Outer glow
     this.shardGraphics.fillStyle(color, alpha * 0.3)
     const glowSize = size * 1.4
@@ -252,7 +266,7 @@ export class ParticleSystem {
     this.shardGraphics.lineTo(x + sin * glowSize, y - cos * glowSize)
     this.shardGraphics.closePath()
     this.shardGraphics.fillPath()
-    
+
     // Main voxel
     this.shardGraphics.fillStyle(color, alpha * 0.7)
     this.shardGraphics.beginPath()
@@ -262,7 +276,7 @@ export class ParticleSystem {
     this.shardGraphics.lineTo(x + sin * size, y - cos * size)
     this.shardGraphics.closePath()
     this.shardGraphics.fillPath()
-    
+
     // White core
     this.shardGraphics.fillStyle(0xffffff, alpha * 0.8)
     const coreSize = size * 0.4
@@ -280,11 +294,11 @@ export class ParticleSystem {
     // Glow
     this.shardGraphics.fillStyle(color, alpha * 0.4)
     this.shardGraphics.fillRect(x - size * 1.3, y - size * 1.3, size * 2.6, size * 2.6)
-    
+
     // Main
     this.shardGraphics.fillStyle(color, alpha * 0.8)
     this.shardGraphics.fillRect(x - size, y - size, size * 2, size * 2)
-    
+
     // Core
     this.shardGraphics.fillStyle(0xffffff, alpha)
     this.shardGraphics.fillRect(x - size * 0.3, y - size * 0.3, size * 0.6, size * 0.6)
@@ -295,4 +309,3 @@ export class ParticleSystem {
     this.shardGraphics.destroy()
   }
 }
-

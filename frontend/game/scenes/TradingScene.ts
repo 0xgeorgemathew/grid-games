@@ -358,7 +358,7 @@ export class TradingScene extends Scene {
       // Check against all collision segments
       for (const seg of segments) {
         this.collisionLine.setTo(seg.x1, seg.y1, seg.x2, seg.y2)
-        
+
         if (Geom.Intersects.LineToCircle(this.collisionLine, this.collisionCircle)) {
           this.sliceCoin(coinId, tokenObj)
           slicedThisFrame.add(coinId)
