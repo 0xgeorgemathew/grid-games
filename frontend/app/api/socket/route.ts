@@ -1,7 +1,12 @@
 import { NextRequest } from 'next/server'
 import { Server as SocketIOServer } from 'socket.io'
 import { Server as HTTPServer } from 'node:http'
+import { Socket } from 'socket.io'
 import { setupGameEvents } from './game-events'
+import { nitroliteHandlers } from '@/lib/yellow/nitrolite-socket'
+
+// Type for Nitrolite handlers
+type NitroliteHandler = (socket: Socket, ...args: any[]) => Promise<void>
 
 // Global singleton for Socket.IO server (attached to custom server)
 declare global {
@@ -59,6 +64,26 @@ export function initializeSocketIO(httpServer: HTTPServer): {
   })
 
   const { cleanup, emergencyShutdown } = setupGameEvents(io)
+
+  // Register Nitrolite handlers
+  io.on('connection', (socket) => {
+    // Register each Nitrolite handler
+    Object.entries(nitroliteHandlers).forEach(([event, handler]) => {
+      socket.on(event, async (...args: any[]) => {
+        try {
+          // Handlers expect (socket: Socket, ...params) => Promise<void>
+          await (handler as NitroliteHandler)(socket, ...args)
+        } catch (error) {
+          console.error(`[Nitrolite] Error in ${event}:`, error)
+          socket.emit('nitrolite_error', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            event,
+          })
+        }
+      })
+    })
+  })
+
   global._socketIOServer = io
   global._socketIOCleanup = cleanup
 

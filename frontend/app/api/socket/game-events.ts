@@ -1019,14 +1019,17 @@ async function requestClientSignaturesForAppSession(
   // TRIAL FIX REMOVED: chain_id field removed (may have been causing parse errors)
   const ASSET_HEX = '0xdb9f293e3898c9e5536a3be1b0c56c89d2b32deb' // Full contract address for ytest.usd
 
+  // CRITICAL FIX: Use 'nitroliterpc' protocol instead of 'NitroRPC/0.4'
+  // This is the protocol that Liquium's working implementation uses
+  // Key differences: quorum: 100 (not 2), challenge: 0 (not 60), weights: [50, 50] (not [1, 1])
   const definition = {
-    protocol: 'NitroRPC/0.4' as const,
+    protocol: 'nitroliterpc' as const, // CRITICAL: Changed from 'NitroRPC/0.4' to 'nitroliterpc'
     participants: sortedAddresses, // Main wallet addresses (sorted, lowercase) - per Yellow spec
-    weights: [1, 1], // Equal voting power (normalized)
-    quorum: 2, // Both must agree (sum of weights)
-    challenge: 60, // Use 60 for better stability (not 10)
+    weights: [50, 50], // CRITICAL: Equal voting as percentages (sum = 100)
+    quorum: 100, // CRITICAL: Requires 100% agreement (not 2)
+    challenge: 0, // CRITICAL: No challenge period for immediate finalization
     nonce, // Small 6-digit integer for parser compatibility
-    application: YELLOW_APPLICATION_NAME, // CRITICAL: Use 'application' field per NitroRPC spec
+    application_id: YELLOW_APPLICATION_NAME,
   }
 
   // CRITICAL: Verify participants are lowercase for Yellow Network compatibility
@@ -1041,20 +1044,25 @@ async function requestClientSignaturesForAppSession(
 
   // CRITICAL FIXES ACTIVE
   console.log('[Yellow] CRITICAL FIXES ACTIVE:', {
-    using_application_field: true,
+    protocol: 'nitroliterpc (changed from NitroRPC/0.4)',
+    weights: '[50, 50] (equal voting as percentages)',
+    quorum: 100, // Requires 100% agreement
+    challenge: 0, // Immediate finalization
     using_wallet_addresses_in_participants: true,
-    chain_id: 'REMOVED (trial fix disabled)',
     empty_session_data: true,
-    note: 'Using wallet addresses in participants per Yellow official docs',
+    note: 'Using nitroliterpc protocol per Liquium working implementation',
   })
 
   // CRITICAL: Allocations MUST be in the same order as participants array!
   // CRITICAL FIX: Use full hex address for asset (not 'ytest.usd' symbol)
+  // CRITICAL FIX #2: Use HUMAN-READABLE amount format per Yellow official docs
+  // The docs specify: "Amount in human-readable format (e.g., '100.0')"
+  // NOT base units - just the token amount as a decimal string
   // Yellow's ClearNode expects Ethereum Address type for asset field
   const allocations = sortedAddresses.map((participant) => ({
     participant, // Already lowercase from sortedAddresses
     asset: ASSET_HEX, // CRITICAL: Full contract address, not 'ytest.usd' symbol
-    amount: '10000000', // 10 USDC in base units (string)
+    amount: '10.0', // 10 USDC in HUMAN-READABLE format (per Yellow docs)
   }))
 
   // CRITICAL FIX: ALL addresses must be lowercase for signature verification
@@ -1076,12 +1084,12 @@ async function requestClientSignaturesForAppSession(
   // CRITICAL: Parameter key order MUST be: definition → allocations → session_data
   // Yellow's NitroRPC parser requires this specific order
   console.log('[Yellow] CRITICAL FIXES ACTIVE:')
-  console.log('[Yellow]   protocol: NitroRPC/0.4')
-  console.log('[Yellow]   application field: true (not application_id)')
-  console.log('[Yellow]   chain_id: REMOVED (trial fix disabled)')
+  console.log('[Yellow]   protocol: nitroliterpc (changed from NitroRPC/0.4)')
+  console.log('[Yellow]   weights: [50, 50] (equal voting as percentages)')
+  console.log('[Yellow]   quorum: 100 (requires 100% agreement)')
+  console.log('[Yellow]   challenge: 0 (immediate finalization, no dispute period)')
   console.log('[Yellow]   participants: MAIN WALLET ADDRESSES (per Yellow spec)')
   console.log('[Yellow]   asset: FULL HEX ADDRESS ' + ASSET_HEX + ' (not ytest.usd symbol)')
-  console.log('[Yellow]   challenge: 60 (for stability)')
   console.log('[Yellow]   session_data: empty object to rule out state issues')
 
   // CRITICAL: Use empty session_data to rule out JSON serialization issues
@@ -1337,13 +1345,21 @@ async function createAppSessionWithSignatures(
       await rpcClient.connect()
     }
 
-    // Build the request payload
+    // CRITICAL: Force re-authentication with server's private key
+    // The singleton RPC client may have a player's JWT from client-side authentication
+    // create_app_session REQUIRES a JWT, but it must be from the server (YELLOW_PRIVATE_KEY),
+    // not from a player. The participant signatures are still required in the sig array.
+    console.log('[Yellow] Force re-authenticating with server private key before create_app_session...')
+    await rpcClient.forceReauthenticate()
+    console.log('[Yellow] ✓ Server authenticated, JWT is now from server not player')
+
+    // Build the request payload (for logging/debugging - to match what clients signed)
     // CRITICAL: Use the SAME requestId and timestamp that clients signed
     // Generating new values here would cause signature verification to fail
     const id = room.yellowAppSessionParams.requestId
     const timestamp = room.yellowAppSessionParams.timestamp
-    // CRITICAL: create_app_session requires params to be WRAPPED in array
-    // This must match what the clients signed!
+    // NOTE: This payload represents what CLIENTS signed, which had [createParams] wrapping
+    // The actual rpcClient.call() handles wrapping internally, so we pass createParams directly
     const payload = [id, 'create_app_session', [createParams], timestamp] as [
       number,
       string,
@@ -1429,7 +1445,7 @@ async function createAppSessionWithSignatures(
     }
 
     // Make the RPC call
-    // CRITICAL: Pass params ALREADY WRAPPED in array to match what was signed!
+    // CRITICAL FIX: RPC client no longer auto-wraps, so we wrap params here
     const response = await rpcClient.call<any>('create_app_session', [createParams], signatures)
 
     console.log('[Yellow] ✓ App session created with client signatures!', {
@@ -1634,7 +1650,6 @@ async function updateYellowChannel(io: SocketIOServer, room: GameRoom): Promise<
     const rpcClient = getRPCClient()
 
     // CRITICAL: Set JWT token in RPC client before authenticated call
-    // The server-side RPC client is a separate instance from client-side and needs the JWT explicitly set
     if (auth1.jwtToken) {
       rpcClient.setAuthToken(auth1.jwtToken)
       console.log('[Yellow] JWT token set in RPC client for submit_app_state')
@@ -1648,15 +1663,13 @@ async function updateYellowChannel(io: SocketIOServer, room: GameRoom): Promise<
     const isPlayer1First = sortedAddresses[0].toLowerCase() === room.player1Address.toLowerCase()
 
     // Calculate USDC allocations based on game scores
-    // Total pot is 20 USDC (10 from each player)
     const totalScore = player1Dollars + player2Dollars
     const totalPot = 20 // 20 USDC
 
     const player1Payout = (player1Dollars / totalScore) * totalPot
     const player2Payout = (player2Dollars / totalScore) * totalPot
 
-    // CRITICAL FIX #2: Yellow Network uses fixed-point integers in base units
-    // For ytest.usd (6 decimals), we need to multiply by 10^6
+    // Yellow Network uses fixed-point integers in base units
     const YELLOW_DECIMALS = 6
     const player1PayoutBaseUnits = Math.round(player1Payout * 10 ** YELLOW_DECIMALS)
     const player2PayoutBaseUnits = Math.round(player2Payout * 10 ** YELLOW_DECIMALS)
@@ -1674,13 +1687,6 @@ async function updateYellowChannel(io: SocketIOServer, room: GameRoom): Promise<
       },
     ]
 
-    // CRITICAL: Verify allocations use lowercase addresses (must match create_app_session participants)
-    console.log('[Yellow] Allocations address verification:', {
-      sortedAddresses,
-      areAllLowercase: sortedAddresses.every((addr) => addr === addr.toLowerCase()),
-      allocations,
-    })
-
     // Build game state
     const gameState = {
       game: 'hft-battle' as const,
@@ -1697,23 +1703,17 @@ async function updateYellowChannel(io: SocketIOServer, room: GameRoom): Promise<
     }
 
     // Build submit params
-    // CRITICAL: JWT is NOT included in params - it goes at envelope level only
-    // This matches Yellow's API specification for submit_app_state
     const submitParams = {
       app_session_id: room.appSessionId,
-      intent: 'operate' as const, // lowercase 'operate' instead of 'OPERATE'
+      intent: 'operate' as const,
       version: (room.appSessionVersion || 1) + 1,
       allocations,
       session_data: JSON.stringify(gameState),
-      // JWT is handled at envelope level by rpc-client.ts, not in params
     }
 
-    // CRITICAL: Request session key signatures from clients for submit_app_state
-    // Session keys auto-sign without user interaction
+    // Request session key signatures from clients for submit_app_state
     console.log('[Yellow] Requesting session key signatures from clients for submit_app_state')
 
-    // Request session key signatures from both clients
-    // CRITICAL: This returns the requestId and timestamp that clients signed
     const {
       signatures: sessionKeySignatures,
       requestId,
@@ -1725,9 +1725,6 @@ async function updateYellowChannel(io: SocketIOServer, room: GameRoom): Promise<
       submitParams
     )
 
-    // sessionKeySignatures are already in sorted order from the clients
-    // CRITICAL: Use the SAME requestId and timestamp that clients signed
-    // DO NOT generate new ones with Date.now() or signatures will fail validation
     console.log('[Yellow] Using requestId and timestamp from client signatures:', {
       requestId,
       timestamp,
@@ -1743,7 +1740,6 @@ async function updateYellowChannel(io: SocketIOServer, room: GameRoom): Promise<
 
     // Update version
     room.appSessionVersion = result.version
-    // Note: SubmitAppStateResponse doesn't return allocations, use our local ones
     room.appSessionAllocations = allocations
 
     console.log('[Yellow] ✓ App session updated:', {
@@ -1793,7 +1789,6 @@ async function settleYellowChannel(
     const rpcClient = getRPCClient()
 
     // CRITICAL: Set JWT token in RPC client before authenticated call
-    // The server-side RPC client is a separate instance from client-side and needs the JWT explicitly set
     if (auth1.jwtToken) {
       rpcClient.setAuthToken(auth1.jwtToken)
       console.log('[Yellow] JWT token set in RPC client for close_app_session')
@@ -1812,7 +1807,6 @@ async function settleYellowChannel(
     const isPlayer1First = sortedAddresses[0].toLowerCase() === room.player1Address.toLowerCase()
 
     // Final allocations (winner takes all)
-    // CRITICAL FIX: Use fixed-point integers (multiply by 10^6 for ytest.usd decimals)
     const YELLOW_DECIMALS = 6
     const totalPot = 20 // 20 USDC
     const totalPotBaseUnits = totalPot * 10 ** YELLOW_DECIMALS
@@ -1834,13 +1828,6 @@ async function settleYellowChannel(
       },
     ]
 
-    // CRITICAL: Verify allocations use lowercase addresses (must match create_app_session participants)
-    console.log('[Yellow] Close allocations address verification:', {
-      sortedAddresses,
-      areAllLowercase: sortedAddresses.every((addr) => addr === addr.toLowerCase()),
-      allocations,
-    })
-
     // Build final game state
     const gameState = {
       game: 'hft-battle' as const,
@@ -1860,15 +1847,11 @@ async function settleYellowChannel(
       app_session_id: room.appSessionId,
       allocations,
       session_data: JSON.stringify(gameState),
-      // JWT is handled at envelope level by rpc-client.ts, not in params
     }
 
-    // CRITICAL: Request session key signatures from clients for close_app_session
-    // Session keys auto-sign without user interaction
+    // Request session key signatures from clients for close_app_session
     console.log('[Yellow] Requesting session key signatures from clients for close_app_session')
 
-    // Request session key signatures from both clients
-    // CRITICAL: This returns the requestId and timestamp that clients signed
     const {
       signatures: sessionKeySignatures,
       requestId,
@@ -1880,9 +1863,6 @@ async function settleYellowChannel(
       closeParams
     )
 
-    // sessionKeySignatures are already in sorted order from the clients
-    // CRITICAL: Use the SAME requestId and timestamp that clients signed
-    // DO NOT generate new ones with Date.now() or signatures will fail validation
     console.log('[Yellow] Using requestId and timestamp from client signatures:', {
       requestId,
       timestamp,
@@ -2696,7 +2676,7 @@ export function setupGameEvents(io: SocketIOServer): {
 
           if (hasSig0 && hasSig1) {
             console.log(
-              '[Yellow] ✓ Both app session signatures received! Sending to first participant for RPC call...'
+              '[Yellow] ✓ Both app session signatures received! Creating app session with nitroliterpc protocol...'
             )
 
             // Get signatures in the correct order (matching wallet addresses)
@@ -2707,76 +2687,17 @@ export function setupGameEvents(io: SocketIOServer): {
               sortedWalletAddresses[1].toLowerCase()
             )!
 
-            // CRITICAL: Verify we have signatures for both participants
-            // Verify the signature addresses match participants
-            const allSignatures = Array.from(room.yellowAppSessionSignatures.entries()).map(
-              ([addr, sig]) => ({
-                address: addr,
-                isParticipant: sortedSessionKeyAddresses.includes(addr.toLowerCase()),
-                sigPrefix: sig.slice(0, 10) + '...',
-              })
-            )
-
-            console.log('[Yellow] Retrieved signatures for RPC call:', {
-              sig0Prefix: sig0 ? sig0.slice(0, 10) + '...' : 'MISSING',
-              sig1Prefix: sig1 ? sig1.slice(0, 10) + '...' : 'MISSING',
-              sig0For: sortedWalletAddresses[0],
-              sig1For: sortedWalletAddresses[1],
-              walletParticipants: sortedWalletAddresses,
-              note: 'Signatures now from main wallets - recovers to wallet addresses in participants array',
-              allSignatures,
-              allSignaturesMap: allSignatures,
-              definitionParticipants:
-                room.yellowAppSessionParams.createParams.definition.participants,
-              allMatch: allSignatures.every((sig) => sig.isParticipant),
-            })
-
             if (!sig0 || !sig1) {
               console.error('[Yellow] MISSING SIGNATURE! Cannot proceed.')
               return
             }
 
-            // Send both signatures to the FIRST participant (who will make the RPC call)
-            // CRITICAL FIX: Use wallet address for socket lookup (since we now use wallet signatures)
-            const firstParticipantSocketId = room.addressToSocketId.get(
-              sortedWalletAddresses[0].toLowerCase()
-            )
+            // Create app session with collected signatures
+            // This uses the updated nitroliterpc protocol from app-session-manager.ts
+            await createAppSessionWithSignatures(io, room, [sig0, sig1])
 
-            if (!firstParticipantSocketId) {
-              console.error(
-                '[Yellow] Could not find socket ID for first participant:',
-                sortedWalletAddresses[0]
-              )
-              return
-            }
-
-            console.log('[Yellow] Sending both signatures to first participant:', {
-              socketId: firstParticipantSocketId,
-              sig0Prefix: sig0.slice(0, 10) + '...',
-              sig1Prefix: sig1.slice(0, 10) + '...',
-              requestId: room.yellowAppSessionRequestId,
-              timestamp: room.yellowAppSessionTimestamp,
-              timestampAsDate: new Date(room.yellowAppSessionTimestamp).toISOString(),
-              // CRITICAL: Verify signature order matches participants
-              walletParticipants: sortedWalletAddresses,
-              definitionParticipants:
-                room.yellowAppSessionParams.createParams.definition.participants,
-              sig0For: sortedWalletAddresses[0],
-              sig1For: sortedWalletAddresses[1],
-              orderMatches:
-                JSON.stringify(sortedWalletAddresses) ===
-                JSON.stringify(room.yellowAppSessionParams.createParams.definition.participants),
-              note: 'Using main wallet signatures - recovers to wallet addresses',
-            })
-
-            io.to(firstParticipantSocketId).emit('yellow_both_signatures_ready', {
-              signature1: sig0,
-              signature2: sig1,
-              sortedAddresses: sortedWalletAddresses, // Wallet addresses (for participants)
-              sortedWalletAddresses, // Wallet addresses (now used for signature lookup)
-              requestId: room.yellowAppSessionRequestId,
-              timestamp: room.yellowAppSessionTimestamp,
-            })
+            // Start the game loop after app session is created
+            startGameLoop(io, manager, room)
           } else {
             console.log('[Yellow] Waiting for more signatures...', {
               has: [hasSig0, hasSig1],

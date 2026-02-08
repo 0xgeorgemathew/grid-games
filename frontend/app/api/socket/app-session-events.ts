@@ -790,7 +790,7 @@ export function setupAppSessionEvents(io: SocketIOServer, socket: Socket): void 
           // Call create_app_session with the collected signatures
           const response = await rpcClient.call<any>(
             'create_app_session',
-            createParams,
+            [createParams], // Wrap in array for NitroRPC/0.4 spec
             signatures,
             { requestId: id, timestamp }
           )
