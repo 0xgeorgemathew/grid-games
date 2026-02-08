@@ -12,8 +12,13 @@ Get up and running with Grid Games in 5 minutes.
 
 ```bash
 bun install    # Install dependencies
+cp .env.example .env.local  # Configure environment variables (Privy, ENS, Yellow)
 bun run dev    # Start dev server at http://localhost:3000
 ```
+
+**Required Environment Variables:**
+- `NEXT_PUBLIC_PRIVY_APP_ID` - Privy authentication
+- `NEXT_PUBLIC_BASE_SEPOLIA_RPC` - Base Sepolia RPC URL
 
 Socket.IO server runs at `/api/socket`.
 
@@ -49,16 +54,28 @@ Socket.IO server runs at `/api/socket`.
 grid-games/
 ├── frontend/
 │   ├── app/
-│   │   ├── api/socket/      # Socket.IO server
-│   │   └── page.tsx         # Main pages
+│   │   ├── api/
+│   │   │   ├── socket/      # Socket.IO server
+│   │   │   ├── ens/         # ENS integration API
+│   │   │   ├── yellow/      # Yellow/Nitrolite channels
+│   │   │   ├── claim-usdc/  # USDC faucet claiming
+│   │   │   └── page.tsx     # Main pages
 │   ├── components/          # React UI (ShadCN)
+│   │   ├── ens/             # ENS components
+│   │   └── ui/              # UI primitives
 │   ├── game/
 │   │   ├── scenes/          # Phaser scenes
+│   │   ├── systems/         # Game systems (rendering, particles, audio)
 │   │   ├── stores/          # Zustand stores
-│   │   └── types/           # TypeScript types
-│   └── lib/                 # Utilities
+│   │   ├── types/           # TypeScript types
+│   │   ├── config.ts        # Game configuration
+│   │   └── constants.ts     # Game constants
+│   ├── hooks/               # React hooks (useENS)
+│   ├── lib/                 # Utilities (ENS, Yellow)
+│   └── providers.tsx        # App providers (Privy, wagmi, Query)
 ├── contracts/
 │   ├── src/                 # Solidity contracts
+│   │   └── USDCFaucet.sol   # Base Sepolia USDC faucet
 │   └── test/                # Contract tests
 └── .claude/rules/           # Development patterns
 ```
@@ -66,6 +83,21 @@ grid-games/
 ## Workflows
 
 ### Add Game Feature
+
+1. Read `.claude/rules/game-design.md` (best-of-three rounds, 30s each)
+2. Read `.claude/rules/multiplayer-patterns.md`
+3. Implement in `frontend/game/scenes/` or `frontend/app/api/socket/`
+4. Type check: `bun run types`
+
+### Add ENS Feature
+
+1. Read `ens-code-usage.md` for ENS integration patterns
+2. Update `frontend/lib/ens.ts` for new text records
+3. Add hooks to `frontend/hooks/useENS.ts`
+4. Create UI components in `frontend/components/ens/`
+5. Type check: `bun run types`
+
+### Fix Multiplayer Bug
 
 1. Read `.claude/rules/game-design.md` (best-of-three rounds, 100s each)
 2. Read `.claude/rules/multiplayer-patterns.md`
@@ -126,7 +158,8 @@ forge update # Reinstall dependencies
 
 ## References
 
-- `CLAUDE.md` - Detailed project info (CRITICAL ISSUES at top)
-- `.claude/rules/game-design.md` - Game mechanics (best-of-three rounds)
+- `CLAUDE.md` - Detailed project info (ENS Integration, Yellow/Nitrolite sections)
+- `ens-code-usage.md` - ENS integration documentation
+- `.claude/rules/game-design.md` - Game mechanics (best-of-three rounds, leverage system)
 - `.claude/rules/multiplayer-patterns.md` - Reliability patterns (SettlementGuard, RAII)
 - `.claude/rules/types.md` - Type system documentation and conventions
