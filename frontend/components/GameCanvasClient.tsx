@@ -5,6 +5,7 @@ import { Game } from 'phaser'
 import { GridScene } from '@/game/scenes/GridScene'
 import { TradingScene } from '@/game/scenes/TradingScene'
 import { createGridPhaserConfig, createTradingPhaserConfig, DEFAULT_GRID } from '@/game/config'
+import { useYellowGameplay } from '@/hooks/useYellowGameplay'
 
 export type SceneType = 'GridScene' | 'TradingScene'
 
@@ -26,6 +27,10 @@ let globalGameInstance: Game | null = null
 
 export default function GameCanvasClient({ scene = 'GridScene' }: GameCanvasClientProps) {
   const parentRef = useRef<HTMLDivElement>(null)
+
+  // Set up Yellow signing ONLY when gameplay component mounts
+  // This ensures NO Yellow initialization during matchmaking
+  useYellowGameplay()
 
   useEffect(() => {
     // Module-level check survives StrictMode unmount/remount
