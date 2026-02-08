@@ -5,8 +5,8 @@ export type ChannelStatus = 'INITIAL' | 'ACTIVE' | 'FINAL' | 'DISPUTED'
 
 export interface Allocation {
   participant: string // Wallet address
-  asset: 'usdc'
-  amount: string // 6 decimals (1 USDC = "1000000")
+  asset: string // Asset symbol (e.g., 'usdc', 'eth')
+  amount: string // 6 decimals (1 token = "1000000")
 }
 
 export interface PlayerInfo {

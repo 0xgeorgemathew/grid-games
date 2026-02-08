@@ -10,7 +10,16 @@ import type {
   StateUpdateResponse,
   ChannelSettleResponse,
 } from './types'
-import { YELLOW_API, ENTRY_STAKE } from './config'
+import { ENTRY_STAKE } from './config'
+
+// TODO: YELLOW_API no longer exported - using App Sessions instead
+const YELLOW_API = {
+  createChannel: '/api/yellow/create-channel',
+  deposit: '/api/yellow/deposit',
+  stateUpdate: '/api/yellow/state-update',
+  settle: '/api/yellow/settle',
+  getChannel: '/api/yellow/channel',
+}
 
 /**
  * ChannelManager - Client-side channel state management
@@ -34,7 +43,9 @@ export class ChannelManager {
   }
 
   /** Check if player has enough balance (1 USDC) */
-  async checkBalance(walletAddress: string): Promise<{ hasEnough: boolean; balance: string; formatted: string }> {
+  async checkBalance(
+    walletAddress: string
+  ): Promise<{ hasEnough: boolean; balance: string; formatted: string }> {
     try {
       const response = await fetch(`${this.apiUrl}/api/usdc-balance`, {
         method: 'POST',
