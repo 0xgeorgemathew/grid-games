@@ -275,6 +275,7 @@ interface WaitingPlayer {
   sceneWidth?: number
   sceneHeight?: number
   walletAddress?: string
+  leverage: number // ENS leverage for matchmaking (2, 5, 10, 20)
 }
 
 interface Coin {
@@ -450,7 +451,7 @@ class GameRoom {
     return player?.dollars ?? GAME_CONFIG.STARTING_CASH
   }
 
-  addPlayer(id: string, name: string, sceneWidth: number, sceneHeight: number): void {
+  addPlayer(id: string, name: string, sceneWidth: number, sceneHeight: number, leverage: number = 2): void {
     this.players.set(id, {
       id,
       name,
@@ -458,6 +459,7 @@ class GameRoom {
       score: 0,
       sceneWidth,
       sceneHeight,
+      leverage,
     })
   }
 
@@ -604,24 +606,22 @@ class GameRoom {
     return { winnerId: null, isTie: true }
   }
 
-  // Check if game should end (2 wins OR 3 rounds played OR sudden-death winner)
+  // Check if game should end (3 rounds played OR knockout)
+  // Note: Game always plays 3 rounds since winner is determined by dollars, not round wins
   checkGameEndCondition(): boolean {
     // CRITICAL: Check sudden death FIRST (before round count)
-    // In sudden death, max 3 rounds (round 3 is the final tiebreaker)
-    // End if: someone wins OR we've reached round 3 (hard limit)
+    // In sudden death (tied 1-1 after 2 rounds), round 3 is the tiebreaker
     if (this.isSuddenDeath) {
+      // End if: someone wins round 3 OR we've reached round 3 (hard limit)
       return this.player1Wins !== this.player2Wins || this.currentRound >= 3
     }
 
-    // Best-of-three: 2 wins ends game early
-    if (this.player1Wins === 2 || this.player2Wins === 2) return true
-
-    // Game ends after 3 rounds (max)
+    // Game ends after 3 rounds (always play all rounds since winner is by dollars)
     return this.currentRound >= 3
   }
 
   // Determine overall game winner
-  // Returns winner logic: First by wins, then by total dollars (Tie-Break)
+  // Returns winner logic: First by total dollars (primary), then by round wins (tie-break)
   getGameWinner(): { winner: Player | undefined; reason: 'wins' | 'dollars' | 'knockout' } {
     const playerIds = this.getPlayerIds()
     const p1 = this.players.get(playerIds[0])
@@ -629,7 +629,13 @@ class GameRoom {
 
     if (!p1 || !p2) return { winner: undefined, reason: 'wins' }
 
-    // 1. Primary Win Condition: Most Round Wins
+    // 1. Primary Win Condition: Most Total Dollars
+    // Winner is player with more money at game end (trading game logic)
+    if (p1.dollars > p2.dollars) return { winner: p1, reason: 'dollars' }
+    if (p2.dollars > p1.dollars) return { winner: p2, reason: 'dollars' }
+
+    // 2. Tie-Breaker: Most Round Wins
+    // If dollars are equal (rare), player with more round wins wins
     if (this.player1Wins > this.player2Wins) {
       return { winner: p1, reason: 'wins' }
     }
@@ -637,12 +643,7 @@ class GameRoom {
       return { winner: p2, reason: 'wins' }
     }
 
-    // 2. Tie-Breaker: Total Dollars
-    // If wins are equal (e.g. 1-1 after 3 rounds), player with most money wins
-    if (p1.dollars > p2.dollars) return { winner: p1, reason: 'dollars' }
-    if (p2.dollars > p1.dollars) return { winner: p2, reason: 'dollars' }
-
-    // Complete draw (unlikely in money game unless exact same trades)
+    // Complete draw (unlikely in zero-sum game unless exact same trades)
     return { winner: undefined, reason: 'wins' }
   }
 
@@ -780,12 +781,22 @@ class RoomManager {
   }
 
   // Waiting players
-  addWaitingPlayer(socketId: string, name: string): void {
-    this.waitingPlayers.set(socketId, {
-      name,
-      socketId,
-      joinedAt: Date.now(),
-    })
+  addWaitingPlayer(socketId: string, name: string, leverage: number = 2): void {
+    const existing = this.waitingPlayers.get(socketId)
+    if (existing) {
+      // Update existing player, preserve sceneWidth/Height and walletAddress
+      existing.name = name
+      existing.leverage = leverage
+      // Don't update joinedAt - preserve original join time
+    } else {
+      // Create new player
+      this.waitingPlayers.set(socketId, {
+        name,
+        socketId,
+        joinedAt: Date.now(),
+        leverage,
+      })
+    }
   }
 
   getWaitingPlayer(socketId: string): WaitingPlayer | undefined {
@@ -1249,13 +1260,16 @@ async function createMatch(
   sceneWidth1: number,
   sceneHeight1: number,
   sceneWidth2: number,
-  sceneHeight2: number
+  sceneHeight2: number,
+  leverage1: number,
+  leverage2: number
 ): Promise<void> {
   const roomId = `room-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
   const room = manager.createRoom(roomId)
 
-  room.addPlayer(playerId1, name1, sceneWidth1, sceneHeight1)
-  room.addPlayer(playerId2, name2, sceneWidth2, sceneHeight2)
+  // Add players with leverage from matchmaking (no ENS lookup needed)
+  room.addPlayer(playerId1, name1, sceneWidth1, sceneHeight1, leverage1)
+  room.addPlayer(playerId2, name2, sceneWidth2, sceneHeight2, leverage2)
 
   // Store wallet addresses for Yellow channel AND create address → socket ID mapping
   if (wallet1 && wallet1.startsWith('0x')) {
@@ -1289,6 +1303,7 @@ async function createMatch(
         score: 0,
         sceneWidth: sceneWidth1,
         sceneHeight: sceneHeight1,
+        leverage: leverage1,
       },
       {
         id: playerId2,
@@ -1297,18 +1312,20 @@ async function createMatch(
         score: 0,
         sceneWidth: sceneWidth2,
         sceneHeight: sceneHeight2,
+        leverage: leverage2,
       },
     ],
   })
 
   manager.removeWaitingPlayer(playerId2)
 
-  // Broadcast lobby update after match is created
+  // Broadcast lobby update after match is created (include leverage)
   const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
     ([_id, player]) => ({
       socketId: player.socketId,
       name: player.name,
       joinedAt: player.joinedAt,
+      leverage: player.leverage,
     })
   )
   io.emit('lobby_updated', { players: allWaitingPlayers })
@@ -1347,8 +1364,10 @@ async function handleSlice(
   }
 
   if (data.coinType === 'whale') {
-    // Load leverage from ENS (defaults to 2x if not set)
-    const leverage = await room.getPlayerLeverage(playerId)
+    // Use pre-loaded leverage from Player object (synchronous - no race condition!)
+    // Leverage is looked up once at match time, not per whale slice
+    const player = room.players.get(playerId)
+    const leverage = player?.leverage ?? 2
 
     room.activateWhale2X(playerId, leverage)
     io.to(room.id).emit('whale_2x_activated', {
@@ -1465,49 +1484,90 @@ async function checkGameOver(
       })
     }
 
-    console.log('[checkGameOver] Knockout settlement:', {
+    console.log('[checkGameOver] Knockout detected, settling all pending orders first:', {
       roundNumber: room.currentRound,
       p1Dollars: p1?.dollars,
       p2Dollars: p2?.dollars,
       total: totalDollars,
+      pendingOrders: room.pendingOrders.size,
       winnerId,
     })
 
+    // CRITICAL: Settle all remaining pending orders BEFORE emitting events
+    // This ensures the round_end event contains the correct final cash amounts
+    const pendingOrderIds = Array.from(room.pendingOrders.keys())
+    for (const orderId of pendingOrderIds) {
+      const order = room.pendingOrders.get(orderId)
+      if (order) {
+        // settleOrder will remove the order from pendingOrders
+        settleOrder(io, room, order)
+      }
+    }
+
+    // Re-fetch player data after all settlements are complete
+    const p1Final = room.players.get(playerIds[0])
+    const p2Final = room.players.get(playerIds[1])
+
+    // CRITICAL: Verify zero-sum economy after all settlements
+    const totalDollarsFinal = (p1Final?.dollars || 0) + (p2Final?.dollars || 0)
+
+    if (totalDollarsFinal !== expectedTotal) {
+      console.error('[checkGameOver] Zero-sum violation after settling all orders:', {
+        total: totalDollarsFinal,
+        expected: expectedTotal,
+        p1Dollars: p1Final?.dollars,
+        p2Dollars: p2Final?.dollars,
+        roundNumber: room.currentRound,
+        pendingOrdersSettled: pendingOrderIds.length,
+      })
+    }
+
+    // Verify knockout player is at $0
+    if (p1Final?.dollars !== 0 && p2Final?.dollars !== 0) {
+      console.error('[checkGameOver] No player at $0 after knockout settlement:', {
+        p1Dollars: p1Final?.dollars,
+        p2Dollars: p2Final?.dollars,
+        roundNumber: room.currentRound,
+      })
+    }
+
+    const winnerIdFinal = p1Final?.dollars === 0 ? playerIds[1] : playerIds[0]
+
     // Increment win count
-    if (winnerId === playerIds[0]) room.player1Wins++
-    else if (winnerId === playerIds[1]) room.player2Wins++
+    if (winnerIdFinal === playerIds[0]) room.player1Wins++
+    else if (winnerIdFinal === playerIds[1]) room.player2Wins++
 
-    // Calculate gained amounts
-    const p1Gained = (p1?.dollars || GAME_CONFIG.STARTING_CASH) - room.player1CashAtRoundStart
-    const p2Gained = (p2?.dollars || GAME_CONFIG.STARTING_CASH) - room.player2CashAtRoundStart
+    // Calculate gained amounts with FINAL values
+    const p1Gained = (p1Final?.dollars || GAME_CONFIG.STARTING_CASH) - room.player1CashAtRoundStart
+    const p2Gained = (p2Final?.dollars || GAME_CONFIG.STARTING_CASH) - room.player2CashAtRoundStart
 
-    // Emit round_end so clients see the updated win count
+    // Emit round_end with FINAL values (after all settlements)
     io.to(room.id).emit('round_end', {
       roundNumber: room.currentRound,
-      winnerId,
+      winnerId: winnerIdFinal,
       isTie: false,
       player1Wins: room.player1Wins,
       player2Wins: room.player2Wins,
-      player1Dollars: p1?.dollars,
-      player2Dollars: p2?.dollars,
+      player1Dollars: p1Final?.dollars,
+      player2Dollars: p2Final?.dollars,
       player1Gained: p1Gained,
       player2Gained: p2Gained,
       isFinalRound: true, // Knockout always ends game
     })
 
-    // Record round summary before game_over (same as endRound)
+    // Record round summary with FINAL values
     const roundSummary = {
       roundNumber: room.currentRound,
-      winnerId,
+      winnerId: winnerIdFinal,
       isTie: false,
-      player1Dollars: p1?.dollars || GAME_CONFIG.STARTING_CASH,
-      player2Dollars: p2?.dollars || GAME_CONFIG.STARTING_CASH,
+      player1Dollars: p1Final?.dollars || GAME_CONFIG.STARTING_CASH,
+      player2Dollars: p2Final?.dollars || GAME_CONFIG.STARTING_CASH,
       player1Gained: p1Gained,
       player2Gained: p2Gained,
       playerLost:
-        winnerId === playerIds[0]
+        winnerIdFinal === playerIds[0]
           ? Math.max(0, p1Gained)
-          : winnerId === playerIds[1]
+          : winnerIdFinal === playerIds[1]
             ? Math.max(0, p2Gained)
             : undefined,
     }
@@ -1517,7 +1577,7 @@ async function checkGameOver(
     //   player1Dollars: roundSummary.player1Dollars,
     //   player2Dollars: roundSummary.player2Dollars,
     //   total: roundSummary.player1Dollars + roundSummary.player2Dollars,
-    //   winnerId,
+    //   winnerId: winnerIdFinal,
     // })
 
     room.roundHistory.push(roundSummary)
@@ -1525,8 +1585,8 @@ async function checkGameOver(
     // Settle Yellow channel before game over
     const settlement = await settleYellowChannel(room)
 
-    // Emit game_over with knockout reason
-    const winner = room.players.get(winnerId || '')
+    // Emit game_over with knockout reason (use final winner)
+    const winner = room.players.get(winnerIdFinal || '')
     io.to(room.id).emit('game_over', {
       winnerId: winner?.id,
       winnerName: winner?.name,
@@ -1736,11 +1796,13 @@ export function setupGameEvents(io: SocketIOServer): {
         sceneWidth,
         sceneHeight,
         walletAddress,
+        leverage,
       }: {
         playerName: string
         sceneWidth?: number
         sceneHeight?: number
         walletAddress?: string
+        leverage?: number
       }) => {
         try {
           const validatedName = validatePlayerName(playerName)
@@ -1749,10 +1811,11 @@ export function setupGameEvents(io: SocketIOServer): {
           const p1Width = sceneWidth || 500
           const p1Height = sceneHeight || 800
           const p1Wallet = walletAddress
+          const p1Leverage = leverage ?? 2 // Default 2x
 
           // ADD TO POOL FIRST (before checking for opponents)
           // This ensures AUTO-MATCH players are visible in lobby briefly
-          manager.addWaitingPlayer(socket.id, validatedName)
+          manager.addWaitingPlayer(socket.id, validatedName, p1Leverage)
           const waitingPlayer = manager.getWaitingPlayer(socket.id)
           if (waitingPlayer) {
             if (sceneWidth && sceneHeight) {
@@ -1764,24 +1827,31 @@ export function setupGameEvents(io: SocketIOServer): {
             }
           }
 
-          // Broadcast lobby update (now includes self)
+          // Broadcast lobby update (now includes self, with leverage)
           const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
             ([_id, player]) => ({
               socketId: player.socketId,
               name: player.name,
               joinedAt: player.joinedAt,
+              leverage: player.leverage,
             })
           )
           io.emit('lobby_updated', { players: allWaitingPlayers })
 
-          // NOW CHECK FOR OPPONENT
+          // NOW CHECK FOR OPPONENT (with SAME leverage)
           for (const [waitingId, waiting] of manager.getWaitingPlayers()) {
             if (waitingId !== socket.id) {
+              // Only match players with the same leverage
+              if (waiting.leverage !== p1Leverage) {
+                continue
+              }
+
               const waitingSocket = io.of('/').sockets.get(waitingId)
               if (waitingSocket?.connected && waitingSocket.id === waitingId) {
                 const p2Width = waiting.sceneWidth || 500
                 const p2Height = waiting.sceneHeight || 800
                 const p2Wallet = waiting.walletAddress
+                const p2Leverage = waiting.leverage
 
                 // Await async channel creation
                 createMatch(
@@ -1796,7 +1866,9 @@ export function setupGameEvents(io: SocketIOServer): {
                   p1Width,
                   p1Height,
                   p2Width,
-                  p2Height
+                  p2Height,
+                  p1Leverage,
+                  p2Leverage
                 ).catch((error) => {
                   console.error('[Match] Failed to create match:', error)
                 })
@@ -1808,6 +1880,7 @@ export function setupGameEvents(io: SocketIOServer): {
                     socketId: player.socketId,
                     name: player.name,
                     joinedAt: player.joinedAt,
+                    leverage: player.leverage,
                   }))
                 io.emit('lobby_updated', { players: remainingPlayers })
 
@@ -1832,11 +1905,13 @@ export function setupGameEvents(io: SocketIOServer): {
         sceneWidth,
         sceneHeight,
         walletAddress,
+        leverage,
       }: {
         playerName: string
         sceneWidth?: number
         sceneHeight?: number
         walletAddress?: string
+        leverage?: number
       }) => {
         try {
           const validatedName = validatePlayerName(playerName)
@@ -1847,7 +1922,8 @@ export function setupGameEvents(io: SocketIOServer): {
             return
           }
 
-          manager.addWaitingPlayer(socket.id, validatedName)
+          // Add player with leverage (default 2x if not provided)
+          manager.addWaitingPlayer(socket.id, validatedName, leverage ?? 2)
           const waitingPlayer = manager.getWaitingPlayer(socket.id)
           if (waitingPlayer) {
             if (sceneWidth && sceneHeight) {
@@ -1859,12 +1935,13 @@ export function setupGameEvents(io: SocketIOServer): {
             }
           }
 
-          // Broadcast lobby update to all connected clients
+          // Broadcast lobby update to all connected clients (include leverage)
           const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
             ([_id, player]) => ({
               socketId: player.socketId,
               name: player.name,
               joinedAt: player.joinedAt,
+              leverage: player.leverage,
             })
           )
           io.emit('lobby_updated', { players: allWaitingPlayers })
@@ -1880,12 +1957,13 @@ export function setupGameEvents(io: SocketIOServer): {
     socket.on('leave_waiting_pool', () => {
       manager.removeWaitingPlayer(socket.id)
 
-      // Broadcast lobby update to all connected clients
+      // Broadcast lobby update to all connected clients (include leverage)
       const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
         ([_id, player]) => ({
           socketId: player.socketId,
           name: player.name,
           joinedAt: player.joinedAt,
+          leverage: player.leverage,
         })
       )
       io.emit('lobby_updated', { players: allWaitingPlayers })
@@ -1992,6 +2070,7 @@ export function setupGameEvents(io: SocketIOServer): {
           socketId: player.socketId,
           name: player.name,
           joinedAt: player.joinedAt,
+          leverage: player.leverage,
         }))
       socket.emit('lobby_players', players)
     })
@@ -2004,16 +2083,22 @@ export function setupGameEvents(io: SocketIOServer): {
         return
       }
 
+      const localPlayer = manager.getWaitingPlayer(socket.id)
+      if (!localPlayer) {
+        socket.emit('error', { message: 'You must join waiting pool first' })
+        return
+      }
+
+      // Only allow selecting opponents with the same leverage
+      if (localPlayer.leverage !== opponent.leverage) {
+        socket.emit('error', { message: 'Cannot match: different leverage settings' })
+        return
+      }
+
       const opponentSocket = io.of('/').sockets.get(opponentSocketId)
       if (!opponentSocket?.connected) {
         socket.emit('error', { message: 'Opponent disconnected' })
         manager.removeWaitingPlayer(opponentSocketId)
-        return
-      }
-
-      const localPlayer = manager.getWaitingPlayer(socket.id)
-      if (!localPlayer) {
-        socket.emit('error', { message: 'You must join waiting pool first' })
         return
       }
 
@@ -2029,7 +2114,9 @@ export function setupGameEvents(io: SocketIOServer): {
         localPlayer.sceneWidth || 500,
         localPlayer.sceneHeight || 800,
         opponent.sceneWidth || 500,
-        opponent.sceneHeight || 800
+        opponent.sceneHeight || 800,
+        localPlayer.leverage,
+        opponent.leverage
       ).catch((error) => {
         console.error('[Match] Failed to create selected match:', error)
         socket.emit('error', { message: 'Failed to start match' })
@@ -2039,12 +2126,13 @@ export function setupGameEvents(io: SocketIOServer): {
     socket.on('disconnect', () => {
       manager.removeWaitingPlayer(socket.id)
 
-      // Broadcast lobby update after player leaves
+      // Broadcast lobby update after player leaves (include leverage)
       const allWaitingPlayers = Array.from(manager.getWaitingPlayers().entries()).map(
         ([_id, player]) => ({
           socketId: player.socketId,
           name: player.name,
           joinedAt: player.joinedAt,
+          leverage: player.leverage,
         })
       )
       io.emit('lobby_updated', { players: allWaitingPlayers })
