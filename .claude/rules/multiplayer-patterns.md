@@ -378,6 +378,67 @@ const GameCanvasClient = dynamic(
 
 ---
 
+## 10. Seeded RNG Pattern
+
+Deterministic random number generation ensures all players see identical coin sequences regardless of device. Only screen positions differ.
+
+**Implementation (game-events.ts:81-96):**
+
+```typescript
+class SeededRandom {
+  private seed: number
+
+  constructor(seed: number) {
+    this.seed = seed
+  }
+
+  next(): number {
+    this.seed = (this.seed * 1664525 + 1013904223) % 4294967296
+    return this.seed / 4294967296
+  }
+
+  nextInt(min: number, max: number): number {
+    return Math.floor(this.next() * (max - min + 1)) + min
+  }
+}
+```
+
+**Usage:**
+```typescript
+const seed = hashCode(roomId + roundNumber)
+const rng = new SeededRandom(seed)
+const coinType = COIN_TYPES[rng.nextInt(0, COIN_TYPES.length - 1)]
+```
+
+**Use with:** Coin spawning, power-up timing, any game-randomness that must be identical across clients.
+
+---
+
+## 11. Wave-Based Spawn Configuration
+
+Progressive difficulty through pre-configured spawn waves. Ensures fair gameplay with increasing intensity.
+
+**Configuration (game-events.ts:661-683):**
+
+```typescript
+const SPAWN_WAVES = [
+  { duration: 5000, spawnRate: 3000, burstChance: 0.10 },  // Warmup
+  { duration: 10000, spawnRate: 2500, burstChance: 0.15 }, // Ramp
+  { duration: 10000, spawnRate: 2000, burstChance: 0.25 }, // Intensity
+  { duration: 5000, spawnRate: 1500, burstChance: 0.40 },  // Climax
+]
+```
+
+**Features:**
+- Time-based wave progression (5s warmup → 10s ramp → 10s intensity → 5s climax)
+- Spawn rate decreases (intensity increases) over time
+- Burst spawning: 1-3 coins with 100ms stagger (Fruit Ninja feel)
+- Ensures both players face identical difficulty curves
+
+**Use with:** Round-based gameplay, progressive difficulty, boss encounters.
+
+---
+
 ## Key Principles
 
 1. **Track everything:** Timers, orders, rooms for cleanup
@@ -393,15 +454,17 @@ const GameCanvasClient = dynamic(
 
 | Pattern | Purpose | File |
 |---------|---------|------|
-| Double-check guards | Race condition prevention | `game-events.ts:538` |
-| Timer tracking | Memory leak prevention | `game-events.ts:302` (GameRoom.cleanup) |
-| Room lifecycle | Data loss prevention | `game-events.ts:423` |
-| State caching | Async stability | `game-events.ts:562` |
-| Client fallbacks | Network resilience | `trading-store.ts:573` |
-| SettlementGuard | RAII duplicate prevention | `game-events.ts:13` |
-| Price feed reconnect | WebSocket resilience | `game-events.ts:60` |
-| React-Phaser bridge | Cross-DOM communication | `trading-store.ts:328` |
+| Double-check guards | Race condition prevention | `game-events.ts:1432-1440` |
+| Timer tracking | Memory leak prevention | `game-events.ts:313-314, 499-519` (GameRoom.cleanup) |
+| Room lifecycle | Data loss prevention | `game-events.ts:1612-1744` (checkGameOver) |
+| State caching | Async stability | `game-events.ts:289-298` |
+| Client fallbacks | Network resilience | `trading-store.ts:737-752` |
+| SettlementGuard | RAII duplicate prevention | `game-events.ts:33-72` |
+| Price feed reconnect | WebSocket resilience | `game-events.ts:142-264` (PriceFeedManager) |
+| React-Phaser bridge | Cross-DOM communication | `trading-store.ts:38-42, 419-425` |
 | Phaser singleton | Instance management | `GameCanvasClient.tsx` |
+| Seeded RNG | Deterministic coin sequences | `game-events.ts:81-96` (SeededRandom) |
+| Wave-based spawning | Progressive difficulty | `game-events.ts:661-683` (CoinSequence) |
 
 ## See Also
 
