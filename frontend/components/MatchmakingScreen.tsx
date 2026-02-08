@@ -41,6 +41,7 @@ export function MatchmakingScreen() {
     joinWaitingPool,
     leaveWaitingPool,
     selectOpponent,
+    userLeverage,
   } = useTradingStore()
   const channelManager = getChannelManager()
 
@@ -508,7 +509,7 @@ export function MatchmakingScreen() {
                 >
                   <p className="text-green-400 text-xs tracking-wider">
                     ✓ READY ({usdcBalance} USDC)
-                    {selectedLeverage !== '5x' && ` • ${selectedLeverage} LEVERAGE`}
+                    {userLeverage !== '2x' && ` • ${userLeverage} LEVERAGE`}
                   </p>
 
                   <div className="flex flex-col gap-3 w-full min-w-[200px]">
@@ -594,8 +595,11 @@ export function MatchmakingScreen() {
                             whileTap={{ scale: 0.98 }}
                             className="relative px-4 py-3 bg-black/40 border border-cyan-400/20 hover:border-cyan-400/40 rounded-lg overflow-hidden scale-pulse-button min-w-[200px]"
                           >
-                            <div className="relative z-10 flex items-center justify-center">
+                            <div className="relative z-10 flex items-center justify-center gap-2">
                               <PlayerName username={player.name} className="text-sm" />
+                              <span className="text-cyan-400/60 text-xs font-[family-name:var(--font-orbitron)]">
+                                {player.leverage}x
+                              </span>
                             </div>
                           </motion.button>
                         ))}
