@@ -4,32 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## CRITICAL ISSUES
 
-### Smart Contract TODOs (Severity: CRITICAL)
-
-`contracts/src/LiquidityVault.sol` contains unimplemented critical features:
-
-1. **USDT Deposit Integration (CRITICAL)**: `deposit()` currently accepts ETH/any token via `payable`. Does not validate USDT transfer.
-   - File: `contracts/src/LiquidityVault.sol:13-17`
-   - Impact: Security vulnerability - accepts any token, no USDT validation
-
-2. **Signature Verification (CRITICAL)**: `settle()` function only uses `onlyOwner` modifier. TODO: Implement EIP-712 signature verification for game settlement authorization.
-   - File: `contracts/src/LiquidityVault.sol:20-24`
-   - Impact: Centralized settlement requires manual owner transactions, no game-server integration
-
 ### Known Issues
 
 - **Performance**: `GridScanBackground.tsx` runs Three.js at 60fps continuously (no frame throttling)
 - **Performance**: `PositionIndicator.tsx` filters pending orders every 16ms (RAF loop)
 - **Security**: CORS wildcard in production (`*` origin)
 - **Missing**: Rate limiting on Socket.IO endpoints
-- **Types**: Several types not exported from `types/` directory (see `.claude/rules/types.md`)
 
 ## Project Overview
 
-Grid Games is a monorepo containing a web-based game with real-time multiplayer and blockchain settlement. The project consists of two independent subprojects:
+Grid Games is a monorepo containing a web-based game with real-time multiplayer and blockchain settlement. The project consists of:
 
-- **frontend/**: Next.js web app with Phaser game engine and embedded Socket.IO server (port 3000)
-- **contracts/**: Foundry smart contracts for game liquidity and settlement
+- **frontend/**: Next.js web app with Phaser game engine, embedded Socket.IO server, ENS integration, and Yellow/Nitrolite L2 payment channels (port 3000)
+- **contracts/**: Foundry smart contracts for USDC faucet (Base Sepolia testnet)
 - ~~backend/**~~: *Removed - Socket.IO server now embedded in frontend*
 
 ## Master Directives
@@ -75,16 +62,20 @@ anvil                # Start local Ethereum node
 │  - Phaser game canvas (client-side arcade physics)          │
 │  - Three.js background (GridScanBackground - 60fps)         │
 │  - Socket.IO server at /api/socket (embedded)               │
-│  - ethers.js for wallet interaction                         │
+│  - Privy authentication                                     │
+│  - ENS integration (Base Sepolia L2 registry)              │
+│  - Yellow/Nitrolite L2 payment channels                    │
+│  - viem + wagmi for wallet interaction                      │
+│  - TanStack Query for data fetching                         │
 │  - window.phaserEvents bridge (React ↔ Phaser)              │
 └────────────────────┬────────────────────────────────────────┘
-                     │ ethers.js
+                     │ viem/ethers.js
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Smart Contracts (LiquidityVault)                           │
-│  - USDT deposits into vault (TODO: USDT validation)         │
-│  - Game settlement with owner signature (TODO: verify)      │
-│  - Owner-controlled withdrawals                             │
+│  Smart Contracts & L2                                       │
+│  - USDCFaucet.sol (Base Sepolia USDC faucet)               │
+│  - ENS L2 Registry (player identity: .grid.eth)            │
+│  - Yellow/Nitrolite channels (instant settlements)          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -124,15 +115,23 @@ See `.claude/rules/game-design.md` for complete mechanics.
 
 | Layer     | Technology                                                                        |
 | --------- | --------------------------------------------------------------------------------- |
-| Frontend  | Next.js 16, React 19, Tailwind CSS v4, SHADCN, Phaser 3, Socket.IO, ethers.js, Framer Motion |
+| Frontend  | Next.js 16.1.6, React 19.2.3, Tailwind CSS v4, SHADCN, Phaser 3.90.0, Socket.IO, viem, wagmi, TanStack Query, Framer Motion, Privy auth |
 | Contracts | Foundry, Solidity ^0.8.20, OpenZeppelin v5.5                                      |
+| Identity  | ENS L2 (Base Sepolia), .grid.eth subdomains                                      |
+| Payments  | Yellow Network, Nitrolite 0.5.3, USDC (Base Sepolia)                              |
 
 ## Important File Locations
 
 - `frontend/components/GameCanvas.tsx` - Phaser game wrapper (client-side only)
+- `frontend/components/MatchmakingScreen.tsx` - Lobby mode, ENS username claiming, leverage selection
+- `frontend/components/ens/` - ENS integration components (PlayerName, ClaimUsername, SetLeverage)
 - `frontend/app/api/socket/route.ts` - Socket.IO server for HFT Battle multiplayer
-- `contracts/src/LiquidityVault.sol` - Main contract for deposits/settlements
-- `HFT_BATTLE_PLAN.md` - Implementation plan for HFT Battle trading game
+- `frontend/app/api/socket/game-events.ts` - Server-side game logic (2,155 lines)
+- `frontend/lib/ens.ts` - ENS contract addresses, text record operations, leverage fetching
+- `frontend/lib/yellow/` - Yellow/Nitrolite L2 payment channel client
+- `frontend/hooks/useENS.ts` - React hooks for ENS operations
+- `contracts/src/USDCFaucet.sol` - Base Sepolia USDC faucet for testnet gameplay
+- `ens-code-usage.md` - ENS integration documentation
 
 ## Configuration Notes
 
@@ -158,14 +157,78 @@ See `.claude/rules/game-design.md` for complete mechanics.
    - Security concern: Open to any origin
    - Mitigation: Restrict to known domains in production
 
+## ENS Integration
+
+Grid Games uses ENS L2 on Base Sepolia for decentralized player identity and persistent state.
+
+### Contract Addresses
+- **L2 Registry**: `0xef46c8e7876f8a84e4b4f7e1a641fa6497bd532d`
+- **L2 Registrar**: `0x85465BBfF2b825481E67A7F1C9eB309e693814E7`
+
+### Text Records
+| Key | Values | Purpose |
+|-----|--------|---------|
+| `games.grid.leverage` | "1", "2", "5", "10", "20" | Whale multiplier in-game |
+| `games.grid.total_games` | Integer string | Games played |
+| `games.grid.streak` | Integer string | Current win streak |
+
+### Implementation Files
+- `frontend/lib/ens.ts` - Contract addresses, ABIs, text record operations
+- `frontend/hooks/useENS.ts` - React hooks for ENS operations
+- `frontend/components/ens/` - UI components for ENS operations
+- `ens-code-usage.md` - Detailed integration documentation
+
+### Matchmaking Flow
+1. Login with Privy → Check ENS name via reverse lookup
+2. Claim username if needed (register `.grid.eth` subdomain)
+3. Set leverage preference (stored in ENS text record)
+4. Join lobby → Server fetches leverage for fair matchmaking
+5. Game ends → Stats updated to ENS (total games, streak)
+
+## Yellow/Nitrolite L2 Payment Channels
+
+Instant game settlements using ERC-7824 Nitrolite payment channels on Base Sepolia.
+
+### Channel Configuration
+- **Network**: Base Sepolia (Chain ID: 84532)
+- **Token**: USDC (`0x036CbD53842c5426634e7929541eC2318f3dCF7e`)
+- **Entry Stake**: 10 USDC per player
+- **Per-Slice Amount**: 0.1 USDC
+- **Challenge Duration**: 24 hours (dispute window)
+
+### State Channel Flow
+1. **Channel Creation**: Both players deposit 10 USDC escrow
+2. **State Updates**: After each round, allocations updated based on game outcome
+3. **Channel Settlement**: Final state signed and submitted to blockchain
+4. **Payout**: Winners receive their share instantly
+
+### Implementation Files
+- `frontend/lib/yellow/config.ts` - Channel configuration constants
+- `frontend/lib/yellow/nitrolite-client.ts` - Nitrolite wrapper functions
+- `frontend/lib/yellow/channel-manager.ts` - Channel state management
+- `frontend/app/api/yellow/` - API routes for channel operations
+
+### API Endpoints
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/yellow/create-channel` | Create new payment channel |
+| `POST /api/yellow/deposit` | Deposit USDC into channel |
+| `POST /api/yellow/state-update` | Update channel state after rounds |
+| `POST /api/yellow/settle` | Settle channel on blockchain |
+
 ## Smart Contract Status
 
-**`LiquidityVault.sol` contains CRITICAL TODOs:**
+**USDCFaucet.sol** - Base Sepolia USDC faucet for testnet gameplay.
 
-| TODO | Severity | Line | Description |
-|------|----------|------|-------------|
-| USDT deposit integration | **CRITICAL** | 13-17 | Currently accepts ETH/any token via `payable`. No USDT validation. |
-| Signature verification | **CRITICAL** | 20-24 | `settle()` uses `onlyOwner` only. Needs EIP-712 verification for game-server auth. |
+| Function | Purpose |
+|----------|---------|
+| `claim()` | Claim 0.1 USDC to caller |
+| `claimTo(address)` | Gas-sponsored claiming (for sponsored transactions) |
+| `setClaimAmount(uint256)` | Owner sets claim amount |
+| `withdraw(uint256)` | Owner withdraw USDC |
+
+**Contract Address:** `0x036CbD53842c5426634e7929541eC2318f3dCF7e` (Base Sepolia USDC)
+**File:** `contracts/src/USDCFaucet.sol`
 
 ## Claude Code Automations
 
