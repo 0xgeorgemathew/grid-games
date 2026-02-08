@@ -88,3 +88,9 @@ streak = winner ? streak + 1 : 0
 | `GET /api/ens?action=getStats&label={label}` | Read player stats |
 | `POST /api/ens?action=register` | Register subdomain |
 | `POST /api/ens?action=setLeverage` | Set leverage text record |
+
+---
+
+## Why This ENS Integration Matters
+
+Grid Games demonstrates ENS as a **decentralized player identity layer** for competitive gaming. Rather than just human-readable names, we use ENS text records to store persistent player state (leverage preferences, stats, win streaks) that flows directly into gameplay mechanics and matchmaking. This pattern shows how ENS can serve as a zero-knowledge user profile system—enabling server-side reads without additional authentication while keeping players in full control of their data.
