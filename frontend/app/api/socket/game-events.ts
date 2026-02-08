@@ -4,11 +4,11 @@ import { Player, RoundSummary } from '@/game/types/trading'
 import { DEFAULT_BTC_PRICE } from '@/lib/formatPrice'
 import { ENTRY_STAKE } from '@/lib/yellow/config'
 import {
-  initializeNitrolite,
-  createGameChannel,
-  updateChannelState,
-  settleChannel,
-} from '@/lib/yellow/nitrolite-client'
+  RPCAppDefinition,
+  RPCAppSessionAllocation,
+  RPCAppStateIntent,
+  RPCProtocolVersion,
+} from '@erc7824/nitrolite'
 import { GAME_CONFIG } from '@/game/constants'
 import { getLeverageForAddress } from '@/lib/ens'
 
@@ -340,9 +340,9 @@ class GameRoom {
   // Cache player leverage from ENS (for whale power-up)
   private playerLeverageCache = new Map<string, number>() // playerId -> leverage
 
-  // Yellow Network state channel
-  channelId: string | null = null
-  channelStatus: 'INITIAL' | 'ACTIVE' | 'FINAL' = 'INITIAL'
+  // Yellow Network app session
+  sessionId: string | null = null
+  sessionVersion: number = 1
   player1Address: `0x${string}` | null = null
   player2Address: `0x${string}` | null = null
   // Track which socket ID corresponds to which wallet address
@@ -451,7 +451,13 @@ class GameRoom {
     return player?.dollars ?? GAME_CONFIG.STARTING_CASH
   }
 
-  addPlayer(id: string, name: string, sceneWidth: number, sceneHeight: number, leverage: number = 2): void {
+  addPlayer(
+    id: string,
+    name: string,
+    sceneWidth: number,
+    sceneHeight: number,
+    leverage: number = 2
+  ): void {
     this.players.set(id, {
       id,
       name,
@@ -917,6 +923,14 @@ function settleOrder(io: SocketIOServer, room: GameRoom, order: PendingOrder): v
       finalPrice: finalPrice,
       amountTransferred: actualTransfer,
     })
+
+    // Update Yellow session state after each settlement (per-settlement updates)
+    // Non-blocking - don't await to avoid delaying game
+    if (room.sessionId) {
+      updateYellowSession(io, room, room.sessionVersion++).catch((error) => {
+        console.error('[Yellow] State update failed:', error)
+      })
+    }
   } finally {
     settlementGuard.release(order.id)
   }
@@ -956,12 +970,7 @@ function spawnCoin(room: GameRoom): SpawnedCoin | null {
 function startGameLoop(io: SocketIOServer, manager: RoomManager, room: GameRoom): void {
   // CRITICAL: Don't start game loop if room is closing, shut down, or game is over
   // Prevents post-game-over game loop starts from queued round_ready events
-  if (
-    room.isShutdown ||
-    room.getIsClosing() ||
-    room.player1Wins >= 2 ||
-    room.player2Wins >= 2
-  ) {
+  if (room.isShutdown || room.getIsClosing() || room.player1Wins >= 2 || room.player2Wins >= 2) {
     // console.log('[Game Loop] Rejected - room is closing or shut down', {
     //   roomId: room.id,
     //   round: room.currentRound,
@@ -1127,124 +1136,214 @@ function transferFunds(room: GameRoom, winnerId: string, loserId: string, amount
 // Yellow Network State Channel Integration
 // =============================================================================
 
-// Create Yellow state channel for the game using Nitrolite SDK
-async function createYellowChannel(
+// Create Yellow app session for the game using multi-party signatures
+// Reference: app_session_two_signers.ts:139-173
+async function initYellowSession(
+  io: SocketIOServer,
   room: GameRoom,
   name1: string,
   name2: string,
   wallet1: string,
   wallet2: string
-): Promise<void> {
+): Promise<string | null> {
   try {
-    const channel = await createGameChannel({
-      player1Address: wallet1,
-      player2Address: wallet2,
-      player1Name: name1,
-      player2Name: name2,
-    })
-
-    room.channelId = channel.channelId
-    room.channelStatus = channel.status as 'INITIAL' | 'ACTIVE' | 'FINAL'
-
-    console.log('[Nitrolite] Channel created successfully:', {
-      channelId: channel.channelId,
-      participants: channel.participants,
-      allocations: channel.allocations,
-    })
-  } catch (error) {
-    // No mock fallback - throw to surface configuration issues
-    throw new Error(
-      `[Nitrolite] Channel creation failed: ${error instanceof Error ? error.message : String(error)}`
-    )
-  }
-}
-
-// Update Yellow channel state after round ends using Nitrolite
-async function updateYellowChannel(room: GameRoom): Promise<void> {
-  if (!room.channelId || !room.player1Address || !room.player2Address) return
-
-  // CRITICAL: Get dollars by wallet address, not by socket ID order
-  // This ensures correct mapping regardless of Map iteration order
-  const player1Dollars = room.getDollarsByWalletAddress(room.player1Address)
-  const player2Dollars = room.getDollarsByWalletAddress(room.player2Address)
-
-  // console.log('[GameRoom] updateYellowChannel - player dollars:', {
-  //   channelId: room.channelId,
-  //   currentRound: room.currentRound,
-  //   player1Address: room.player1Address,
-  //   player2Address: room.player2Address,
-  //   player1Dollars,
-  //   player2Dollars,
-  //   allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({
-  //     id,
-  //     name: p.name,
-  //     dollars: p.dollars,
-  //   })),
-  // })
-
-  try {
-    await updateChannelState({
-      channelId: room.channelId,
-      player1Address: room.player1Address,
-      player2Address: room.player2Address,
-      player1Dollars,
-      player2Dollars,
-      version: room.currentRound,
-    })
-
-    room.channelStatus = 'ACTIVE'
-  } catch (error) {
-    console.error('[Nitrolite] State update failed:', error)
-  }
-}
-
-// Settle Yellow channel at game end using Nitrolite
-async function settleYellowChannel(room: GameRoom): Promise<{
-  channelId: string
-  player1Payout: string
-  player2Payout: string
-} | null> {
-  if (!room.channelId || !room.player1Address || !room.player2Address) return null
-
-  // CRITICAL: Get dollars by wallet address, not by socket ID order
-  // This ensures correct mapping regardless of Map iteration order
-  const player1Dollars = room.getDollarsByWalletAddress(room.player1Address)
-  const player2Dollars = room.getDollarsByWalletAddress(room.player2Address)
-
-  // console.log('[GameRoom] settleYellowChannel - player dollars:', {
-  //   channelId: room.channelId,
-  //   player1Address: room.player1Address,
-  //   player2Address: room.player2Address,
-  //   player1Dollars,
-  //   player2Dollars,
-  //   allPlayers: Array.from(room.players.entries()).map(([id, p]) => ({
-  //     id,
-  //     name: p.name,
-  //     dollars: p.dollars,
-  //   })),
-  // })
-
-  try {
-    const result = await settleChannel({
-      channelId: room.channelId,
-      player1Address: room.player1Address,
-      player2Address: room.player2Address,
-      player1Dollars,
-      player2Dollars,
-    })
-
-    room.channelStatus = 'FINAL'
-
-    return {
-      channelId: room.channelId,
-      player1Payout: result.player1Payout,
-      player2Payout: result.player2Payout,
+    // STEP 4: Define Application Configuration (app_session_two_signers.ts:139-147)
+    const appDefinition: RPCAppDefinition = {
+      protocol: RPCProtocolVersion.NitroRPC_0_4,
+      participants: [wallet1, wallet2].sort() as `0x${string}`[],
+      weights: [50, 50], // Equal voting power
+      quorum: 100, // Requires unanimous agreement
+      challenge: 0, // No challenge period (use number)
+      nonce: Date.now(), // Unique session identifier
+      application: 'Grid app',
     }
+
+    // STEP 5: Set Initial Allocations (app_session_two_signers.ts:153-156)
+    const allocations: RPCAppSessionAllocation[] = [
+      { participant: wallet1 as `0x${string}`, asset: 'ytest.usd', amount: '10.00' },
+      { participant: wallet2 as `0x${string}`, asset: 'ytest.usd', amount: '10.00' },
+    ]
+
+    // Request signatures from both clients
+    io.to(room.id).emit('yellow_session_init_request', {
+      appDefinition,
+      allocations,
+    })
+
+    // Collect signatures (30-second timeout)
+    const signatures = await collectSignatures(io, room.id, 'session_init', 30000)
+
+    if (signatures.length < 2) {
+      console.error('[Yellow] Failed to collect signatures for session init')
+      return null
+    }
+
+    // Combine signatures (app_session_two_signers.ts:168-170)
+    const sessionJson = JSON.parse(signatures[0])
+    sessionJson.sig.push(JSON.parse(signatures[1]).sig[0])
+
+    // One client submits to Yellow (via Socket.IO)
+    io.to(room.id).emit('yellow_session_create', {
+      sessionMessage: JSON.stringify(sessionJson),
+    })
+
+    // The client will emit yellow_session_created with appSessionId
+    // For now, return pending - the client will notify us
+    return 'pending'
   } catch (error) {
     // No mock fallback - throw to surface configuration issues
     throw new Error(
-      `[Nitrolite] Settlement failed: ${error instanceof Error ? error.message : String(error)}`
+      `[Yellow] Session creation failed: ${error instanceof Error ? error.message : String(error)}`
     )
+  }
+}
+
+// Update Yellow session state after every settlement using multi-party signatures
+// Reference: app_session_two_signers.ts:194-207
+// KEY CHANGE: Called after EVERY settlement (not just round end) - Privy silent signing = no UX impact
+async function updateYellowSession(
+  io: SocketIOServer,
+  room: GameRoom,
+  version: number
+): Promise<void> {
+  if (!room.sessionId || !room.player1Address || !room.player2Address) return
+
+  const p1Dollars = room.getDollarsByWalletAddress(room.player1Address)
+  const p2Dollars = room.getDollarsByWalletAddress(room.player2Address)
+
+  const allocations: RPCAppSessionAllocation[] = [
+    { participant: room.player1Address, asset: 'ytest.usd', amount: String(p1Dollars) },
+    { participant: room.player2Address, asset: 'ytest.usd', amount: String(p2Dollars) },
+  ]
+
+  // Request signatures (app_session_two_signers.ts:194-199)
+  // NOTE: With Privy embedded wallets, this is SILENT - no popup!
+  io.to(room.id).emit('yellow_state_update_request', {
+    appSessionId: room.sessionId,
+    intent: 'Operate',
+    version,
+    allocations,
+  })
+
+  // Collect signatures (shorter timeout since signing is instant)
+  const signatures = await collectSignatures(io, room.id, `state_update_v${version}`, 5000)
+
+  if (signatures.length < 2) {
+    console.error(`[Yellow] Failed to collect signatures for state update v${version}`)
+    return
+  }
+
+  // Combine signatures (app_session_two_signers.ts:202-204)
+  const submitJson = JSON.parse(signatures[0])
+  submitJson.sig.push(JSON.parse(signatures[1]).sig[0])
+
+  // Submit to Yellow (app_session_two_signers.ts:207)
+  io.to(room.id).emit('yellow_state_submit', {
+    stateMessage: JSON.stringify(submitJson),
+    version,
+    allocations,
+  })
+
+  console.log(`[Yellow] ✅ State update v${version}: P1=${p1Dollars}, P2=${p2Dollars}`)
+}
+
+// Close Yellow session at game end using multi-party signatures
+// Reference: app_session_two_signers.ts:262-278
+async function closeYellowSession(
+  io: SocketIOServer,
+  room: GameRoom
+): Promise<{
+  sessionId: string
+  finalAllocations: RPCAppSessionAllocation[]
+} | null> {
+  if (!room.sessionId || !room.player1Address || !room.player2Address) return null
+
+  const p1Dollars = room.getDollarsByWalletAddress(room.player1Address)
+  const p2Dollars = room.getDollarsByWalletAddress(room.player2Address)
+
+  const finalAllocations: RPCAppSessionAllocation[] = [
+    { participant: room.player1Address, asset: 'ytest.usd', amount: String(p1Dollars) },
+    { participant: room.player2Address, asset: 'ytest.usd', amount: String(p2Dollars) },
+  ]
+
+  // Request close signatures (app_session_two_signers.ts:262-265)
+  io.to(room.id).emit('yellow_close_request', {
+    appSessionId: room.sessionId,
+    allocations: finalAllocations,
+  })
+
+  // Collect signatures
+  const signatures = await collectSignatures(io, room.id, 'session_close', 30000)
+
+  if (signatures.length < 2) {
+    console.error('[Yellow] Failed to collect signatures for session close')
+    return null
+  }
+
+  // Combine signatures (app_session_two_signers.ts:268-270)
+  const closeJson = JSON.parse(signatures[0])
+  closeJson.sig.push(JSON.parse(signatures[1]).sig[0])
+
+  // Submit close to Yellow (app_session_two_signers.ts:273)
+  io.to(room.id).emit('yellow_close_submit', {
+    closeMessage: JSON.stringify(closeJson),
+  })
+
+  console.log('[Yellow] ✅ Session closed:', {
+    sessionId: room.sessionId,
+    finalAllocations,
+  })
+
+  return {
+    sessionId: room.sessionId,
+    finalAllocations,
+  }
+}
+
+// Helper function to collect signatures from both clients
+const pendingSignatures = new Map<
+  string,
+  { signatures: string[]; resolve: (value: string[]) => void }
+>()
+
+async function collectSignatures(
+  io: SocketIOServer,
+  roomId: string,
+  operation: string,
+  timeoutMs: number
+): Promise<string[]> {
+  const key = `${roomId}_${operation}`
+
+  return new Promise((resolve) => {
+    const signatures: string[] = []
+
+    const timeout = setTimeout(() => {
+      pendingSignatures.delete(key)
+      console.warn(`[Yellow] Signature timeout for ${operation}`)
+      resolve(signatures)
+    }, timeoutMs)
+
+    pendingSignatures.set(key, {
+      signatures,
+      resolve: (value) => {
+        clearTimeout(timeout)
+        resolve(value)
+      },
+    })
+  })
+}
+
+// Call this when receiving signature events
+function handleSignature(roomId: string, operation: string, message: string): void {
+  const key = `${roomId}_${operation}`
+  const pending = pendingSignatures.get(key)
+
+  if (pending) {
+    pending.signatures.push(message)
+    if (pending.signatures.length >= 2) {
+      pendingSignatures.delete(key)
+      pending.resolve(pending.signatures)
+    }
   }
 }
 
@@ -1271,7 +1370,7 @@ async function createMatch(
   room.addPlayer(playerId1, name1, sceneWidth1, sceneHeight1, leverage1)
   room.addPlayer(playerId2, name2, sceneWidth2, sceneHeight2, leverage2)
 
-  // Store wallet addresses for Yellow channel AND create address → socket ID mapping
+  // Store wallet addresses for Yellow session AND create address → socket ID mapping
   if (wallet1 && wallet1.startsWith('0x')) {
     room.player1Address = wallet1 as `0x${string}`
     room.addressToSocketId.set(wallet1.toLowerCase(), playerId1)
@@ -1281,9 +1380,12 @@ async function createMatch(
     room.addressToSocketId.set(wallet2.toLowerCase(), playerId2)
   }
 
-  // Create Yellow channel if both wallets present
+  // Initialize Yellow session if both wallets present
   if (wallet1 && wallet2) {
-    await createYellowChannel(room, name1, name2, wallet1, wallet2)
+    const sessionId = await initYellowSession(io, room, name1, name2, wallet1, wallet2)
+    if (sessionId) {
+      room.sessionId = sessionId
+    }
   }
 
   manager.setPlayerRoom(playerId1, roomId)
@@ -1294,7 +1396,7 @@ async function createMatch(
 
   io.to(roomId).emit('match_found', {
     roomId,
-    channelId: room.channelId,
+    sessionId: room.sessionId,
     players: [
       {
         id: playerId1,
@@ -1582,8 +1684,8 @@ async function checkGameOver(
 
     room.roundHistory.push(roundSummary)
 
-    // Settle Yellow channel before game over
-    const settlement = await settleYellowChannel(room)
+    // Close Yellow session before game over
+    const settlement = await closeYellowSession(io, room)
 
     // Emit game_over with knockout reason (use final winner)
     const winner = room.players.get(winnerIdFinal || '')
@@ -1638,8 +1740,8 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
     else if (winnerId === playerIds[1]) room.player2Wins++
   }
 
-  // Update Yellow channel state after round
-  await updateYellowChannel(room)
+  // NOTE: Yellow state updates now happen after EVERY settlement (in settleOrder)
+  // No need to update at round end - state is always current
 
   // Emit round_end event
   io.to(room.id).emit('round_end', {
@@ -1689,8 +1791,8 @@ async function endRound(io: SocketIOServer, manager: RoomManager, room: GameRoom
     // CRITICAL: Mark room as closing to prevent post-game-over round_ready events
     room.setClosing()
 
-    // Settle Yellow channel before game over
-    const settlement = await settleYellowChannel(room)
+    // Close Yellow session before game over
+    const settlement = await closeYellowSession(io, room)
 
     // Game over - emit final results
     const { winner, reason } = room.getGameWinner()
@@ -1751,14 +1853,9 @@ export function setupGameEvents(io: SocketIOServer): {
   cleanup: () => void
   emergencyShutdown: () => void
 } {
-  // Initialize Nitrolite client for Yellow Network integration
-  try {
-    initializeNitrolite()
-    console.log('[Yellow] Nitrolite client initialized successfully')
-  } catch (error) {
-    console.error('[Yellow] Failed to initialize Nitrolite:', error)
-    console.warn('[Yellow] Continuing without Yellow integration - using mock mode')
-  }
+  // Yellow Network session integration initialized
+  // Note: No initialization needed - sessions are created per-game with multi-party signatures
+  console.log('[Yellow] Session-based integration ready')
 
   // Set up price broadcast to all clients via Socket.IO (single source of truth)
   priceFeed.setBroadcastCallback((data) => {
@@ -1804,6 +1901,7 @@ export function setupGameEvents(io: SocketIOServer): {
         walletAddress?: string
         leverage?: number
       }) => {
+        console.log('[Server] 🎮 find_match received from socket:', socket.id, 'playerName:', playerName, 'leverage:', leverage)
         try {
           const validatedName = validatePlayerName(playerName)
 
@@ -1890,8 +1988,10 @@ export function setupGameEvents(io: SocketIOServer): {
           }
 
           // No opponent found, already in pool from above
+          console.log('[Server] ⏳ No opponent found for', socket.id, '- emitting waiting_for_match')
           socket.emit('waiting_for_match')
         } catch (error) {
+          console.error('[Server] ❌ Error in find_match:', error)
           socket.emit('error', { message: 'Failed to find match' })
         }
       }
@@ -2121,6 +2221,47 @@ export function setupGameEvents(io: SocketIOServer): {
         console.error('[Match] Failed to create selected match:', error)
         socket.emit('error', { message: 'Failed to start match' })
       })
+    })
+
+    // ==========================================================================
+    // Yellow Session Event Handlers
+    // ==========================================================================
+
+    // Yellow session init signature from client
+    socket.on('yellow_session_init_signature', (data: { message: string }) => {
+      const roomId = manager.getPlayerRoomId(socket.id)
+      if (!roomId) return
+      handleSignature(roomId, 'session_init', data.message)
+    })
+
+    // Yellow state update signature from client
+    socket.on('yellow_state_update_signature', (data: { message: string }) => {
+      const roomId = manager.getPlayerRoomId(socket.id)
+      if (!roomId) return
+
+      // Extract version from message to identify operation
+      const messageObj = JSON.parse(data.message)
+      const version = messageObj.req?.version || 0
+      handleSignature(roomId, `state_update_v${version}`, data.message)
+    })
+
+    // Yellow close signature from client
+    socket.on('yellow_close_signature', (data: { message: string }) => {
+      const roomId = manager.getPlayerRoomId(socket.id)
+      if (!roomId) return
+      handleSignature(roomId, 'session_close', data.message)
+    })
+
+    // Yellow session created notification from client (who submitted to Yellow)
+    socket.on('yellow_session_created', (data: { appSessionId: string }) => {
+      const roomId = manager.getPlayerRoomId(socket.id)
+      if (!roomId) return
+
+      const room = manager.getRoom(roomId)
+      if (room) {
+        room.sessionId = data.appSessionId
+        console.log('[Yellow] Session created:', data.appSessionId)
+      }
     })
 
     socket.on('disconnect', () => {
