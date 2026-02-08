@@ -98,6 +98,7 @@ export type SettlementEvent = {
  */
 export type MatchFoundEvent = {
   roomId: string
+  channelId?: string // Yellow Network channel ID (present if using Yellow)
   players: Player[]
 }
 
@@ -138,6 +139,22 @@ export type GameOverEvent = {
   player1Wins: number
   player2Wins: number
   rounds: RoundSummary[]
+  yellowSettlement?: {
+    channelId: string
+    player1Payout: string
+    player2Payout: string
+    finalState: {
+      intent: number
+      version: number
+      data: string
+      allocations: Array<{
+        destination: string
+        token: string
+        amount: string
+      }>
+      sigs: string[]
+    }
+  }
 }
 
 /**

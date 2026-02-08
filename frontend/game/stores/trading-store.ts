@@ -65,6 +65,9 @@ interface TradingState {
   isPlayer1: boolean
   players: Player[]
 
+  // Yellow Network session key storage (persists across HMR)
+  yellowSessionKeyPrivate: `0x${string}` | null
+
   // Round state
   currentRound: number
   player1Wins: number
@@ -283,13 +286,40 @@ export const useTradingStore = create<TradingState>((set, get) => ({
 
     socket.on('match_found', (data: MatchFoundEvent) => {
       const isPlayer1 = data.players[0]?.id === socket.id || false
-      set({
-        isMatching: false,
-        isPlaying: true,
-        roomId: data.roomId,
-        players: data.players,
-        isPlayer1,
+
+      // For Yellow Network matches (has channelId), don't start playing immediately
+      // Wait for round_start after channel is created
+      const isYellowMatch = !!data.channelId
+      console.log('[trading-store] match_found - RAW DATA:', JSON.stringify(data))
+      console.log('[trading-store] match_found - PARSED:', {
+        isYellowMatch,
+        channelId: data.channelId,
+        channelIdType: typeof data.channelId,
+        willSetPlaying: !isYellowMatch,
       })
+
+      // CRITICAL: For Yellow matches, NEVER set isPlaying = true here
+      // The game will start when round_start is received
+      if (!isYellowMatch) {
+        set({
+          isMatching: false,
+          isPlaying: true,
+          roomId: data.roomId,
+          players: data.players,
+          isPlayer1,
+        })
+      } else {
+        // Yellow match - set up roomId but don't start playing yet
+        set({
+          isMatching: false,
+          isPlaying: false, // STAY false until deposit + channel creation complete
+          roomId: data.roomId,
+          players: data.players,
+          isPlayer1,
+        })
+        console.log('[trading-store] Yellow match detected - NOT starting game yet')
+      }
+      console.log('[trading-store] State after match_found')
     })
 
     socket.on('coin_spawn', (coin: CoinSpawnEvent) => {
@@ -506,6 +536,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       currentRound: data.roundNumber,
       isSuddenDeath: data.isSuddenDeath,
       roundTimeRemaining: data.durationMs,
+      isPlaying: true, // CRITICAL: Game canvas only shows when isPlaying === true
     })
 
     // Start countdown timer (updates every 100ms)
