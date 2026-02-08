@@ -41,6 +41,7 @@ export type Player = {
   score: number
   sceneWidth: number // Player's device width for coin spawning
   sceneHeight: number // Player's device height for coin spawning
+  leverage: number // ENS leverage multiplier (2, 5, 10, 20) - cached at match time
 }
 
 /**
@@ -164,6 +165,7 @@ export type LobbyPlayer = {
   socketId: string
   name: string
   joinedAt: number
+  leverage: number // ENS leverage multiplier for fair matchmaking
 }
 
 /**
