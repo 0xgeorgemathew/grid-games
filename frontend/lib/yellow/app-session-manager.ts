@@ -119,19 +119,21 @@ const SEPOLIA_CHAIN_ID = 11155111
 
 /**
  * Default governance for two-player game
- * Per Yellow governance docs: weights [1, 1] with quorum 2 is valid
- * "Absolute values matter for quorum; don't need to sum to 100"
+ * Using Nitrolite protocol (based on Liquium's working implementation):
+ * - weights: [50, 50] for equal voting
+ * - quorum: 100 (sum of weights for unanimous agreement)
+ * - challenge: 0 (no challenge period - immediate finalization)
  */
 export const TWO_PLAYER_GOVERNANCE = {
-  weights: [1, 1], // Equal voting power
-  quorum: 2, // Both must agree
-  challenge: 60, // Challenge period (seconds) - reasonable for off-chain games
+  weights: [50, 50], // Equal voting power (using percentage-based weights)
+  quorum: 100, // Sum of weights = unanimous agreement required
+  challenge: 0, // NO challenge period - immediate finalization for fast gameplay
 }
 
 /**
- * Protocol version (use 0.4 for new sessions)
+ * Protocol version (use nitroliterpc for Yellow Nitrolite sandbox)
  */
-export const PROTOCOL_VERSION = 'NitroRPC/0.4' as const
+export const PROTOCOL_VERSION = 'nitroliterpc' as const
 
 /**
  * Application identifier
@@ -399,11 +401,12 @@ export async function createGameAppSession(
 
   // Call create_app_session with signers
   // The RPC client will build the request and have each signer sign it
+  // CRITICAL FIX: Wrap params in array since RPC client no longer auto-wraps
   let response: CreateAppSessionResponse
   try {
     response = await rpcClient.callWithSigners<CreateAppSessionResponse>(
       'create_app_session',
-      createParams,
+      [createParams], // Wrap in array for NitroRPC/0.4 spec
       signers
     )
   } catch (error) {

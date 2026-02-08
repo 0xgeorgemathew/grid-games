@@ -2,6 +2,7 @@
 // Implements full communication with ClearNode for off-chain state management
 
 import type { Address, Hex } from 'viem'
+import { ethers } from 'ethers'
 
 /**
  * Stable JSON stringify that preserves insertion order.
@@ -251,8 +252,27 @@ export class YellowRPCClient {
   // Store JWT token for re-authentication after reconnection
   private jwtToken: string | null = null
   private isReconnecting: boolean = false
+  // Track consecutive connection failures to stop infinite retry loops
+  private consecutiveFailures = 0
+  private readonly MAX_CONSECUTIVE_FAILURES = 3
 
-  constructor(private url: string = getClearNodeUrl()) {}
+  // For authentication with private key (like Nitrolite client)
+  private authPrivateKey?: string
+  private serverSessionKeyAddress?: string  // Server's session key for Yellow authentication
+  private isAuthenticated = false
+  private authMessageId = 0
+  private authPendingRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
+
+  constructor(private url: string = getClearNodeUrl(), private privateKey?: string) {
+    this.authPrivateKey = privateKey
+  }
+
+  /**
+   * Set private key for authentication
+   */
+  setPrivateKey(privateKey: string): void {
+    this.authPrivateKey = privateKey
+  }
 
   /**
    * Store the JWT token for re-authentication
@@ -283,6 +303,33 @@ export class YellowRPCClient {
    */
   getAuthToken(): string | null {
     return this.jwtToken
+  }
+
+  /**
+   * Force re-authentication with the stored private key.
+   * This is useful when the JWT token may have been overwritten (e.g., by client-side auth)
+   * and the server needs to authenticate with its own credentials.
+   *
+   * @throws Error if no private key is available
+   */
+  async forceReauthenticate(): Promise<void> {
+    if (!this.authPrivateKey) {
+      throw new Error('No private key available for server authentication')
+    }
+    console.log('[Yellow RPC] Force re-authenticating with server private key...')
+    await this.authenticateWithPrivateKey()
+    console.log('[Yellow RPC] ✓ Server re-authentication complete')
+  }
+
+  /**
+   * Clear the JWT token to force sending a request without authentication.
+   * This is useful for operations like create_app_session that rely on participant
+   * signatures rather than JWT authentication.
+   */
+  clearJwtForRequest(): void {
+    const previousJwt = this.jwtToken
+    this.jwtToken = null
+    console.log('[Yellow RPC] JWT cleared for this request (was:', !!previousJwt, ')')
   }
 
   async connect(): Promise<void> {
@@ -328,19 +375,32 @@ export class YellowRPCClient {
         this.ws.onopen = async () => {
           clearTimeout(connectTimeout)
           this.connectionState = 'connected'
+          this.consecutiveFailures = 0 // Reset failure counter on successful connection
           console.log('[Yellow RPC] Connected to ClearNode')
 
-          // CRITICAL: After reconnection, re-authenticate with JWT token
-          // Yellow's ClearNode loses session key registration on disconnect
-          if (this.isReconnecting && this.jwtToken) {
-            console.log('[Yellow RPC] Re-authenticating with JWT token after reconnection...')
-            try {
-              await this.reauthenticateWithJwt()
-              console.log('[Yellow RPC] ✓ Re-authentication successful')
-            } catch (error) {
-              console.error('[Yellow RPC] Re-authentication failed:', error)
-              // Continue anyway - some requests might still work
+          try {
+            // CRITICAL: Authenticate with private key if provided (for create_app_session)
+            // This uses the same flow as Nitrolite client: auth_request -> auth_challenge -> auth_verify
+            if (this.authPrivateKey) {
+              console.log('[Yellow RPC] Authenticating with private key...')
+              await this.authenticateWithPrivateKey()
+              console.log('[Yellow RPC] ✓ Authentication successful')
             }
+            // CRITICAL: After reconnection, re-authenticate with JWT token
+            // Yellow's ClearNode loses session key registration on disconnect
+            else if (this.isReconnecting && this.jwtToken) {
+              console.log('[Yellow RPC] Re-authenticating with JWT token after reconnection...')
+              try {
+                await this.reauthenticateWithJwt()
+                console.log('[Yellow RPC] ✓ Re-authentication successful')
+              } catch (error) {
+                console.error('[Yellow RPC] Re-authentication failed:', error)
+                // Continue anyway - some requests might still work
+              }
+            }
+          } catch (error) {
+            console.error('[Yellow RPC] Authentication failed:', error)
+            // Don't reject connection - allow unauthenticated connection for some operations
           }
           this.isReconnecting = false
 
@@ -350,7 +410,9 @@ export class YellowRPCClient {
         this.ws.onerror = (event) => {
           clearTimeout(connectTimeout)
           this.connectionState = 'disconnected'
+          this.consecutiveFailures++
           console.error('[Yellow RPC] Connection error:', event)
+          console.error(`[Yellow RPC] Consecutive failures: ${this.consecutiveFailures}/${this.MAX_CONSECUTIVE_FAILURES}`)
           reject(new Error(`RPC connection error: ${event}`))
         }
 
@@ -359,7 +421,8 @@ export class YellowRPCClient {
           const wasShutdown = this.connectionState === 'shutdown'
           this.connectionState = 'disconnected'
 
-          if (!wasShutdown) {
+          // Stop retrying after too many consecutive failures (service likely down)
+          if (!wasShutdown && this.consecutiveFailures < this.MAX_CONSECUTIVE_FAILURES) {
             this.isReconnecting = true
             this.reconnectTimeout = setTimeout(() => {
               console.log('[Yellow RPC] Attempting reconnect...')
@@ -367,6 +430,9 @@ export class YellowRPCClient {
                 console.error('[Yellow RPC] Reconnect failed:', err)
               })
             }, 5000)
+          } else if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
+            console.error('[Yellow RPC] Max consecutive failures reached. Stopping reconnection attempts.')
+            console.error('[Yellow RPC] Yellow ClearNode service may be down. Please check status.')
           }
 
           for (const [id, pending] of this.pendingRequests) {
@@ -383,6 +449,87 @@ export class YellowRPCClient {
         reject(error)
       }
     })
+  }
+
+  /**
+   * Authenticate with private key using auth_request and auth_verify
+   * This is required for create_app_session to work
+   *
+   * Flow:
+   * 1. Send auth_request with signed params
+   * 2. Receive auth_challenge with challenge message
+   * 3. Sign EIP-712 typed data with challenge
+   * 4. Send auth_verify with EIP-712 signature
+   * 5. Receive auth_verify response with JWT token
+   */
+  async authenticateWithPrivateKey(): Promise<void> {
+    if (!this.authPrivateKey || !this.ws) {
+      throw new Error('No private key available for authentication')
+    }
+
+    const wallet = new ethers.Wallet(this.authPrivateKey)
+    const address = wallet.address.toLowerCase()
+    const APP_DOMAIN = 'grid-games-hft-battle'
+
+    // Generate a session key for the server (one-time, stored for future use)
+    if (!this.serverSessionKeyAddress) {
+      const sessionKeyWallet = ethers.Wallet.createRandom()
+      this.serverSessionKeyAddress = sessionKeyWallet.address.toLowerCase()
+      console.log('[Yellow RPC] Generated server session key:', this.serverSessionKeyAddress)
+    }
+
+    // Use a dedicated map for authentication to avoid conflict with pendingRequests
+    const authPromise = new Promise<void>((resolve, reject) => {
+      // Combined timeout for entire auth flow (request + challenge + verify)
+      const overallTimeout = setTimeout(() => {
+        this.authPendingRequests.delete(this.authMessageId)
+        reject(new Error('Authentication timeout (30s)'))
+      }, 30000)
+
+      // Step 1: Send auth_request
+      const requestId1 = this.messageId++
+      const timestamp1 = Math.floor(Date.now() / 1000)
+      const authRequestParams = {
+        address: address.toLowerCase(),
+        session_key: this.serverSessionKeyAddress,  // Use generated session key, not wallet address
+        application: APP_DOMAIN,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        scope: 'app.create,app.submit,transfer',
+        allowances: [{ asset: 'ytest.usd', amount: '100.0' }],
+      }
+
+      // Sign the params
+      const messageString = JSON.stringify(authRequestParams)
+      const digest = ethers.id(messageString)
+      const messageBytes = ethers.getBytes(digest)
+      const { serialized: signature } = wallet.signingKey.sign(messageBytes)
+
+      const authRequest = {
+        req: [requestId1, 'auth_request', authRequestParams, timestamp1],
+        sig: [signature],
+      }
+
+      console.log('[Yellow RPC] Sending auth_request:', { requestId: requestId1 })
+
+      // Store the resolve/reject for the auth flow (will be called in handleAuthVerify)
+      this.authMessageId = requestId1
+      this.authPendingRequests.set(requestId1, {
+        resolve: () => {
+          clearTimeout(overallTimeout)
+          console.log('[Yellow RPC] Authentication flow completed successfully')
+          resolve()
+        },
+        reject: (error: Error) => {
+          clearTimeout(overallTimeout)
+          console.error('[Yellow RPC] Authentication flow failed:', error)
+          reject(error)
+        },
+      })
+
+      this.ws.send(stableStringify(authRequest))
+    })
+
+    return authPromise
   }
 
   /**
@@ -498,6 +645,35 @@ export class YellowRPCClient {
         return
       }
 
+      // Handle auth_challenge and auth_verify responses for private key authentication
+      // These are routed through authPendingRequests instead of pendingRequests
+      if (message.res && Array.isArray(message.res)) {
+        const res = message.res
+        // Single format: [id, method, result, timestamp]
+        if (!Array.isArray(res[0]) && res.length >= 3) {
+          const [id, method, result] = res
+          // Check auth_pending_requests first for auth-related messages
+          if (method === 'auth_challenge' || method === 'auth_verify') {
+            const authPending = this.authPendingRequests.get(id as number)
+            if (authPending) {
+              console.log(`[Yellow RPC] Received ${method} for auth flow`)
+              if (method === 'auth_challenge') {
+                this.handleAuthChallenge(message, id as number)
+              } else if (method === 'auth_verify') {
+                this.handleAuthVerify(message, id as number)
+              }
+              return
+            }
+            // Also check if this is an auth_challenge for an auth_request that's still pending
+            if (method === 'auth_challenge' && this.authPendingRequests.has(id as number)) {
+              console.log('[Yellow RPC] Received auth_challenge for auth_request')
+              this.handleAuthChallenge(message, id as number)
+              return
+            }
+          }
+        }
+      }
+
       // ClearNode sends an initial assets message that's not an array
       // Format: { res: [0, "assets", { assets: [...] }, timestamp] }
       // The first element is a numeric ID, second is method name, third is data
@@ -561,6 +737,180 @@ export class YellowRPCClient {
       }
     } catch (error) {
       console.log('[Yellow RPC] Unparseable message (ignoring):', data.slice(0, 200))
+    }
+  }
+
+  /**
+   * Handle auth_challenge response during private key authentication
+   */
+  private async handleAuthChallenge(message: any, originalRequestId: number): Promise<void> {
+    if (!this.authPrivateKey || !this.ws) {
+      return
+    }
+
+    try {
+      const res = message.res
+      const result = res[2] // Third element is the result
+      // Yellow uses snake_case: challenge_message
+      const challenge = result?.[0]?.challenge_message || result?.challenge_message || result?.challengeMessage
+
+      if (!challenge) {
+        console.error('[Yellow RPC] No challenge in auth_challenge response')
+        console.error('[Yellow RPC] Result structure:', JSON.stringify(result, null, 2))
+        // Reject the original auth promise
+        const pending = this.authPendingRequests.get(originalRequestId)
+        if (pending) {
+          this.authPendingRequests.delete(originalRequestId)
+          pending.reject(new Error('No challenge in auth_challenge response'))
+        }
+        return
+      }
+
+      console.log('[Yellow RPC] Received auth_challenge:', challenge?.substring(0, 20) + '...')
+
+      const wallet = new ethers.Wallet(this.authPrivateKey)
+      const APP_DOMAIN = 'grid-games-hft-battle'
+
+      // Create EIP-712 signature - must match client-side format exactly
+      // Domain: only 'name' field, no 'version' (critical for Yellow verification)
+      const eip712Domain = {
+        name: APP_DOMAIN,
+        // No 'version' or 'chainId' - adding these causes signature verification to fail
+      }
+
+      const policyMessage = {
+        challenge,
+        scope: 'app.create,app.submit,transfer',
+        wallet: wallet.address.toLowerCase(),
+        session_key: this.serverSessionKeyAddress || wallet.address.toLowerCase(),
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        allowances: [{ asset: 'ytest.usd', amount: '100.0' }],
+      }
+
+      // Types must match the exact format Yellow expects
+      const eip712Types = {
+        Policy: [
+          { name: 'challenge', type: 'string' },
+          { name: 'scope', type: 'string' },
+          { name: 'wallet', type: 'address' },
+          { name: 'session_key', type: 'address' },
+          { name: 'expires_at', type: 'uint64' },
+          { name: 'allowances', type: 'Allowance[]' },
+        ],
+        Allowance: [
+          { name: 'asset', type: 'string' },
+          { name: 'amount', type: 'string' },
+        ],
+      }
+
+      console.log('[Yellow RPC] Server EIP-712 signing:', {
+        domain: eip712Domain,
+        types: eip712Types,
+        message: policyMessage,
+      })
+
+      const eip712Signature = await wallet.signTypedData(
+        eip712Domain,
+        eip712Types,
+        policyMessage
+      )
+
+      // Send auth_verify - use a new request ID
+      const verifyRequestId = this.messageId++
+      const timestamp = Math.floor(Date.now() / 1000)
+
+      // auth_verify params should only contain the challenge (matching client-side pattern)
+      const authVerifyParams = {
+        challenge,  // Just the challenge string, signature goes in sig field
+      }
+
+      // Sign the params
+      const messageString = JSON.stringify(authVerifyParams)
+      const digest = ethers.id(messageString)
+      const messageBytes = ethers.getBytes(digest)
+      const { serialized: signature } = wallet.signingKey.sign(messageBytes)
+
+      const authVerify = {
+        req: [verifyRequestId, 'auth_verify', authVerifyParams, timestamp],  // No array wrapper
+        sig: [eip712Signature],  // The EIP-712 signature goes here, not the params signature
+      }
+
+      console.log('[Yellow RPC] Sending auth_verify...')
+
+      // Store the original request ID with the verify request ID for callback
+      this.authPendingRequests.set(verifyRequestId, {
+        resolve: () => {
+          // This will be called by handleAuthVerify when we get the response
+          // Then resolve the original auth_request promise
+          const originalPending = this.authPendingRequests.get(originalRequestId)
+          if (originalPending) {
+            this.authPendingRequests.delete(originalRequestId)
+            originalPending.resolve()
+          }
+        },
+        reject: (error: Error) => {
+          const originalPending = this.authPendingRequests.get(originalRequestId)
+          if (originalPending) {
+            this.authPendingRequests.delete(originalRequestId)
+            originalPending.reject(error)
+          }
+        },
+      })
+
+      this.ws.send(stableStringify(authVerify))
+    } catch (error) {
+      console.error('[Yellow RPC] Error handling auth_challenge:', error)
+      const pending = this.authPendingRequests.get(originalRequestId)
+      if (pending) {
+        this.authPendingRequests.delete(originalRequestId)
+        pending.reject(error as Error)
+      }
+    }
+  }
+
+  /**
+   * Handle auth_verify response
+   * Called when we receive the auth_verify response after sending the EIP-712 signature
+   */
+  private handleAuthVerify(message: any, requestId: number): void {
+    try {
+      const res = message.res
+      const result = res[2] // Third element is the result
+      const success = result?.[0]?.success ?? result?.success
+
+      console.log('[Yellow RPC] Received auth_verify response:', { success })
+
+      if (success) {
+        this.isAuthenticated = true
+        const jwtToken = result?.[0]?.jwtToken ?? result?.jwtToken
+        if (jwtToken) {
+          this.jwtToken = jwtToken
+          console.log('[Yellow RPC] ✓ JWT token stored')
+        }
+        console.log('[Yellow RPC] ✓ Authentication successful')
+      } else {
+        console.error('[Yellow RPC] Authentication failed - success was false/undefined')
+        const pending = this.authPendingRequests.get(requestId)
+        if (pending) {
+          this.authPendingRequests.delete(requestId)
+          pending.reject(new Error('Authentication failed'))
+        }
+        return
+      }
+
+      // Resolve the pending auth_verify request (which will resolve the original auth_request)
+      const pending = this.authPendingRequests.get(requestId)
+      if (pending) {
+        this.authPendingRequests.delete(requestId)
+        pending.resolve()
+      }
+    } catch (error) {
+      console.error('[Yellow RPC] Error handling auth_verify:', error)
+      const pending = this.authPendingRequests.get(requestId)
+      if (pending) {
+        this.authPendingRequests.delete(requestId)
+        pending.reject(error as Error)
+      }
     }
   }
 
@@ -629,15 +979,16 @@ export class YellowRPCClient {
     // CRITICAL: For authenticated methods, JWT is handled at envelope level only
     // Yellow's ClearNode expects JWT token at envelope level, NOT in params
     // This matches the NitroRPC specification: jwt is a sibling to req/sig, not inside req
-    const needsAuth = ['submit_app_state', 'close_app_session', 'get_app_sessions'].includes(method)
+    // NOTE: create_app_session DOES require JWT, but it must be from the caller (server),
+    // not from participants. The server must authenticate with its own private key.
+    const needsAuth = ['submit_app_state', 'close_app_session', 'get_app_sessions', 'create_app_session'].includes(method)
 
     // JWT is NOT added to params - params remain as-is for signing
-    // CRITICAL: For create_app_session, params are wrapped in array [{...params}]
-    // This is because create_app_session can accept multiple session objects.
-    // IMPORTANT: Callers should pass createParams directly (NOT wrapped) -
-    // we do the wrapping here to avoid double-wrapping issues.
+    // TRIAL FIX: Don't wrap create_app_session params
+    // The NitroRPC/0.4 spec might expect params directly for create_app_session
     // For other methods, params are passed directly.
-    const finalParams = method === 'create_app_session' ? [params] : params
+    // NOTE: Callers should now wrap params in array if needed
+    const finalParams = params
 
     const sigArray = typeof signatures === 'string' ? [signatures] : signatures
 
@@ -1054,10 +1405,10 @@ export class YellowRPCClient {
     const timestamp = Date.now()
 
     // Build the payload array [id, method, params, timestamp]
-    // Per NitroRPC spec: create_app_session wraps params in array, other methods don't
-    // CRITICAL: create_app_session expects [{...params}] because it can handle multiple sessions.
-    // IMPORTANT: Callers should pass params directly (NOT wrapped) - we do the wrapping here.
-    const finalParams = method === 'create_app_session' ? [params] : params
+    // TRIAL FIX: Don't wrap create_app_session params - pass them directly
+    // The NitroRPC/0.4 spec expects params directly for create_app_session
+    // IMPORTANT: Callers should wrap params in array if needed
+    const finalParams = params
 
     // This is what gets signed - NOT the full { req: [...] } object!
     const payload = [id, method, finalParams, timestamp] as [number, string, unknown, number]
@@ -1305,7 +1656,16 @@ let rpcClientInstance: YellowRPCClient | null = null
 
 export function getRPCClient(): YellowRPCClient {
   if (!rpcClientInstance) {
-    rpcClientInstance = new YellowRPCClient()
+    // Get private key from environment for authentication
+    const privateKey = process.env.YELLOW_PRIVATE_KEY || process.env.YELLOW_SERVER_PRIVATE_KEY
+
+    if (privateKey) {
+      console.log('[Yellow RPC] Creating RPC client with private key authentication')
+    } else {
+      console.warn('[Yellow RPC] WARNING: No YELLOW_PRIVATE_KEY or YELLOW_SERVER_PRIVATE_KEY found. Authentication may fail.')
+    }
+
+    rpcClientInstance = new YellowRPCClient(undefined, privateKey)
   }
   return rpcClientInstance
 }
