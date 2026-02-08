@@ -109,6 +109,9 @@ interface TradingState {
   lastPriceUpdate: number
   firstPrice: number | null // Track first price for change calculation
 
+  // Yellow signing (gameplay only - no matchmaking)
+  yellowMessageSigner: ((data: any) => Promise<`0x${string}`>) | null
+
   // Actions
   connect: () => void
   disconnect: () => void
@@ -145,6 +148,10 @@ interface TradingState {
   joinWaitingPool: (playerName: string, walletAddress?: string) => void
   leaveWaitingPool: () => void
   selectOpponent: (opponentSocketId: string) => void
+
+  // Yellow signing actions (gameplay only)
+  signYellowData: (data: any) => Promise<`0x${string}`>
+  setYellowMessageSigner: (signer: ((data: any) => Promise<`0x${string}`>) | null) => void
 }
 
 function getDamageForCoinType(coinType: CoinType): number {
@@ -287,7 +294,11 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   lastPriceUpdate: 0,
   firstPrice: null,
 
+  // Yellow signing (gameplay only)
+  yellowMessageSigner: null,
+
   connect: () => {
+    console.log('[Socket] 🔌 Attempting to connect to Socket.IO server...')
     // Cleanup previous connection first
     const { socketCleanupFunctions } = get()
     socketCleanupFunctions.forEach((fn) => fn())
@@ -296,9 +307,12 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       transports: ['websocket', 'polling'],
     })
 
+    console.log('[Socket] 🔌 Socket instance created')
+
     const newCleanupFunctions: Array<() => void> = []
 
     socket.on('connect', () => {
+      console.log('[Socket] ✅ Connected - socket.id:', socket.id)
       set({ isConnected: true, localPlayerId: socket.id })
 
       // Run orphaned order cleanup every 5 seconds
@@ -307,6 +321,10 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       }, 5000)
 
       newCleanupFunctions.push(() => clearInterval(cleanupInterval))
+    })
+
+    socket.on('connect_error', (error) => {
+      console.error('[Socket] ❌ Connection error:', error)
     })
 
     // Listen for price broadcasts from server (single source of truth)
@@ -348,10 +366,12 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     })
 
     socket.on('waiting_for_match', () => {
+      console.log('[Socket] ⏳ Received waiting_for_match from server')
       set({ isMatching: true })
     })
 
     socket.on('match_found', (data: MatchFoundEvent) => {
+      console.log('[Socket] ✅ Received match_found from server - roomId:', data.roomId)
       const isPlayer1 = data.players[0]?.id === socket.id || false
       set({
         isMatching: false,
@@ -450,6 +470,136 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       set({ isMatching: false })
     })
 
+    // ==========================================================================
+    // Yellow Signing Event Handlers (Gameplay Only)
+    // ==========================================================================
+    // These handlers only respond to server-initiated signing requests during active gameplay.
+    // No Yellow initialization happens during matchmaking.
+
+    // Session init request - server asks client to sign session creation
+    socket.on('yellow_session_init_request', async (data: { appDefinition: any; allocations: any[] }) => {
+      const { signYellowData } = get()
+      console.log('[Yellow] Session init request received')
+
+      try {
+        const { createAppSessionMessage } = await import('@erc7824/nitrolite')
+        const sessionMessage = await createAppSessionMessage(signYellowData, {
+          definition: data.appDefinition,
+          allocations: data.allocations,
+        })
+        socket.emit('yellow_session_init_signature', { message: sessionMessage })
+        console.log('[Yellow] Session init signature sent')
+      } catch (error) {
+        console.error('[Yellow] Session init signing failed:', error)
+      }
+    })
+
+    // State update request - server asks client to sign state update
+    socket.on('yellow_state_update_request', async (data: {
+      appSessionId: string
+      intent: string
+      version: number
+      allocations: any[]
+    }) => {
+      const { signYellowData } = get()
+      console.log('[Yellow] State update request received, version:', data.version)
+
+      try {
+        const { createSubmitAppStateMessage, RPCAppStateIntent } = await import('@erc7824/nitrolite')
+        const submitMessage = await createSubmitAppStateMessage(signYellowData, {
+          app_session_id: data.appSessionId as `0x${string}`,
+          intent: RPCAppStateIntent.Operate,
+          version: data.version,
+          allocations: data.allocations,
+        })
+        socket.emit('yellow_state_update_signature', { message: submitMessage })
+        console.log('[Yellow] State update signature sent')
+      } catch (error) {
+        console.error('[Yellow] State update signing failed:', error)
+      }
+    })
+
+    // Close request - server asks client to sign session close
+    socket.on('yellow_close_request', async (data: {
+      appSessionId: string
+      allocations: any[]
+    }) => {
+      const { signYellowData } = get()
+      console.log('[Yellow] Close request received')
+
+      try {
+        const { createCloseAppSessionMessage } = await import('@erc7824/nitrolite')
+        const closeMessage = await createCloseAppSessionMessage(signYellowData, {
+          app_session_id: data.appSessionId as `0x${string}`,
+          allocations: data.allocations,
+        })
+        socket.emit('yellow_close_signature', { message: closeMessage })
+        console.log('[Yellow] Close signature sent')
+      } catch (error) {
+        console.error('[Yellow] Close signing failed:', error)
+      }
+    })
+
+    // Submit events - one client submits to Yellow Network
+    socket.on('yellow_session_create', async (data: { sessionMessage: string }) => {
+      console.log('[Yellow] Submitting session creation to Yellow Network')
+
+      try {
+        const { getYellowSessionManager } = await import('@/lib/yellow/session-manager')
+        const manager = getYellowSessionManager()
+        const response = await manager.getClient().sendMessage(data.sessionMessage)
+
+        if ((response as any).method === 'error') {
+          console.error('[Yellow] Session creation failed:', (response as any).params)
+          return
+        }
+
+        const appSessionId = (response as any).params.appSessionId
+        console.log('[Yellow] Session created:', appSessionId)
+        socket.emit('yellow_session_created', { appSessionId })
+      } catch (error) {
+        console.error('[Yellow] Session submit failed:', error)
+      }
+    })
+
+    socket.on('yellow_state_submit', async (data: { stateMessage: string; version: number }) => {
+      console.log('[Yellow] Submitting state update to Yellow Network, version:', data.version)
+
+      try {
+        const { getYellowSessionManager } = await import('@/lib/yellow/session-manager')
+        const manager = getYellowSessionManager()
+        const response = await manager.getClient().sendMessage(data.stateMessage)
+
+        if ((response as any).method === 'error') {
+          console.error('[Yellow] State update failed:', (response as any).params)
+          return
+        }
+
+        console.log('[Yellow] State updated:', data.version)
+      } catch (error) {
+        console.error('[Yellow] State submit failed:', error)
+      }
+    })
+
+    socket.on('yellow_close_submit', async (data: { closeMessage: string }) => {
+      console.log('[Yellow] Submitting session close to Yellow Network')
+
+      try {
+        const { getYellowSessionManager } = await import('@/lib/yellow/session-manager')
+        const manager = getYellowSessionManager()
+        const response = await manager.getClient().sendMessage(data.closeMessage)
+
+        if ((response as any).method === 'error') {
+          console.error('[Yellow] Close failed:', (response as any).params)
+          return
+        }
+
+        console.log('[Yellow] Session closed')
+      } catch (error) {
+        console.error('[Yellow] Close submit failed:', error)
+      }
+    })
+
     set({ socket, socketCleanupFunctions: newCleanupFunctions })
   },
 
@@ -472,6 +622,10 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   findMatch: (playerName: string, walletAddress?: string) => {
     const { socket, userLeverage } = get()
 
+    console.log('[Socket] 🎮 findMatch called - playerName:', playerName, 'walletAddress:', walletAddress)
+    console.log('[Socket] 🎮 Socket connected:', !!socket, 'socket.id:', socket?.id)
+    console.log('[Socket] 🎮 User leverage:', userLeverage)
+
     // Use actual Phaser scene dimensions if available, otherwise window dimensions
     const sceneWidth =
       (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions?.width ||
@@ -481,9 +635,19 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       window.innerHeight
 
     // Convert leverage option to number for server
-    const leverageValue = userLeverage === '5x' ? 5 : userLeverage === '10x' ? 10 : userLeverage === '20x' ? 20 : 2
+    const leverageValue =
+      userLeverage === '5x' ? 5 : userLeverage === '10x' ? 10 : userLeverage === '20x' ? 20 : 2
 
-    socket?.emit('find_match', { playerName, sceneWidth, sceneHeight, walletAddress, leverage: leverageValue })
+    const matchData = {
+      playerName,
+      sceneWidth,
+      sceneHeight,
+      walletAddress,
+      leverage: leverageValue,
+    }
+
+    console.log('[Socket] 🎮 Emitting find_match with data:', matchData)
+    socket?.emit('find_match', matchData)
     set({ isMatching: true })
   },
 
@@ -856,9 +1020,16 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       window.innerHeight
 
     // Convert leverage option to number for server
-    const leverageValue = userLeverage === '5x' ? 5 : userLeverage === '10x' ? 10 : userLeverage === '20x' ? 20 : 2
+    const leverageValue =
+      userLeverage === '5x' ? 5 : userLeverage === '10x' ? 10 : userLeverage === '20x' ? 20 : 2
 
-    socket.emit('join_waiting_pool', { playerName, sceneWidth, sceneHeight, walletAddress, leverage: leverageValue })
+    socket.emit('join_waiting_pool', {
+      playerName,
+      sceneWidth,
+      sceneHeight,
+      walletAddress,
+      leverage: leverageValue,
+    })
   },
 
   leaveWaitingPool: () => {
@@ -883,5 +1054,29 @@ export const useTradingStore = create<TradingState>((set, get) => ({
     if (window.phaserEvents) {
       window.phaserEvents.emit('sound_muted', newMutedState)
     }
+  },
+
+  // ==========================================================================
+  // Yellow Signing Actions (Gameplay Only)
+  // ==========================================================================
+
+  /**
+   * Sign Yellow data using the message signer.
+   * Called by Socket.IO event handlers during gameplay.
+   */
+  signYellowData: async (data: any): Promise<`0x${string}`> => {
+    const { yellowMessageSigner } = get()
+    if (!yellowMessageSigner) {
+      throw new Error('Yellow message signer not available')
+    }
+    return await yellowMessageSigner(data)
+  },
+
+  /**
+   * Set the Yellow message signer (called from useYellowGameplay hook).
+   * This is set up when gameplay component mounts, not during matchmaking.
+   */
+  setYellowMessageSigner: (signer: ((data: any) => Promise<`0x${string}`>) | null) => {
+    set({ yellowMessageSigner: signer })
   },
 }))
