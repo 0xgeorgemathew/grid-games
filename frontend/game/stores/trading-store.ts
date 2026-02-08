@@ -470,7 +470,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   findMatch: (playerName: string, walletAddress?: string) => {
-    const { socket } = get()
+    const { socket, userLeverage } = get()
 
     // Use actual Phaser scene dimensions if available, otherwise window dimensions
     const sceneWidth =
@@ -480,7 +480,10 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions?.height ||
       window.innerHeight
 
-    socket?.emit('find_match', { playerName, sceneWidth, sceneHeight, walletAddress })
+    // Convert leverage option to number for server
+    const leverageValue = userLeverage === '5x' ? 5 : userLeverage === '10x' ? 10 : userLeverage === '20x' ? 20 : 2
+
+    socket?.emit('find_match', { playerName, sceneWidth, sceneHeight, walletAddress, leverage: leverageValue })
     set({ isMatching: true })
   },
 
@@ -841,7 +844,7 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   },
 
   joinWaitingPool: (playerName: string, walletAddress?: string) => {
-    const { socket } = get()
+    const { socket, userLeverage } = get()
     if (!socket) return
 
     // Use actual Phaser scene dimensions if available, otherwise window dimensions
@@ -852,7 +855,10 @@ export const useTradingStore = create<TradingState>((set, get) => ({
       (window as { sceneDimensions?: { width: number; height: number } }).sceneDimensions?.height ||
       window.innerHeight
 
-    socket.emit('join_waiting_pool', { playerName, sceneWidth, sceneHeight, walletAddress })
+    // Convert leverage option to number for server
+    const leverageValue = userLeverage === '5x' ? 5 : userLeverage === '10x' ? 10 : userLeverage === '20x' ? 20 : 2
+
+    socket.emit('join_waiting_pool', { playerName, sceneWidth, sceneHeight, walletAddress, leverage: leverageValue })
   },
 
   leaveWaitingPool: () => {
