@@ -46,10 +46,27 @@ export const GameOverModal = React.memo(function GameOverModal() {
     }
   }, [isGameOver, walletAddress, claimedUsername])
 
+  // State for displaying updated stats in modal
+  const [updatedStats, setUpdatedStats] = React.useState<{ totalGames: number; streak: number } | null>(null)
+
+  // Race condition guard - track if stats have been updated for current game
+  const statsUpdatedRef = React.useRef(false)
+  const lastGameOverDataRef = React.useRef<typeof gameOverData | null>(null)
+
   // Update stats when game over
   React.useEffect(() => {
-    if (showModal && gameOverData && claimedUsername) {
+    // Reset guard when game over data changes (new game)
+    if (gameOverData !== lastGameOverDataRef.current) {
+      statsUpdatedRef.current = false
+      lastGameOverDataRef.current = gameOverData
+      setUpdatedStats(null)
+    }
+
+    if (showModal && gameOverData && claimedUsername && !statsUpdatedRef.current) {
+      statsUpdatedRef.current = true
+
       const isWinner = gameOverData.winnerId === localPlayerId
+      const isTie = gameOverData.winnerId === null
 
       // Fetch current stats first to calculate new values
       fetch(`/api/ens?action=getStats&label=${claimedUsername}`)
@@ -58,11 +75,27 @@ export const GameOverModal = React.memo(function GameOverModal() {
           const currentTotalGames = data.totalGames ?? 0
           const currentStreak = data.streak ?? 0
 
-          // Silent update - no UI blocking
+          // Calculate new values with tie handling
+          const newTotalGames = currentTotalGames + 1
+          const newStreak = isTie ? currentStreak : (isWinner ? currentStreak + 1 : 0)
+
+          // Update local state for display
+          setUpdatedStats({ totalGames: newTotalGames, streak: newStreak })
+
+          // Update ENS with silent update - no UI blocking
           updateStats(claimedUsername, {
-            totalGames: currentTotalGames + 1,
-            streak: isWinner ? currentStreak + 1 : 0,
-          }).catch(console.error)
+            totalGames: newTotalGames,
+            streak: newStreak,
+          }).catch((err) => {
+            console.error('Failed to update stats:', err)
+            // Use trading store's toast notification
+            const { addToast } = useTradingStore.getState()
+            addToast({
+              message: 'Stats update failed. Will retry on next game.',
+              type: 'warning',
+              duration: 5000,
+            })
+          })
         })
         .catch((err) => console.error('Failed to fetch current stats:', err))
     }
@@ -152,17 +185,6 @@ export const GameOverModal = React.memo(function GameOverModal() {
             )}
             <span>{isTie ? 'GAME ENDED IN A TIE' : 'WINS THE GAME'}</span>
           </div>
-
-          {!isTie && gameOverData.reason === 'tie_break' && (
-            <motion.div
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="mt-2 text-xs text-tron-cyan tracking-[0.15em] font-[family-name:var(--font-orbitron)]"
-            >
-              TIE BREAK: HIGHER BALANCE WINS
-            </motion.div>
-          )}
         </motion.div>
 
         {/* ROUND SUMMARY - Vertical Stacked Text */}
@@ -431,16 +453,6 @@ export const GameOverModal = React.memo(function GameOverModal() {
           </div>
         </motion.div>
 
-        {/* Final Score */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.8 }}
-          className="mb-6 text-white/70 text-sm tracking-[0.2em] font-[family-name:var(--font-orbitron)]"
-        >
-          FINAL SCORE: {gameOverData.player1Wins} - {gameOverData.player2Wins}
-        </motion.div>
-
         {/* Syncing indicator */}
         {isUpdating && (
           <motion.div
@@ -449,6 +461,33 @@ export const GameOverModal = React.memo(function GameOverModal() {
             className="mb-4 text-[10px] text-cyan-400/60 tracking-wider"
           >
             SYNCING STATS TO ENS...
+          </motion.div>
+        )}
+
+        {/* Updated Stats Display */}
+        {updatedStats && (
+          <motion.div
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.8 }}
+            className="mb-4 flex items-center justify-center gap-4 text-xs text-white/50 tracking-wider"
+          >
+            <div className="flex items-center gap-1">
+              <span className="text-white/30">GAMES:</span>
+              <span className="text-white/70 font-mono">{updatedStats.totalGames}</span>
+            </div>
+            <div className="w-px h-3 bg-white/10" />
+            <div className="flex items-center gap-1">
+              <span className="text-white/30">STREAK:</span>
+              <span className={cn(
+                'font-mono',
+                updatedStats.streak > 0 ? 'text-tron-cyan' : 'text-white/50'
+              )}>
+                {updatedStats.streak}
+              </span>
+              {updatedStats.streak >= 3 && <span className="text-orange-400">🔥</span>}
+              {updatedStats.streak >= 5 && <span className="text-orange-400">🔥</span>}
+            </div>
           </motion.div>
         )}
 
