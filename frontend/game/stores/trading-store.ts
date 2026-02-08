@@ -238,6 +238,9 @@ export const useTradingStore = create<TradingState>((set, get) => ({
   // 2x multiplier state
   whale2XExpiresAt: null,
 
+  // Yellow Network session key storage (persists across HMR)
+  yellowSessionKeyPrivate: null,
+
   // Price feed state
   priceSocket: null,
   priceReconnectTimer: null,

@@ -71,7 +71,7 @@ function YellowSessionKeySignatureHandler() {
 
     console.log(
       '[Page] ✓ Auth complete listener registered, socket listeners:',
-      socket.eventNames?.()
+      (socket as any).eventNames?.()
     )
 
     return () => {

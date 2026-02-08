@@ -552,10 +552,10 @@ export function MatchmakingScreen() {
 
             // Call create_app_session with BOTH signatures on THIS authenticated connection
             // CRITICAL: Pass requestId and timestamp so the RPC request matches exactly what was signed
-            // Pass params directly - RPC client will wrap it for NitroRPC/0.4 spec
+            // CRITICAL FIX: Wrap params in array since RPC client no longer auto-wraps
             const response = await rpcClient.call<any>(
               'create_app_session',
-              data.createParams, // Pass directly - RPC client will wrap: [params]
+              [data.createParams], // Wrap in array for NitroRPC/0.4 spec
               [signatureData.signature1, signatureData.signature2], // Both signatures!
               { requestId: rpcRequestId, timestamp: rpcTimestamp } // Must match signed payload!
             )
