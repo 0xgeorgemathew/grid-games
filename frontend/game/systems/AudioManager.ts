@@ -82,7 +82,7 @@ export class AudioManager {
 
       this.gameSfx.play('slice', {
         volume: 0.6, // Slightly louder for impact
-        pan // -1 (left) to +1 (right)
+        pan, // -1 (left) to +1 (right)
       })
     } catch (error) {
       console.warn('[AudioManager] Failed to play positional slice sound:', error)
@@ -104,7 +104,7 @@ export class AudioManager {
       hold: 80, // Stay ducked for 80ms
       onComplete: () => {
         this.currentSwipeSound = null
-      }
+      },
     })
   }
 

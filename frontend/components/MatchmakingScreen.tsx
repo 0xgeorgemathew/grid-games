@@ -4,8 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useTradingStore } from '@/game/stores/trading-store'
 import { motion, AnimatePresence } from 'framer-motion'
 import { GridScanBackground } from '@/components/GridScanBackground'
-import { usePrivy } from '@privy-io/react-auth'
-import { getChannelManager } from '@/lib/yellow/channel-manager'
+import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { ActionButton } from '@/components/ui/ActionButton'
 import { ClaimUsername } from '@/components/ens/ClaimUsername'
 import { SetLeverage } from '@/components/ens/SetLeverage'
@@ -20,9 +19,6 @@ type MatchState =
   | 'checkingUsername'
   | 'claimUsername'
   | 'setLeverage'
-  | 'claim'
-  | 'checking'
-  | 'insufficient'
   | 'ready'
   | 'lobby'
   | 'entering'
@@ -30,6 +26,7 @@ type MatchState =
 
 export function MatchmakingScreen() {
   const { ready, authenticated, login, logout, user } = usePrivy()
+  const { wallets } = useWallets()
   const {
     isConnected,
     isMatching,
@@ -43,10 +40,8 @@ export function MatchmakingScreen() {
     selectOpponent,
     userLeverage,
   } = useTradingStore()
-  const channelManager = getChannelManager()
 
   const [matchState, setMatchState] = useState<MatchState>('login')
-  const [usdcBalance, setUsdcBalance] = useState<string>('0')
   const [isClaiming, setIsClaiming] = useState(false)
 
   // ENS state
@@ -77,12 +72,13 @@ export function MatchmakingScreen() {
   }, [connect])
 
   // Update match state based on auth - check for existing username
+  /* eslint-disable react-hooks/set-state-in-effect -- Derived state synchronization from ENS lookup */
   useEffect(() => {
     if (authenticated && user?.wallet && hasChecked) {
       if (hasName && existingUsername) {
-        // User already has a username, skip to balance check
+        // User already has a username, skip directly to ready state
         setClaimedUsername(existingUsername)
-        checkBalance()
+        setMatchState('ready')
       } else if (!isCheckingUsername) {
         // No username found, prompt to claim
         setMatchState('claimUsername')
@@ -93,10 +89,11 @@ export function MatchmakingScreen() {
       setMatchState('login')
       setClaimedUsername(null)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, user?.wallet, existingUsername, hasName, hasChecked, isCheckingUsername])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Update user leverage in store when leverage changes or username is claimed
+  /* eslint-disable react-hooks/set-state-in-effect -- Synchronized UI state with ENS leverage data */
   useEffect(() => {
     if (ensLeverage) {
       setUserLeverage(ensLeverage)
@@ -106,10 +103,13 @@ export function MatchmakingScreen() {
       setUserLeverage('2x')
     }
   }, [ensLeverage, claimedUsername, setUserLeverage])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Initial lobby fetch when entering lobby state
   useEffect(() => {
     if (matchState === 'lobby') {
+      // Yellow session already initialized on auth - no need to re-init here
+
       // Join waiting pool first so we can be seen by others
       const playerName = claimedUsername || user?.wallet?.address
       if (playerName) {
@@ -119,79 +119,14 @@ export function MatchmakingScreen() {
     }
   }, [matchState, joinWaitingPool, getLobbyPlayers, claimedUsername, user?.wallet])
 
-  const handleClaimFaucet = async () => {
-    if (!authenticated || !ready || !user?.wallet) {
-      alert('Please login first.')
+  const handleEnter = async () => {
+    console.log('[Matchmaking] handleEnter called - isConnected:', isConnected, 'isMatching:', isMatching, 'user?.wallet:', !!user?.wallet)
+
+    if (!isConnected || isMatching || !user?.wallet) {
+      console.log('[Matchmaking] ❌ Cannot enter - blocked by guard clause')
+      console.log('[Matchmaking] isConnected:', isConnected, 'isMatching:', isMatching, 'hasWallet:', !!user?.wallet)
       return
     }
-
-    setIsClaiming(true)
-    try {
-      const claimResponse = await fetch('/api/claim-usdc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userWalletAddress: user.wallet.address,
-          userId: user.id,
-        }),
-      })
-
-      const claimData = await claimResponse.json()
-
-      if (claimResponse.ok && claimData.claimTx?.hash) {
-        setMatchState('checking')
-
-        // Poll for transaction confirmation + balance update
-        const maxRetries = 20
-        const delayMs = 1000
-
-        for (let i = 0; i < maxRetries; i++) {
-          await new Promise((resolve) => setTimeout(resolve, delayMs))
-
-          const result = await channelManager.checkBalance(user.wallet.address)
-          setUsdcBalance(result.formatted || '0')
-
-          if (result.hasEnough) {
-            setMatchState('ready')
-            return
-          }
-        }
-
-        // If we still don't have enough after retries, show insufficient
-        setMatchState('insufficient')
-      } else {
-        alert('Claim failed: ' + (claimData.error || 'Unknown error'))
-        setIsClaiming(false)
-      }
-    } catch {
-      alert('Something went wrong. Please try again.')
-      setIsClaiming(false)
-    } finally {
-      setIsClaiming(false)
-    }
-  }
-
-  const checkBalance = useCallback(async () => {
-    if (!user?.wallet) return
-
-    setMatchState('checking')
-    try {
-      const result = await channelManager.checkBalance(user.wallet.address)
-      setUsdcBalance(result.formatted || '0')
-
-      if (result.hasEnough) {
-        setMatchState('ready')
-      } else {
-        setMatchState('insufficient')
-      }
-    } catch (error) {
-      console.error('Balance check error:', error)
-      setMatchState('insufficient')
-    }
-  }, [user?.wallet, channelManager])
-
-  const handleEnter = async () => {
-    if (!isConnected || isMatching || !user?.wallet) return
 
     setMatchState('entering')
 
@@ -201,16 +136,9 @@ export function MatchmakingScreen() {
       ;(window as any).phaserEvents.emit('unlock_audio')
     }
 
-    // Final balance check before entering
-    const balanceResult = await channelManager.checkBalance(user.wallet.address)
-    if (!balanceResult.hasEnough) {
-      setUsdcBalance(balanceResult.formatted || '0')
-      setMatchState('insufficient')
-      return
-    }
-
     // Proceed with matchmaking - pass username or wallet address
     const playerName = claimedUsername || user.wallet.address
+    console.log('[Matchmaking] 🎮 Calling findMatch with playerName:', playerName, 'walletAddress:', user.wallet.address)
     findMatch(playerName, user.wallet.address)
   }
 
@@ -223,37 +151,27 @@ export function MatchmakingScreen() {
   const handleLeverageSet = useCallback(
     (leverage: LeverageOption) => {
       setSelectedLeverage(leverage)
-      checkBalance()
+      setMatchState('ready')
     },
-    [checkBalance]
+    []
   )
 
   const handleSkipUsername = useCallback(() => {
-    // Skip username claiming and go to balance check
-    checkBalance()
-  }, [checkBalance])
+    setMatchState('ready')
+  }, [])
 
   const handleSkipLeverage = useCallback(() => {
-    // Skip leverage setting and go to balance check
-    checkBalance()
-  }, [checkBalance])
+    setMatchState('ready')
+  }, [])
 
   const handleSelectOpponent = useCallback(
-    (opponentSocketId: string) => {
+    async (opponentSocketId: string) => {
       if (!isConnected || isMatching || !user?.wallet) return
 
       setMatchState('entering')
-
-      channelManager.checkBalance(user.wallet.address).then((result) => {
-        if (!result.hasEnough) {
-          setUsdcBalance(result.formatted || '0')
-          setMatchState('insufficient')
-          return
-        }
-        selectOpponent(opponentSocketId)
-      })
+      selectOpponent(opponentSocketId)
     },
-    [isConnected, isMatching, user?.wallet, selectOpponent, channelManager]
+    [isConnected, isMatching, user?.wallet, selectOpponent]
   )
 
   if (!ready) {
@@ -439,64 +357,6 @@ export function MatchmakingScreen() {
                 />
               )}
 
-              {matchState === 'claim' && (
-                <motion.div
-                  key="claim"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.4 }}
-                  layout
-                  className="flex flex-col items-center gap-3"
-                >
-                  <p className="text-gray-400 text-xs tracking-wider">CLAIM 0.1 USDC TO START</p>
-                  <ActionButton onClick={handleClaimFaucet} isLoading={isClaiming} color="green">
-                    {isClaiming ? 'CLAIMING...' : 'GET 0.1 USDC'}
-                  </ActionButton>
-                </motion.div>
-              )}
-
-              {matchState === 'checking' && (
-                <motion.div
-                  key="checking"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.4 }}
-                  layout
-                  className="flex flex-col items-center gap-3"
-                >
-                  <p className="text-cyan-400 text-xs tracking-wider animate-pulse">
-                    CHECKING BALANCE...
-                  </p>
-                </motion.div>
-              )}
-
-              {matchState === 'insufficient' && (
-                <motion.div
-                  key="insufficient"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.4 }}
-                  layout
-                  className="flex flex-col items-center gap-3"
-                >
-                  <p className="text-yellow-400 text-xs tracking-wider">
-                    BALANCE: {usdcBalance} USDC (NEED 10.0)
-                  </p>
-                  <ActionButton onClick={handleClaimFaucet} isLoading={isClaiming} color="green">
-                    {isClaiming ? 'CLAIMING...' : 'CLAIM USDC'}
-                  </ActionButton>
-                  <button
-                    onClick={checkBalance}
-                    className="text-xs text-gray-400 hover:text-gray-300 transition-colors"
-                  >
-                    REFRESH BALANCE
-                  </button>
-                </motion.div>
-              )}
-
               {matchState === 'ready' && (
                 <motion.div
                   key="ready"
@@ -508,7 +368,7 @@ export function MatchmakingScreen() {
                   className="flex flex-col items-center gap-3"
                 >
                   <p className="text-green-400 text-xs tracking-wider">
-                    ✓ READY ({usdcBalance} USDC)
+                    ✓ READY
                     {userLeverage !== '2x' && ` • ${userLeverage} LEVERAGE`}
                   </p>
 

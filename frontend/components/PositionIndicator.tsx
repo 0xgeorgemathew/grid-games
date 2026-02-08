@@ -11,8 +11,15 @@ import { formatPrice } from '@/lib/formatPrice'
 const ORDER_SETTLEMENT_DURATION_MS = 5000 // 5 seconds
 
 export function PositionIndicator() {
-  const { activeOrders, localPlayerId, pendingOrders, whale2XActivatedAt, whale2XExpiresAt, whaleMultiplier, priceData } =
-    useTradingStore()
+  const {
+    activeOrders,
+    localPlayerId,
+    pendingOrders,
+    whale2XActivatedAt,
+    whale2XExpiresAt,
+    whaleMultiplier,
+    priceData,
+  } = useTradingStore()
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -70,9 +77,10 @@ export function PositionIndicator() {
                 : 'border border-tron-cyan/30'
 
             // Calculate P&L for pending orders
-            const pnl = !settled && !isTimedOut && priceData
-              ? ((priceData.price - order.priceAtOrder) / order.priceAtOrder) * 100
-              : null
+            const pnl =
+              !settled && !isTimedOut && priceData
+                ? ((priceData.price - order.priceAtOrder) / order.priceAtOrder) * 100
+                : null
             const isInProfit = pnl !== null && ((isCall && pnl > 0) || (!isCall && pnl < 0))
 
             return (
@@ -161,7 +169,11 @@ export function PositionIndicator() {
                             <motion.span
                               className={cn(
                                 'text-[10px] font-mono font-medium',
-                                isInProfit ? 'text-green-400' : pnl !== null && pnl !== 0 ? 'text-red-400' : 'text-tron-white-dim'
+                                isInProfit
+                                  ? 'text-green-400'
+                                  : pnl !== null && pnl !== 0
+                                    ? 'text-red-400'
+                                    : 'text-tron-white-dim'
                               )}
                               animate={
                                 isInProfit
@@ -178,7 +190,11 @@ export function PositionIndicator() {
                             <span
                               className={cn(
                                 'text-xs font-mono',
-                                isInProfit ? 'text-green-400' : pnl !== null && pnl !== 0 ? 'text-red-400' : 'text-tron-white-dim'
+                                isInProfit
+                                  ? 'text-green-400'
+                                  : pnl !== null && pnl !== 0
+                                    ? 'text-red-400'
+                                    : 'text-tron-white-dim'
                               )}
                             >
                               ${formatPrice(priceData.price)}

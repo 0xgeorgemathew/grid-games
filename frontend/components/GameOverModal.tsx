@@ -47,7 +47,10 @@ export const GameOverModal = React.memo(function GameOverModal() {
   }, [isGameOver, walletAddress, claimedUsername])
 
   // State for displaying updated stats in modal
-  const [updatedStats, setUpdatedStats] = React.useState<{ totalGames: number; streak: number } | null>(null)
+  const [updatedStats, setUpdatedStats] = React.useState<{
+    totalGames: number
+    streak: number
+  } | null>(null)
 
   // Race condition guard - track if stats have been updated for current game
   const statsUpdatedRef = React.useRef(false)
@@ -77,7 +80,7 @@ export const GameOverModal = React.memo(function GameOverModal() {
 
           // Calculate new values with tie handling
           const newTotalGames = currentTotalGames + 1
-          const newStreak = isTie ? currentStreak : (isWinner ? currentStreak + 1 : 0)
+          const newStreak = isTie ? currentStreak : isWinner ? currentStreak + 1 : 0
 
           // Update local state for display
           setUpdatedStats({ totalGames: newTotalGames, streak: newStreak })
@@ -479,10 +482,12 @@ export const GameOverModal = React.memo(function GameOverModal() {
             <div className="w-px h-3 bg-white/10" />
             <div className="flex items-center gap-1">
               <span className="text-white/30">STREAK:</span>
-              <span className={cn(
-                'font-mono',
-                updatedStats.streak > 0 ? 'text-tron-cyan' : 'text-white/50'
-              )}>
+              <span
+                className={cn(
+                  'font-mono',
+                  updatedStats.streak > 0 ? 'text-tron-cyan' : 'text-white/50'
+                )}
+              >
                 {updatedStats.streak}
               </span>
               {updatedStats.streak >= 3 && <span className="text-orange-400">🔥</span>}
